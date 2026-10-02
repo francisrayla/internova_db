@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 
+import { clean, inputProps } from "@/lib/inputRules";
 function AddCompanyModal({ onClose, onSaved }) {
   const [form, setForm] = useState({ company_name: "", address: "", contact_email: "", contact_number: "" });
   const [saving, setSaving] = useState(false);
@@ -32,26 +33,26 @@ function AddCompanyModal({ onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Add a partner company</h3>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Company name</span>
-            <input value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. ABC Technologies" />
+            <input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. ABC Technologies" />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Address</span>
-            <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+            <input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Contact email</span>
-              <input type="email" value={form.contact_email} onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("email")} type="email" value={form.contact_email} onChange={(e) => setForm((f) => ({ ...f, contact_email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Contact number</span>
-              <input value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("phone")} type="tel" value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: clean("phone", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
           </div>
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -104,7 +105,7 @@ export default function PartnerCompanies() {
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
-          <input
+          <input {...inputProps("search")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search companies by name…"

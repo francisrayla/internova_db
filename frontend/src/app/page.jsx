@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
+import InstallAppButton from "@/components/InstallAppButton";
+import { readStoredUser, resolveDashboardPath } from "@/lib/roleDashboard";
 
 const FEATURES = [
   {
@@ -69,18 +73,18 @@ const PLANS = [
 function NavBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
         <Logo size={34} />
         <nav className="hidden items-center gap-8 text-sm font-medium text-slate-600 md:flex">
           <a href="#features" className="hover:text-blue-700">Features</a>
           <a href="#how-it-works" className="hover:text-blue-700">How it Works</a>
           <a href="#pricing" className="hover:text-blue-700">Pricing</a>
         </nav>
-        <div className="flex items-center gap-3">
-          <Link href="/login" className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
+          <Link href="/login" className="whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:px-4">
             Log In
           </Link>
-          <Link href="/inquiry" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+          <Link href="/inquiry" className="whitespace-nowrap rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 sm:px-4">
             Get Started
           </Link>
         </div>
@@ -90,6 +94,25 @@ function NavBar() {
 }
 
 export default function Home() {
+  const router = useRouter();
+  // Closing and reopening the installed app (or just revisiting the site)
+  // lands here, at the PWA's start_url — without this check, someone still
+  // logged in would see the public marketing page instead of picking up
+  // where they left off, which reads as "I got logged out" even though
+  // their session in localStorage is still perfectly valid.
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    const dashboardPath = resolveDashboardPath(readStoredUser());
+    if (dashboardPath) {
+      router.replace(dashboardPath);
+      return;
+    }
+    setCheckingSession(false);
+  }, [router]);
+
+  if (checkingSession) return null;
+
   return (
     <main className="min-h-screen bg-white text-slate-800">
       <NavBar />
@@ -104,7 +127,7 @@ export default function Home() {
             Run your school's OJT program without the paperwork
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
-            Internova AI helps schools track intern attendance, tasks, and evaluations in one place —
+            Internova helps schools track intern attendance, tasks, and evaluations in one place —
             with GPS-verified selfie attendance and AI-generated portfolios.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -114,6 +137,7 @@ export default function Home() {
             <Link href="/login" className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               Log In to Your Account
             </Link>
+            <InstallAppButton className="inline-flex rounded-xl px-6 py-3" />
           </div>
         </div>
       </section>
@@ -225,7 +249,7 @@ export default function Home() {
               <span>Facebook: @internova.ai</span>
             </div>
           </div>
-          <p className="mt-6 text-xs text-slate-400">© {new Date().getFullYear()} Internova AI. All rights reserved.</p>
+          <p className="mt-6 text-xs text-slate-400">© {new Date().getFullYear()} Internova. All rights reserved.</p>
         </div>
       </footer>
     </main>

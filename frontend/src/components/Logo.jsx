@@ -40,10 +40,6 @@ export function LogoMark({ size = 40, className = "" }) {
       {/* Person silhouette */}
       <circle cx="50" cy="54" r="8.5" fill="#ffffff" />
       <path d="M34 82 C34 68 41 61 50 61 C59 61 66 68 66 82 Z" fill="#ffffff" />
-
-      {/* AI tag */}
-      <rect x="28" y="73" width="24" height="15" rx="3.2" fill="#ffffff" />
-      <text x="40" y="84.2" textAnchor="middle" fontSize="10" fontWeight="800" fill="#0a1a3a" fontFamily="Arial, sans-serif">AI</text>
     </svg>
   );
 }

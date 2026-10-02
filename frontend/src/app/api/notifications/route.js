@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { forwardHeaders } from '@/lib/serverProxy';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 export async function GET(request) {
   const { search } = new URL(request.url);
 
-  const response = await fetch(`http://127.0.0.1:8000/api/notifications${search}`, {
+  const response = await fetch(`${BACKEND_URL}/api/notifications${search}`, {
     method: 'GET',
     headers: forwardHeaders(request),
     cache: 'no-store',

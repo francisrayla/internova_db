@@ -290,17 +290,14 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('notifications', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('school_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('type')->nullable();
-            $table->string('title');
-            $table->text('message');
-            $table->json('data')->nullable();
-            $table->dateTime('read_at')->nullable();
-            $table->timestamps();
-        });
+        // notifications itself is NOT created here — it moved to its own
+        // dedicated migration (2026_08_13_073813_create_notifications_table)
+        // with a redesigned shape (audience_role, body, link instead of this
+        // file's older user_id/message/data). A duplicate Schema::create
+        // used to live here too, left over from before that split, which
+        // made this migration win the table on any truly fresh install and
+        // left the later one permanently failing with "table already
+        // exists" — removed rather than left as dead/conflicting code.
 
         Schema::create('portfolios', function (Blueprint $table) {
             $table->id();

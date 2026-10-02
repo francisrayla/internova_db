@@ -102,6 +102,8 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
         onClick={() => setOpen((v) => !v)}
         className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
         title="Notifications"
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+        aria-expanded={open}
       >
         <Icon name="bell" size={18} />
         {unreadCount > 0 && (
@@ -112,7 +114,10 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-slate-200 bg-white shadow-lg">
+        // Phones: pinned under the header, edge to edge with a margin — the
+        // bell sits mid-row there, so a 320px panel anchored to it would run
+        // off the left of the screen. From sm up it hangs off the bell again.
+        <div className="fixed inset-x-3 top-16 z-30 max-h-[75vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <p className="text-sm font-semibold text-slate-900">Notifications</p>
             {unreadCount > 0 && (

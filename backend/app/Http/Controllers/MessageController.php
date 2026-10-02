@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
@@ -51,12 +52,20 @@ class MessageController extends Controller
             })->orderBy('first_name')->get();
         }
 
-        // Intern: their own supervisor and coordinator only.
+        // Intern: their own supervisor and coordinator, plus every other
+        // intern deployed to the same company (they share a workplace even
+        // though they may report to different supervisors within it).
         if ($roleId === 4) {
             $deployments = InternshipDeployment::where('intern_id', $user->id)->get();
             $ids = $deployments->pluck('supervisor_id')->merge($deployments->pluck('coordinator_id'))->filter()->unique();
 
-            return User::whereIn('id', $ids)->orderBy('first_name')->get();
+            $companyIds = $deployments->pluck('company_id')->filter()->unique();
+            $companyMateIds = InternshipDeployment::whereIn('company_id', $companyIds)
+                ->where('intern_id', '!=', $user->id)
+                ->pluck('intern_id')
+                ->unique();
+
+            return User::whereIn('id', $ids->merge($companyMateIds)->unique())->orderBy('first_name')->get();
         }
 
         return collect();
@@ -76,6 +85,103 @@ class MessageController extends Controller
     private function settingsFor(User $me): Collection
     {
         return MessageThreadSetting::where('user_id', $me->id)->get()->keyBy(fn ($s) => "{$s->peer_type}-{$s->peer_id}");
+    }
+
+    /**
+     * A one-line preview for the conversation list when the last message has
+     * no text of its own (an attachment sent with no caption) — mirrors how
+     * Messenger/WhatsApp label a photo- or file-only message in their lists.
+     */
+    private function previewLabel(?Message $message = null, ?GroupMessage $groupMessage = null): ?string
+    {
+        $message ??= $groupMessage;
+        if (!$message) {
+            return null;
+        }
+        if ($message->message !== '') {
+            return $message->message;
+        }
+        if ($message->attachment_path) {
+            return str_starts_with((string) $message->attachment_type, 'image/')
+                ? '📷 Photo'
+                : '📎 ' . ($message->attachment_name ?? 'File');
+        }
+        return $message->message;
+    }
+
+    /**
+     * The compact "replying to X" snippet embedded in a message payload —
+     * just enough (who, and a one-line preview) to render a quoted strip
+     * above the reply, without shipping the entire original message.
+     */
+    private function mapReplySnippet(Message|GroupMessage|null $original): ?array
+    {
+        if (!$original) {
+            return null;
+        }
+
+        return [
+            'id' => $original->id,
+            'sender_name' => trim("{$original->sender?->first_name} {$original->sender?->last_name}") ?: $original->sender?->name,
+            'preview' => $this->previewLabel($original instanceof Message ? $original : null, $original instanceof GroupMessage ? $original : null),
+        ];
+    }
+
+    private function mapMessagePayload(Message $m): array
+    {
+        return [
+            'id' => $m->id,
+            'sender_id' => $m->sender_id,
+            'message' => $m->message,
+            'attachment_url' => $m->attachment_url,
+            'attachment_name' => $m->attachment_name,
+            'attachment_type' => $m->attachment_type,
+            'attachment_size' => $m->attachment_size,
+            'reply_to' => $this->mapReplySnippet($m->replyTo),
+            'read_at' => $m->read_at?->format('M d, Y g:i A'),
+            'created_at' => $m->created_at->format('g:i A'),
+            'created_at_full' => $m->created_at->format('M d, Y g:i A'),
+        ];
+    }
+
+    private function mapGroupMessagePayload(GroupMessage $m): array
+    {
+        return [
+            'id' => $m->id,
+            'sender_id' => $m->sender_id,
+            'sender_name' => trim("{$m->sender?->first_name} {$m->sender?->last_name}") ?: $m->sender?->name,
+            'message' => $m->message,
+            'attachment_url' => $m->attachment_url,
+            'attachment_name' => $m->attachment_name,
+            'attachment_type' => $m->attachment_type,
+            'attachment_size' => $m->attachment_size,
+            'reply_to' => $this->mapReplySnippet($m->replyTo),
+            'is_system' => (bool) $m->is_system,
+            'created_at' => $m->created_at->format('g:i A'),
+            'created_at_full' => $m->created_at->format('M d, Y g:i A'),
+        ];
+    }
+
+    /**
+     * Saves the optional file attached to a message/group-message post — a
+     * pure caption-only send never calls this, so it's always safe to merge
+     * a null result straight into the create() payload.
+     */
+    private function storeAttachment(Request $request, int $senderId): ?array
+    {
+        if (!$request->hasFile('attachment')) {
+            return null;
+        }
+
+        $file = $request->file('attachment');
+        $path = $file->store("message-attachments/{$senderId}", 'public');
+
+        return [
+            'attachment_path' => $path,
+            'attachment_name' => $file->getClientOriginalName(),
+            'attachment_type' => $file->getClientMimeType(),
+            'attachment_size' => $file->getSize(),
+        ];
     }
 
     private function mapContact(User $me, User $contact, Collection $settings): array
@@ -98,7 +204,7 @@ class MessageController extends Controller
             'name' => trim("{$contact->first_name} {$contact->last_name}") ?: $contact->name,
             'role' => $contact->role_id == 2 ? 'coordinator' : ($contact->role_id == 3 ? 'supervisor' : 'intern'),
             'avatar_url' => $contact->avatar_url,
-            'last_message' => $lastMessage?->message,
+            'last_message' => $this->previewLabel($lastMessage),
             'last_message_at' => $lastMessage?->created_at?->format('g:i A'),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? 0,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
@@ -166,7 +272,7 @@ class MessageController extends Controller
             return response()->json(['success' => false, 'message' => 'You can\'t message this person.'], 403);
         }
 
-        $messages = Message::where(function ($q) use ($me, $userId) {
+        $messages = Message::with('replyTo.sender')->where(function ($q) use ($me, $userId) {
             $q->where('sender_id', $me->id)->where('receiver_id', $userId);
         })->orWhere(function ($q) use ($me, $userId) {
             $q->where('sender_id', $userId)->where('receiver_id', $me->id);
@@ -175,12 +281,7 @@ class MessageController extends Controller
         // Opening the thread is what "reads" it.
         Message::where('sender_id', $userId)->where('receiver_id', $me->id)->whereNull('read_at')->update(['read_at' => now()]);
 
-        return response()->json(['messages' => $messages->map(fn (Message $m) => [
-            'id' => $m->id,
-            'sender_id' => $m->sender_id,
-            'message' => $m->message,
-            'created_at' => $m->created_at->format('g:i A'),
-        ])]);
+        return response()->json(['messages' => $messages->map(fn (Message $m) => $this->mapMessagePayload($m))]);
     }
 
     public function store(Request $request): JsonResponse
@@ -188,19 +289,34 @@ class MessageController extends Controller
         $me = $request->user();
         $data = $request->validate([
             'receiver_id' => 'required|integer',
-            'message' => 'required|string|max:2000',
+            'message' => 'required_without:attachment|nullable|string|max:2000',
+            'attachment' => 'sometimes|file|max:10240',
+            'reply_to_id' => 'sometimes|nullable|integer',
         ]);
 
         if (!$this->isEligibleContact($me, (int) $data['receiver_id'])) {
             return response()->json(['success' => false, 'message' => 'You can\'t message this person.'], 403);
         }
 
-        $message = Message::create([
+        // Only a message actually in this same thread can be quoted — never
+        // trust a client-submitted id from a different conversation.
+        $replyToId = null;
+        if (!empty($data['reply_to_id'])) {
+            $original = Message::where('id', $data['reply_to_id'])
+                ->where(function ($q) use ($me, $data) {
+                    $q->where(fn ($q2) => $q2->where('sender_id', $me->id)->where('receiver_id', $data['receiver_id']))
+                        ->orWhere(fn ($q2) => $q2->where('sender_id', $data['receiver_id'])->where('receiver_id', $me->id));
+                })->first();
+            $replyToId = $original?->id;
+        }
+
+        $message = Message::create(array_merge([
             'sender_id' => $me->id,
             'receiver_id' => $data['receiver_id'],
+            'reply_to_id' => $replyToId,
             'school_id' => $me->school_id,
-            'message' => $data['message'],
-        ]);
+            'message' => $data['message'] ?? '',
+        ], $this->storeAttachment($request, $me->id) ?? []));
 
         try {
             broadcast(new MessageSent($message));
@@ -211,12 +327,92 @@ class MessageController extends Controller
             ]);
         }
 
-        return response()->json(['success' => true, 'message_data' => [
-            'id' => $message->id,
-            'sender_id' => $message->sender_id,
-            'message' => $message->message,
-            'created_at' => $message->created_at->format('g:i A'),
-        ]]);
+        return response()->json(['success' => true, 'message_data' => $this->mapMessagePayload($message)]);
+    }
+
+    /**
+     * Re-sends an existing message's content (text + attachment reference —
+     * the stored file itself is never re-uploaded, just pointed to again)
+     * into a different conversation. Source and target can each be a DM or
+     * a group, independently — four combinations, one endpoint. Every
+     * access check that a normal send would apply still applies here: you
+     * can only forward a message you could actually see, and only to
+     * someone/some group you're actually allowed to message.
+     */
+    public function forwardMessage(Request $request): JsonResponse
+    {
+        $me = $request->user();
+        $data = $request->validate([
+            'source_type' => 'required|in:dm,group',
+            'source_id' => 'required|integer',
+            'target_type' => 'required|in:dm,group',
+            'target_id' => 'required|integer',
+        ]);
+
+        if ($data['source_type'] === 'dm') {
+            $source = Message::where('id', $data['source_id'])
+                ->where(fn ($q) => $q->where('sender_id', $me->id)->orWhere('receiver_id', $me->id))
+                ->first();
+        } else {
+            // source_id is the group message's own id — resolve authorization
+            // via membership on that message's group, not a group id directly.
+            $source = GroupMessage::find($data['source_id']);
+            if ($source && !$this->groupForMember($source->group_conversation_id, $me->id)) {
+                $source = null;
+            }
+        }
+
+        if (!$source) {
+            return response()->json(['success' => false, 'message' => 'Original message not found.'], 404);
+        }
+
+        $payload = [
+            'sender_id' => $me->id,
+            'message' => $source->message ?? '',
+            'attachment_path' => $source->attachment_path,
+            'attachment_name' => $source->attachment_name,
+            'attachment_type' => $source->attachment_type,
+            'attachment_size' => $source->attachment_size,
+        ];
+
+        if ($data['target_type'] === 'dm') {
+            if (!$this->isEligibleContact($me, (int) $data['target_id'])) {
+                return response()->json(['success' => false, 'message' => 'You can\'t message this person.'], 403);
+            }
+
+            $message = Message::create(array_merge($payload, [
+                'receiver_id' => $data['target_id'],
+                'school_id' => $me->school_id,
+            ]));
+
+            try {
+                broadcast(new MessageSent($message));
+            } catch (Throwable $e) {
+                Log::warning('Forwarded message broadcast failed.', ['message_id' => $message->id, 'error' => $e->getMessage()]);
+            }
+
+            return response()->json(['success' => true, 'message_data' => $this->mapMessagePayload($message)]);
+        }
+
+        $targetGroup = $this->groupForMember((int) $data['target_id'], $me->id);
+        if (!$targetGroup) {
+            return response()->json(['success' => false, 'message' => 'Group not found.'], 404);
+        }
+
+        $message = $targetGroup->messages()->create($payload);
+        $targetGroup->touch();
+        $targetGroup->members()->where('user_id', $me->id)->update(['last_read_at' => now()]);
+
+        $recipientIds = $targetGroup->members()->where('user_id', '!=', $me->id)->pluck('user_id')->all();
+        if (!empty($recipientIds)) {
+            try {
+                broadcast(new GroupMessageSent($message->load('sender'), $recipientIds));
+            } catch (Throwable $e) {
+                Log::warning('Forwarded group message broadcast failed.', ['message_id' => $message->id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return response()->json(['success' => true, 'message_data' => $this->mapGroupMessagePayload($message)]);
     }
 
     /**
@@ -283,7 +479,7 @@ class MessageController extends Controller
                 'name' => trim("{$m->user?->first_name} {$m->user?->last_name}") ?: $m->user?->name,
                 'avatar_url' => $m->user?->avatar_url,
             ])->values(),
-            'last_message' => $lastMessage?->message,
+            'last_message' => $this->previewLabel(groupMessage: $lastMessage),
             'last_message_at' => $lastMessage?->created_at?->format('g:i A'),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? $g->created_at->timestamp,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
@@ -329,13 +525,18 @@ class MessageController extends Controller
             return response()->json(['success' => false, 'message' => 'Select at least one valid person.'], 422);
         }
 
+        $allMemberIds = $memberIds->push($me->id)->unique();
+        if ($allMemberIds->count() < 3) {
+            return response()->json(['success' => false, 'message' => 'A group needs at least 3 members — add at least 2 people.'], 422);
+        }
+
         $group = GroupConversation::create([
             'name' => $data['name'] ?? null,
             'created_by' => $me->id,
             'school_id' => $me->school_id,
         ]);
 
-        foreach ($memberIds->push($me->id)->unique() as $userId) {
+        foreach ($allMemberIds as $userId) {
             $group->members()->create(['user_id' => $userId, 'last_read_at' => $userId === $me->id ? now() : null]);
         }
 
@@ -361,19 +562,12 @@ class MessageController extends Controller
             return response()->json(['success' => false, 'message' => 'Group not found.'], 404);
         }
 
-        $group->load('messages.sender');
+        $group->load('messages.sender', 'messages.replyTo.sender');
 
         // Opening the thread is what "reads" it, same as a 1:1 conversation.
         $group->members()->where('user_id', $me->id)->update(['last_read_at' => now()]);
 
-        return response()->json(['messages' => $group->messages->map(fn (GroupMessage $m) => [
-            'id' => $m->id,
-            'sender_id' => $m->sender_id,
-            'sender_name' => trim("{$m->sender?->first_name} {$m->sender?->last_name}") ?: $m->sender?->name,
-            'message' => $m->message,
-            'is_system' => (bool) $m->is_system,
-            'created_at' => $m->created_at->format('g:i A'),
-        ])]);
+        return response()->json(['messages' => $group->messages->map(fn (GroupMessage $m) => $this->mapGroupMessagePayload($m))]);
     }
 
     public function storeGroupMessage(Request $request, int $id): JsonResponse
@@ -384,9 +578,22 @@ class MessageController extends Controller
             return response()->json(['success' => false, 'message' => 'Group not found.'], 404);
         }
 
-        $data = $request->validate(['message' => 'required|string|max:2000']);
+        $data = $request->validate([
+            'message' => 'required_without:attachment|nullable|string|max:2000',
+            'attachment' => 'sometimes|file|max:10240',
+            'reply_to_id' => 'sometimes|nullable|integer',
+        ]);
 
-        $message = $group->messages()->create(['sender_id' => $me->id, 'message' => $data['message']]);
+        // Only a message actually in this same group can be quoted.
+        $replyToId = !empty($data['reply_to_id'])
+            ? $group->messages()->where('id', $data['reply_to_id'])->value('id')
+            : null;
+
+        $message = $group->messages()->create(array_merge([
+            'sender_id' => $me->id,
+            'reply_to_id' => $replyToId,
+            'message' => $data['message'] ?? '',
+        ], $this->storeAttachment($request, $me->id) ?? []));
         $group->touch();
         $group->members()->where('user_id', $me->id)->update(['last_read_at' => now()]);
 
@@ -402,13 +609,7 @@ class MessageController extends Controller
             }
         }
 
-        return response()->json(['success' => true, 'message_data' => [
-            'id' => $message->id,
-            'sender_id' => $message->sender_id,
-            'sender_name' => trim("{$me->first_name} {$me->last_name}") ?: $me->name,
-            'message' => $message->message,
-            'created_at' => $message->created_at->format('g:i A'),
-        ]]);
+        return response()->json(['success' => true, 'message_data' => $this->mapGroupMessagePayload($message)]);
     }
 
     public function groupTyping(Request $request, int $id): JsonResponse

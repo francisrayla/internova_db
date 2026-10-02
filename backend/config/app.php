@@ -17,6 +17,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | The deployed Next.js frontend's base URL — used when building links that
+    | get embedded in outgoing email (invitation accept links, support ticket
+    | links, payment checkout redirects), since those point users back at the
+    | frontend app rather than this API.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |

@@ -20,6 +20,8 @@ return [
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
+        // Signing secret (whsec_…) of the delivery-events webhook in Resend.
+        'webhook_secret' => env('RESEND_WEBHOOK_SECRET'),
     ],
 
     'ses' => [
@@ -38,6 +40,11 @@ return [
     'paymongo' => [
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'public_key' => env('PAYMONGO_PUBLIC_KEY'),
+    ],
+
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
     ],
 
 ];

@@ -17,9 +17,12 @@ use App\Models\Task;
 use App\Models\TaskAssignee;
 use App\Models\TaskComment;
 use App\Models\TaskProof;
+use App\Jobs\GenerateNarrativeForAttendance;
 use App\Services\ActivityLogService;
 use App\Services\DeploymentSummaryService;
+use App\Services\NarrativeAiService;
 use App\Services\NotificationService;
+use App\Services\PlanFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -31,10 +34,11 @@ use Illuminate\Support\Facades\Storage;
  * own attendance history. They drag subtasks across Pending/Ongoing/Done as
  * the actual work happens; a task with no subtasks falls back to a plain
  * status they set directly. Attendance is self-reported here (clock in/out
- * with a selfie + GPS coordinates as the verification evidence) but always
- * lands as "pending" — the supervisor still reviews the selfie/location
- * before it counts as approved (see SupervisorMonitoringController), so
- * self-reporting never bypasses verification, it just supplies the proof.
+ * with a selfie + GPS location as the verification evidence) and lands as
+ * "approved" immediately — the selfie/location stamp is the verification,
+ * so no separate supervisor review step gates it. A supervisor can still
+ * flip a record to "rejected" after the fact if something looks wrong (see
+ * SupervisorMonitoringController::reviewAttendance).
  */
 class InternMonitoringController extends Controller
 {
@@ -305,12 +309,18 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'This task is already done.'], 422);
         }
 
-        $request->validate([
-            'proofs' => 'required|array|min:1',
-            'proofs.*' => 'file|mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx,ppt,pptx|max:15360',
-        ]);
+        // Proof attachments are a Premium feature — a Basic-plan school can
+        // still mark a task done, just without being required to upload
+        // evidence first.
+        $requiresProof = PlanFeatures::has($request->user()->school, PlanFeatures::ATTACHMENTS);
+        if ($requiresProof) {
+            $request->validate([
+                'proofs' => 'required|array|min:1',
+                'proofs.*' => 'file|mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx,ppt,pptx|max:15360',
+            ]);
+            $this->storeProofFiles($request, $task->id, null, $internId);
+        }
 
-        $this->storeProofFiles($request, $task->id, null, $internId);
         $task->setStatus('completed');
 
         return response()->json(['success' => true, 'message' => 'Task marked done.']);
@@ -331,6 +341,10 @@ class InternMonitoringController extends Controller
      */
     public function storeSubtask(Request $request, int $taskId): JsonResponse
     {
+        if (!PlanFeatures::has($request->user()->school, PlanFeatures::SUBTASKS)) {
+            return response()->json(['success' => false, 'message' => 'Subtasks aren\'t included in your school\'s current plan.'], 403);
+        }
+
         $internId = $request->user()->id;
         $task = $this->taskForIntern($taskId, $internId);
         if (!$task) {
@@ -410,12 +424,14 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'This subtask is already done.'], 422);
         }
 
-        $request->validate([
-            'proofs' => 'required|array|min:1',
-            'proofs.*' => 'file|mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx,ppt,pptx|max:15360',
-        ]);
+        if (PlanFeatures::has($request->user()->school, PlanFeatures::ATTACHMENTS)) {
+            $request->validate([
+                'proofs' => 'required|array|min:1',
+                'proofs.*' => 'file|mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx,ppt,pptx|max:15360',
+            ]);
+            $this->storeProofFiles($request, null, $subtask->id, $internId);
+        }
 
-        $this->storeProofFiles($request, null, $subtask->id, $internId);
         $subtask->update(['status' => 'completed', 'completed_at' => now()]);
         $subtask->task->recalculateStatusFromSubtasks();
 
@@ -469,10 +485,13 @@ class InternMonitoringController extends Controller
             'clock_in' => $a->clock_in?->format('h:i A'),
             'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
             'clock_in_location' => $a->clock_in_latitude !== null ? ['lat' => $a->clock_in_latitude, 'lng' => $a->clock_in_longitude] : null,
+            'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
             'clock_out' => $a->clock_out?->format('h:i A'),
             'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
             'clock_out_location' => $a->clock_out_latitude !== null ? ['lat' => $a->clock_out_latitude, 'lng' => $a->clock_out_longitude] : null,
+            'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
             'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
+            'auto_clocked_out' => (bool) $a->auto_clocked_out,
             'status' => $a->status,
         ];
     }
@@ -504,8 +523,13 @@ class InternMonitoringController extends Controller
     {
         $internId = $request->user()->id;
         $deployment = $this->currentDeploymentFor($internId);
+        // day_ends_at lets the app tell, offline, when a cached copy of this
+        // response belongs to a day that's already over — without it, a
+        // "today's attendance complete" cached yesterday would block clock-in.
+        $dayEndsAt = now()->endOfDay()->toIso8601String();
+
         if (!$deployment) {
-            return response()->json(['record' => null, 'next_action' => null]);
+            return response()->json(['record' => null, 'next_action' => null, 'day_ends_at' => $dayEndsAt]);
         }
 
         $record = Attendance::where('deployment_id', $deployment->id)
@@ -517,6 +541,7 @@ class InternMonitoringController extends Controller
         return response()->json([
             'record' => $record ? $this->mapAttendance($record) : null,
             'next_action' => $nextAction,
+            'day_ends_at' => $dayEndsAt,
         ]);
     }
 
@@ -531,6 +556,66 @@ class InternMonitoringController extends Controller
         return $data;
     }
 
+    /**
+     * Every normal clock-in/out is timestamped by the server (`now()`) — a
+     * phone's own clock is trivial to change. The exception is an entry
+     * captured while offline (lib/offlineQueue.js), which arrives later and
+     * has to say when it happened. Its time is never taken at face value:
+     *
+     * - device_time + skew: the phone also sends its clock at sync time
+     *   (device_now), so the server measures how far off that clock is and
+     *   corrects the capture time by the same amount. Changing the phone's
+     *   date doesn't help — the correction undoes it.
+     * - anchored_time: when the app had synced with the server earlier in the
+     *   same session, it timed the capture with a server-anchored timer
+     *   (lib/trustedClock.js) that ignores the device clock entirely.
+     *
+     * When both exist and disagree by more than a few minutes, the one less
+     * favourable to the intern wins (the later clock-in, the earlier
+     * clock-out). The result must fall within the last 48 hours, and the
+     * entry stays flagged offline (`is_offline` + `synced_at`).
+     */
+    private function resolveClockTime(Request $request, string $mode = 'clock_in'): array
+    {
+        $isOffline = $request->boolean('is_offline');
+
+        if (!$isOffline) {
+            return [now(), false, null];
+        }
+
+        $data = $request->validate([
+            'device_time' => 'required|date',
+            'device_now' => 'nullable|date',
+            'anchored_time' => 'nullable|date',
+        ]);
+
+        $tz = config('app.timezone');
+        $deviceTime = Carbon::parse($data['device_time'])->setTimezone($tz);
+
+        // How far the phone's clock is from the server's, measured now.
+        $skewSeconds = !empty($data['device_now'])
+            ? now()->getTimestamp() - Carbon::parse($data['device_now'])->getTimestamp()
+            : 0;
+        $corrected = $deviceTime->copy()->addSeconds($skewSeconds);
+
+        $resolved = $corrected;
+        if (!empty($data['anchored_time'])) {
+            $anchored = Carbon::parse($data['anchored_time'])->setTimezone($tz);
+            if (abs($anchored->getTimestamp() - $corrected->getTimestamp()) > 5 * 60) {
+                $resolved = $mode === 'clock_in' ? $anchored->max($corrected) : $anchored->min($corrected);
+            }
+        }
+
+        if ($resolved->lt(now()->subHours(48)) || $resolved->gt(now()->addMinutes(5))) {
+            abort(response()->json([
+                'success' => false,
+                'message' => 'That offline entry\'s time doesn\'t line up with the server — it was not saved. Please clock in again while online.',
+            ], 422));
+        }
+
+        return [$resolved, true, now()];
+    }
+
     public function clockIn(Request $request): JsonResponse
     {
         $internId = $request->user()->id;
@@ -539,7 +624,11 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'You need an active deployment to clock in.'], 422);
         }
 
-        $today = now()->toDateString();
+        [$clockTime, $isOffline, $syncedAt] = $this->resolveClockTime($request, 'clock_in');
+        // Bucketed by the day it actually happened on, not the day it
+        // happened to sync on — an offline clock-in at 11pm that only
+        // reaches the server the next morning still belongs to that first day.
+        $today = $clockTime->toDateString();
         $existing = Attendance::where('deployment_id', $deployment->id)
             ->whereDate('attendance_date', $today)
             ->first();
@@ -552,11 +641,13 @@ class InternMonitoringController extends Controller
 
         $attendance = $existing ?? new Attendance(['deployment_id' => $deployment->id, 'attendance_date' => $today]);
         $attendance->fill([
-            'clock_in' => now(),
+            'clock_in' => $clockTime,
             'clock_in_selfie_path' => $selfiePath,
             'clock_in_latitude' => $data['latitude'],
             'clock_in_longitude' => $data['longitude'],
-            'status' => 'pending',
+            'clock_in_is_offline' => $isOffline,
+            'clock_in_synced_at' => $syncedAt,
+            'status' => 'approved',
         ]);
         $attendance->save();
 
@@ -566,7 +657,7 @@ class InternMonitoringController extends Controller
                 $deployment->supervisor_id,
                 $deployment->school_id,
                 'attendance_logged',
-                'New attendance to review',
+                'Attendance logged',
                 "{$request->user()->name} clocked in for {$attendance->attendance_date->format('M d, Y')}.",
                 '/supervisor/attendance'
             );
@@ -591,25 +682,30 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'You need an active deployment to clock out.'], 422);
         }
 
+        [$clockTime, $isOffline, $syncedAt] = $this->resolveClockTime($request, 'clock_out');
+        // Clocking out always closes whichever day's record is still open —
+        // an offline clock-out syncing after midnight still belongs to the
+        // shift it ended, not to today.
         $attendance = Attendance::where('deployment_id', $deployment->id)
-            ->whereDate('attendance_date', now()->toDateString())
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
+            ->orderByDesc('attendance_date')
             ->first();
-        if (!$attendance || !$attendance->clock_in) {
+        if (!$attendance) {
             return response()->json(['success' => false, 'message' => 'Clock in first.'], 422);
-        }
-        if ($attendance->clock_out) {
-            return response()->json(['success' => false, 'message' => 'You already clocked out today.'], 422);
         }
 
         $data = $this->selfieAndLocation($request);
         $selfiePath = $request->file('selfie')->store("attendance-selfies/deployment-{$deployment->id}", 'public');
 
         $attendance->update([
-            'clock_out' => now(),
+            'clock_out' => $clockTime,
             'clock_out_selfie_path' => $selfiePath,
             'clock_out_latitude' => $data['latitude'],
             'clock_out_longitude' => $data['longitude'],
-            'status' => 'pending',
+            'clock_out_is_offline' => $isOffline,
+            'clock_out_synced_at' => $syncedAt,
+            'status' => 'approved',
         ]);
 
         if ($deployment->supervisor_id) {
@@ -618,7 +714,7 @@ class InternMonitoringController extends Controller
                 $deployment->supervisor_id,
                 $deployment->school_id,
                 'attendance_logged',
-                'Attendance ready for review',
+                'Attendance completed',
                 "{$request->user()->name} clocked out for {$attendance->attendance_date->format('M d, Y')}.",
                 '/supervisor/attendance'
             );
@@ -632,6 +728,8 @@ class InternMonitoringController extends Controller
             request: $request
         );
 
+        GenerateNarrativeForAttendance::dispatch($attendance->id);
+
         return response()->json(['success' => true, 'message' => 'Clocked out.', 'record' => $this->mapAttendance($attendance)]);
     }
 
@@ -640,25 +738,58 @@ class InternMonitoringController extends Controller
         return [
             'id' => $a->id,
             'activity_date' => $a->activity_date?->format('M d, Y'),
+            'activity_date_raw' => $a->activity_date?->toDateString(),
             'title' => $a->title,
             'description' => $a->description,
-            'hours_rendered' => (float) $a->hours_rendered,
             'photo_url' => $a->photo_path ? Storage::disk('public')->url($a->photo_path) : null,
             'status' => $a->status,
+            'is_auto_generated' => $a->is_auto_generated,
+            'editable' => $a->status === 'pending',
             'review_remarks' => $a->review_remarks,
+            'source_title' => $a->sourceSubtask?->title ?? $a->sourceTask?->title,
         ];
     }
 
     /**
+     * Catches up any past attended date that never got a narrative — covers
+     * both gaps left before this feature existed and the rare case where a
+     * clock-out's own dispatch (see clockOut()) never ran. Dispatched, not
+     * generated inline, since each gap may call the Gemini API. "Today" is
+     * excluded: that day's own clock-out already handles it, and the day
+     * isn't over yet if the intern hasn't clocked out.
+     */
+    private function backfillMissingNarratives(array $deploymentIds): void
+    {
+        $loggedDates = DailyActivity::whereIn('deployment_id', $deploymentIds)
+            ->get(['deployment_id', 'activity_date'])
+            ->map(fn (DailyActivity $a) => "{$a->deployment_id}:{$a->activity_date->toDateString()}")
+            ->all();
+
+        Attendance::whereIn('deployment_id', $deploymentIds)
+            ->whereNotNull('clock_out')
+            ->where('attendance_date', '<', now()->toDateString())
+            ->get(['id', 'deployment_id', 'attendance_date'])
+            ->each(function (Attendance $a) use ($loggedDates) {
+                $key = "{$a->deployment_id}:{$a->attendance_date->toDateString()}";
+                if (!in_array($key, $loggedDates, true)) {
+                    GenerateNarrativeForAttendance::dispatch($a->id);
+                }
+            });
+    }
+
+    /**
      * The intern's own daily narrative log — one entry per accomplishment
-     * they choose to record, most recent first. A supervisor reviews these
-     * (status/review_remarks) elsewhere; here the intern only ever reads
-     * and adds their own.
+     * they choose to record, most recent first, plus any day they attended
+     * but never wrote one themselves — those are backfilled automatically
+     * (see backfillMissingNarratives()) and marked is_auto_generated so the
+     * UI can flag them as editable drafts.
      */
     public function activities(Request $request): JsonResponse
     {
         $internId = $request->user()->id;
         $deploymentIds = $this->deploymentIdsForIntern($internId);
+
+        $this->backfillMissingNarratives($deploymentIds);
 
         $activities = DailyActivity::whereIn('deployment_id', $deploymentIds)
             ->orderByDesc('activity_date')
@@ -667,6 +798,77 @@ class InternMonitoringController extends Controller
             ->map(fn (DailyActivity $a) => $this->mapActivity($a));
 
         return response()->json(['activities' => $activities]);
+    }
+
+    /**
+     * Tasks/subtasks this intern finished today, not yet turned into a
+     * narrative entry — surfaced in Activities as a one-click starting point
+     * so the intern isn't retyping what they just logged as done in Tasks.
+     * Naturally stops suggesting a completed-today item the moment it's
+     * used (see storeActivity's source_task_id/source_subtask_id) or once
+     * the day passes, without needing a separate "dismiss" action.
+     */
+    public function activitySuggestions(Request $request): JsonResponse
+    {
+        $internId = $request->user()->id;
+        $today = now()->toDateString();
+
+        $usedTaskIds = DailyActivity::whereNotNull('source_task_id')->pluck('source_task_id');
+        $usedSubtaskIds = DailyActivity::whereNotNull('source_subtask_id')->pluck('source_subtask_id');
+
+        $tasks = Task::whereHas('assignees', fn ($q) => $q->where('user_id', $internId))
+            ->where('status', 'completed')
+            ->whereDate('completed_at', $today)
+            ->whereNotIn('id', $usedTaskIds)
+            ->get(['id', 'title', 'description']);
+
+        $subtasks = Subtask::whereHas('task.assignees', fn ($q) => $q->where('user_id', $internId))
+            ->where('status', 'completed')
+            ->whereDate('completed_at', $today)
+            ->whereNotIn('id', $usedSubtaskIds)
+            ->with('task:id,title')
+            ->get(['id', 'task_id', 'title', 'description']);
+
+        $suggestions = $tasks->map(fn (Task $t) => [
+            'type' => 'task',
+            'id' => $t->id,
+            'title' => $t->title,
+            'description' => $t->description,
+            'context' => null,
+        ])->concat($subtasks->map(fn (Subtask $s) => [
+            'type' => 'subtask',
+            'id' => $s->id,
+            'title' => $s->title,
+            'description' => $s->description,
+            'context' => $s->task?->title,
+        ]));
+
+        return response()->json(['suggestions' => $suggestions->values()]);
+    }
+
+    /**
+     * A suggestion, not a save — the intern reviews the AI's rewrite and
+     * decides whether to use it before anything is persisted. Grammar/tone
+     * only; it's told explicitly not to invent facts beyond what's written.
+     */
+    public function polishNarrative(Request $request): JsonResponse
+    {
+        if (!PlanFeatures::has($request->user()->school, PlanFeatures::AI_FEATURES)) {
+            return response()->json(['success' => false, 'message' => 'AI-assisted writing isn\'t included in your school\'s current plan.'], 403);
+        }
+
+        $data = $request->validate(['text' => 'required|string|max:4000']);
+
+        if (!NarrativeAiService::isConfigured()) {
+            return response()->json(['success' => false, 'message' => 'AI polishing isn\'t set up yet — you can still save your narrative as written.'], 503);
+        }
+
+        $polished = NarrativeAiService::polish($data['text'], $request->user()->school_id, $request->user()->id);
+        if (!$polished) {
+            return response()->json(['success' => false, 'message' => 'Could not reach the AI assistant right now — you can still save your narrative as written.'], 503);
+        }
+
+        return response()->json(['success' => true, 'polished' => $polished]);
     }
 
     public function storeActivity(Request $request): JsonResponse
@@ -681,9 +883,24 @@ class InternMonitoringController extends Controller
             'activity_date' => 'nullable|date',
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:4000',
-            'hours_rendered' => 'nullable|numeric|min:0|max:24',
-            'photo' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+            'photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:5120',
+            'source_task_id' => 'nullable|integer',
+            'source_subtask_id' => 'nullable|integer',
         ]);
+
+        // Only accepted if it genuinely belongs to this intern — a stray id
+        // from the client never gets to attach itself to someone else's task.
+        $sourceTaskId = null;
+        if (!empty($data['source_task_id']) && $this->taskForIntern((int) $data['source_task_id'], $internId)) {
+            $sourceTaskId = (int) $data['source_task_id'];
+        }
+        $sourceSubtaskId = null;
+        if (!empty($data['source_subtask_id'])) {
+            $subtask = Subtask::whereHas('task.assignees', fn ($q) => $q->where('user_id', $internId))->find($data['source_subtask_id']);
+            if ($subtask) {
+                $sourceSubtaskId = $subtask->id;
+            }
+        }
 
         $photoPath = null;
         if ($request->hasFile('photo')) {
@@ -692,12 +909,47 @@ class InternMonitoringController extends Controller
 
         $activity = DailyActivity::create([
             'deployment_id' => $deployment->id,
+            'source_task_id' => $sourceTaskId,
+            'source_subtask_id' => $sourceSubtaskId,
             'activity_date' => $data['activity_date'] ?? now()->toDateString(),
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
-            'hours_rendered' => $data['hours_rendered'] ?? 0,
             'photo_path' => $photoPath,
             'status' => 'pending',
+        ]);
+
+        return response()->json(['success' => true, 'activity' => $this->mapActivity($activity)]);
+    }
+
+    /**
+     * Lets the intern amend their own entry — most importantly, add their
+     * own context to an auto-generated narrative (see
+     * GenerateNarrativeForAttendance). Only while it's still "pending": once
+     * a supervisor has reviewed it, the record stands as what was actually
+     * reviewed, and a correction from there should go through the
+     * supervisor rather than silently rewriting history underneath them.
+     */
+    public function updateActivity(Request $request, int $id): JsonResponse
+    {
+        $internId = $request->user()->id;
+        $deploymentIds = $this->deploymentIdsForIntern($internId);
+
+        $activity = DailyActivity::whereIn('deployment_id', $deploymentIds)->find($id);
+        if (!$activity) {
+            return response()->json(['success' => false, 'message' => 'Entry not found.'], 404);
+        }
+        if ($activity->status !== 'pending') {
+            return response()->json(['success' => false, 'message' => 'This entry has already been reviewed and can no longer be edited.'], 422);
+        }
+
+        $data = $request->validate([
+            'title' => 'required|string|max:150',
+            'description' => 'nullable|string|max:4000',
+        ]);
+
+        $activity->update([
+            'title' => $data['title'],
+            'description' => $data['description'] ?? null,
         ]);
 
         return response()->json(['success' => true, 'activity' => $this->mapActivity($activity)]);
@@ -811,23 +1063,6 @@ class InternMonitoringController extends Controller
     // self-authored and self-published via is_public.
     // ---------------------------------------------------------------
 
-    private function mapPortfolio(Portfolio $p): array
-    {
-        return [
-            'id' => $p->id,
-            'title' => $p->title,
-            'bio' => $p->bio,
-            'is_public' => (bool) $p->is_public,
-            'items' => $p->items->map(fn (PortfolioItem $i) => [
-                'id' => $i->id,
-                'title' => $i->title,
-                'description' => $i->description,
-                'image_url' => $i->image_path ? Storage::disk('public')->url($i->image_path) : null,
-                'project_url' => $i->project_url,
-            ]),
-        ];
-    }
-
     private function portfolioForRequest(Request $request): Portfolio
     {
         $intern = $request->user();
@@ -837,14 +1072,13 @@ class InternMonitoringController extends Controller
             [
                 'school_id' => $intern->school_id,
                 'title' => trim("{$intern->first_name} {$intern->last_name}") ?: $intern->name,
-                'is_public' => false,
             ]
         );
     }
 
     public function portfolio(Request $request): JsonResponse
     {
-        return response()->json(['portfolio' => $this->mapPortfolio($this->portfolioForRequest($request))]);
+        return response()->json(['portfolio' => $this->portfolioForRequest($request)->present()]);
     }
 
     public function updatePortfolio(Request $request): JsonResponse
@@ -852,7 +1086,6 @@ class InternMonitoringController extends Controller
         $data = $request->validate([
             'title' => 'nullable|string|max:150',
             'bio' => 'nullable|string|max:2000',
-            'is_public' => 'sometimes|boolean',
         ]);
 
         $portfolio = $this->portfolioForRequest($request);
@@ -864,12 +1097,9 @@ class InternMonitoringController extends Controller
         if ($request->has('bio')) {
             $updates['bio'] = $data['bio'] ?? null;
         }
-        if ($request->has('is_public')) {
-            $updates['is_public'] = (bool) $data['is_public'];
-        }
         $portfolio->update($updates);
 
-        return response()->json(['success' => true, 'portfolio' => $this->mapPortfolio($portfolio->fresh('items'))]);
+        return response()->json(['success' => true, 'portfolio' => $portfolio->fresh('items')->present()]);
     }
 
     public function storePortfolioItem(Request $request): JsonResponse
@@ -880,7 +1110,7 @@ class InternMonitoringController extends Controller
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
             'project_url' => 'nullable|url|max:255',
-            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:3072',
         ]);
 
         $imagePath = null;

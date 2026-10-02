@@ -2,22 +2,32 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
+import PasswordInput from "@/components/PasswordInput";
+import { readStoredUser, resolveDashboardPath } from "@/lib/roleDashboard";
+import { clearOfflineCaches } from "@/lib/offlineCache";
 
-const ROLE_DASHBOARD = {
-  super_admin: "/superadmin/dashboard",
-  coordinator: "/coordinator/dashboard",
-  supervisor: "/supervisor/dashboard",
-  intern: "/intern/dashboard",
-};
-
+import { clean, inputProps } from "@/lib/inputRules";
 export default function Login() {
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  // Already signed in (e.g. reopened the installed app, or just navigated
+  // back here) — skip straight to the dashboard instead of making them look
+  // at a login form for an account they're already in.
+  useEffect(() => {
+    const dashboardPath = resolveDashboardPath(readStoredUser());
+    if (dashboardPath) {
+      router.replace(dashboardPath);
+      return;
+    }
+    setCheckingSession(false);
+  }, [router]);
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -43,25 +53,23 @@ export default function Login() {
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) throw new Error(data.message || "Invalid email or password.");
+        if (!res.ok || !data.success) {
+          if (data.needsVerification) {
+            router.push(`/verify-email?email=${encodeURIComponent(form.email)}`);
+            return null;
+          }
+          throw new Error(data.message || "Invalid email or password.");
+        }
         return data;
       })
-      .then(({ user, token }) => {
+      .then(async (data) => {
+        if (!data) return;
+        const { user, token } = data;
+        await clearOfflineCaches();
         localStorage.setItem("internova_user", JSON.stringify(user));
         localStorage.setItem("internova_token", token);
 
-        if (user.role === "coordinator") {
-          if (user.status === "pending_approval") {
-            router.push("/coordinator/pending");
-          } else if (user.subscription_status !== "active") {
-            router.push("/coordinator/subscription");
-          } else {
-            router.push("/coordinator/dashboard");
-          }
-          return;
-        }
-
-        router.push(ROLE_DASHBOARD[user.role] ?? "/");
+        router.push(resolveDashboardPath(user) ?? "/");
       })
       .catch((err) => {
         setSigningIn(false);
@@ -70,39 +78,41 @@ export default function Login() {
       });
   }
 
+  if (checkingSession) return null;
+
   return (
     <section className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto flex max-w-md flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <Logo size={36} />
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Authentication</p>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Sign in to Internova AI</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Sign in to Internova</h1>
           <p className="mt-2 text-sm text-slate-600">Use this screen to enter the workspace and continue to your dashboard.</p>
         </div>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
           <label className="block text-sm font-medium text-slate-700">
             Email
-            <input
+            <input {...inputProps("email")}
               type="email"
               value={form.email}
-              onChange={(event) => setForm({ ...form, email: event.target.value })}
+              onChange={(event) => setForm({ ...form, email: clean("email", event.target.value) })}
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-0 focus:border-blue-500"
               placeholder="you@example.com"
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Password
-            <input
-              type="password"
+            <PasswordInput
               value={form.password}
               onChange={(event) => setForm({ ...form, password: event.target.value })}
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               placeholder="Enter password"
+              maxLength={72}
             />
           </label>
-          <button type="submit" disabled={signingIn} className="action-button w-full justify-center disabled:opacity-60">
-            {signingIn ? "Signing in…" : "Continue to dashboard"}
+          <button type="submit" disabled={signingIn} className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60">
+            {signingIn ? "Signing in…" : "Login"}
           </button>
         </form>
 
@@ -114,12 +124,9 @@ export default function Login() {
           <Link href="/inquiry" className="font-medium text-blue-700">Register here</Link>.
         </p>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div className="text-sm">
           <Link href="/forgot-password" className="font-medium text-blue-700">
             Forgot password?
-          </Link>
-          <Link href="/reset-password" className="font-medium text-slate-700">
-            Reset password
           </Link>
         </div>
 

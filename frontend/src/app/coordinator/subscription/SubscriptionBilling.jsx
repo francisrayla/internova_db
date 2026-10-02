@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/apiFetch";
+import { useCurrentUser } from "@/lib/UserContext";
 
+import { inputProps } from "@/lib/inputRules";
 const PLAN_FEATURES = {
   Basic: [
     "GPS + Selfie Attendance",
@@ -45,14 +47,20 @@ function Shell({ children }) {
   );
 }
 
+const METHOD_LABELS = Object.fromEntries(PAYMENT_METHODS.map((m) => [m.id, m.label]));
+
 export default function SubscriptionPage() {
   const router = useRouter();
+  // The coordinator layout owns the access gate (billing-only vs full app) and
+  // decides it from its own copy of the user — every status change made here
+  // has to reach it too, or the gate keeps acting on the pre-payment status.
+  const { onUserUpdated } = useCurrentUser();
   const [user, setUser] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [proofFile, setProofFile] = useState(null);
-  const [paymentSuccess, setPaymentSuccess] = useState(null); // { validUntil } after simulated online payment
+  const [paymentSuccess, setPaymentSuccess] = useState(null); // { validUntil, user } after a confirmed PayMongo payment
   const [billingToggle, setBillingToggle] = useState("monthly"); // browsing period for the plan comparison
   const [switchBusy, setSwitchBusy] = useState(false);
   const [switchMessage, setSwitchMessage] = useState("");
@@ -92,17 +100,27 @@ export default function SubscriptionPage() {
           return apiFetch(`/api/auth/session/${loaded.id}`)
             .then((r) => r.json())
             .then((sessionData) => {
-              if (sessionData.success) {
-                localStorage.setItem("internova_user", JSON.stringify(sessionData.user));
-                setUser(sessionData.user);
+              const freshUser = sessionData.success ? sessionData.user : null;
+              if (freshUser) {
+                localStorage.setItem("internova_user", JSON.stringify(freshUser));
+                setUser(freshUser);
               }
-              setPaymentSuccess({ validUntil: data.valid_until });
+              // The layout is told about the now-active status only when the
+              // coordinator leaves this receipt (see handleFinishPayment):
+              // flipping its gate now would swap billing-only chrome for the
+              // full app shell, remounting this page and losing the receipt.
+              setPaymentSuccess({ validUntil: data.valid_until, user: freshUser });
             });
         })
         .catch((err) => setError(err.message))
         .finally(() => {
           setVerifying(false);
-          window.history.replaceState({}, "", "/coordinator/subscription");
+          // router.replace (not window.history.replaceState) — the latter edits
+          // the URL bar behind Next.js's back, which desyncs its App Router
+          // state and makes the very next router.push (the "Go to Dashboard"
+          // button below) fall back to a full page reload instead of a clean
+          // client-side transition.
+          router.replace("/coordinator/subscription");
         });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -112,7 +130,15 @@ export default function SubscriptionPage() {
     const updated = { ...user, ...patch };
     localStorage.setItem("internova_user", JSON.stringify(updated));
     setUser(updated);
+    onUserUpdated(updated);
     return updated;
+  }
+
+  // Leaving the payment receipt: unlock the full app in the layout first, so
+  // the dashboard it navigates to isn't bounced straight back to billing.
+  function handleFinishPayment() {
+    if (paymentSuccess?.user) onUserUpdated(paymentSuccess.user);
+    router.push("/coordinator/dashboard");
   }
 
   function handleAccept() {
@@ -249,6 +275,32 @@ export default function SubscriptionPage() {
       });
   }
 
+  // Undoes an abandoned PayMongo checkout (closed the tab, hit back, etc.) —
+  // without this, requestUpgrade's "one pending upgrade at a time" guard on
+  // the backend leaves the coordinator stuck: unable to retry (blocked) and
+  // unable to finish (the checkout session is gone). `reopen` immediately
+  // re-launches the same plan/period's upgrade dialog from a clean quote
+  // instead of resubmitting the old one — proration is time-sensitive, so a
+  // fresh quote is safer than trusting a price the coordinator saw earlier.
+  function handleCancelPendingUpgrade(reopen) {
+    const plan = user.pending_upgrade?.plan;
+    const period = user.pending_upgrade?.billing_period;
+    setUpgradeBusy(true);
+    setError("");
+    apiFetch(`/api/coordinator/schools/${user.school_id}/cancel-pending-upgrade`, { method: "POST" })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || "Could not cancel the pending upgrade.");
+        return data;
+      })
+      .then(() => {
+        persistUser({ pending_upgrade: null });
+        if (reopen && plan && period) handleOpenUpgrade(plan, period);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setUpgradeBusy(false));
+  }
+
   function handleSwitchPlan(planName, period) {
     setSwitchBusy(true);
     setSwitchMessage("");
@@ -317,18 +369,32 @@ export default function SubscriptionPage() {
 
   // GCash/Maya/Card payment confirmed via PayMongo
   if (paymentSuccess) {
+    const paid = paymentSuccess.user ?? user;
+    const rows = [
+      ["School", paid.school_name],
+      ["Plan", paid.subscription_plan && `${paid.subscription_plan} (${paid.subscription_billing_period ?? "—"})`],
+      ["Amount Paid", paid.subscription_amount != null && `₱${Number(paid.subscription_amount).toLocaleString()}`],
+      ["Payment Method", METHOD_LABELS[paid.payment_method]],
+      ["Valid Until", paymentSuccess.validUntil ?? paid.subscription_end_date],
+    ].filter(([, value]) => value);
+
     return (
       <Shell>
         <div className="text-6xl">✅</div>
         <h1 className="mt-4 text-2xl font-bold text-slate-900">Payment Successful</h1>
-        <p className="mt-3 text-slate-600">
-          Your <strong>{user.subscription_plan}</strong> subscription is now active.
+        <p className="mt-2 text-slate-600">
+          Your subscription is now active. You can start setting up your school right away.
         </p>
-        {paymentSuccess.validUntil && (
-          <p className="mt-1 text-sm text-slate-500">Valid until: <strong>{paymentSuccess.validUntil}</strong></p>
-        )}
+        <dl className="mt-6 space-y-2 rounded-2xl bg-slate-50 p-5 text-left text-sm">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-4">
+              <dt className="text-slate-500">{label}</dt>
+              <dd className="text-right font-semibold text-slate-900">{value}</dd>
+            </div>
+          ))}
+        </dl>
         <button
-          onClick={() => router.push("/coordinator/dashboard")}
+          onClick={handleFinishPayment}
           className="mt-6 w-full rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700"
         >
           Go to Dashboard
@@ -342,7 +408,7 @@ export default function SubscriptionPage() {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="rounded-3xl bg-white p-6 shadow-xl sm:p-8">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="text-4xl">✅</div>
               <h1 className="mt-3 text-2xl font-bold text-slate-900">Subscription & Billing</h1>
@@ -350,7 +416,7 @@ export default function SubscriptionPage() {
             </div>
             <Link
               href="/coordinator/dashboard"
-              className="shrink-0 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="shrink-0 self-start rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Back to Dashboard
             </Link>
@@ -396,7 +462,7 @@ export default function SubscriptionPage() {
               <>
                 <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-left text-sm space-y-2">
                   <div className="flex justify-between"><span className="text-slate-500">Bank</span><span className="font-semibold text-slate-900">BDO Unibank</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Account Name</span><span className="font-semibold text-slate-900">Internova AI Technologies Inc.</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Account Name</span><span className="font-semibold text-slate-900">Internova Technologies Inc.</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Account Number</span><span className="font-semibold text-slate-900">0012-3456-7890</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Reference Code</span><span className="font-semibold text-slate-900">{user.pending_upgrade.payment_reference}</span></div>
                   <div className="flex justify-between border-t border-slate-200 pt-2"><span className="text-slate-500">Amount</span><span className="font-bold text-blue-700">₱{Number(user.pending_upgrade.amount ?? 0).toLocaleString()}</span></div>
@@ -417,9 +483,28 @@ export default function SubscriptionPage() {
             )}
 
             {user.pending_upgrade.payment_method !== "bank_transfer" && (
-              <p className="mt-5 rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-                Waiting for PayMongo payment confirmation. If you closed the payment window, return to complete it — this page automatically confirms once you do.
-              </p>
+              <div className="mt-5 rounded-2xl bg-amber-50 px-4 py-4 text-sm text-amber-800">
+                <p>
+                  We couldn&apos;t confirm your payment yet. This page confirms automatically if you finish paying in
+                  that tab — but if you closed the payment window before completing it, pick up here instead.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleCancelPendingUpgrade(true)}
+                    disabled={upgradeBusy}
+                    className="rounded-xl bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                  >
+                    {upgradeBusy ? "Please wait…" : "Retry Payment"}
+                  </button>
+                  <button
+                    onClick={() => handleCancelPendingUpgrade(false)}
+                    disabled={upgradeBusy}
+                    className="rounded-xl border border-amber-300 px-4 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    Cancel Upgrade
+                  </button>
+                </div>
+              </div>
             )}
 
             {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700">{error}</p>}
@@ -600,7 +685,7 @@ export default function SubscriptionPage() {
               </div>
               <label className="block text-sm">
                 <span className="mb-1 block font-semibold text-slate-700">Message to Super Admin (optional)</span>
-                <textarea
+                <textarea {...inputProps("note")}
                   rows={3}
                   value={requestNote}
                   onChange={(e) => setRequestNote(e.target.value)}
@@ -668,7 +753,7 @@ export default function SubscriptionPage() {
 
         <div className="mt-6 rounded-2xl bg-slate-50 p-5 text-left text-sm space-y-2">
           <div className="flex justify-between"><span className="text-slate-500">Bank</span><span className="font-semibold text-slate-900">BDO Unibank</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">Account Name</span><span className="font-semibold text-slate-900">Internova AI Technologies Inc.</span></div>
+          <div className="flex justify-between"><span className="text-slate-500">Account Name</span><span className="font-semibold text-slate-900">Internova Technologies Inc.</span></div>
           <div className="flex justify-between"><span className="text-slate-500">Account Number</span><span className="font-semibold text-slate-900">0012-3456-7890</span></div>
           <div className="flex justify-between"><span className="text-slate-500">Reference Code</span><span className="font-semibold text-slate-900">{user.payment_reference}</span></div>
           <div className="flex justify-between border-t border-slate-200 pt-2"><span className="text-slate-500">Amount</span><span className="font-bold text-blue-700">₱{Number(user.subscription_amount ?? 0).toLocaleString()}</span></div>
@@ -734,7 +819,7 @@ export default function SubscriptionPage() {
   return (
     <Shell>
       <div className="text-5xl">🎓</div>
-      <h1 className="mt-4 text-2xl font-bold text-slate-900">Welcome to Internova AI</h1>
+      <h1 className="mt-4 text-2xl font-bold text-slate-900">Welcome to Internova</h1>
       <p className="mt-2 text-slate-600">Your subscription offer for <strong>{user.school_name}</strong> is ready.</p>
 
       <div className="mt-6 rounded-2xl bg-slate-50 p-5 text-left text-sm space-y-2">

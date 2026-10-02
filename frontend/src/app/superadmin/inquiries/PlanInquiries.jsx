@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { apiFetch } from "@/lib/apiFetch";
+import Icon from "@/components/Icon";
 
+import { inputProps } from "@/lib/inputRules";
 // List price per plan + billing period. Super Admin can still apply a discount below.
 const PLAN_PRICES = {
   Basic:   { monthly: 1500,  yearly: 15000 },
@@ -91,24 +93,24 @@ function EmailModal({ inquiry, onClose, onSent }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900">Compose Email</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
         </div>
         <div className="space-y-3">
           <div className="rounded-xl bg-slate-50 px-4 py-2 text-sm">
             <span className="text-slate-500">To: </span>
             <span className="font-medium text-slate-900">{inquiry.contact_person} &lt;{inquiry.email}&gt;</span>
           </div>
-          <input
+          <input {...inputProps("subject")}
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500"
             placeholder="Subject"
           />
-          <textarea
+          <textarea {...inputProps("message")}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={10}
@@ -122,10 +124,10 @@ function EmailModal({ inquiry, onClose, onSent }) {
             <button
               onClick={handleSend}
               disabled={sending}
-              className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
+              <Icon name="send" size={14} />
               {sending ? "Sending…" : "Send Email"}
-              Send Email
             </button>
           </div>
         </div>
@@ -150,13 +152,47 @@ function guessPlanFromInterest(interestedPlan) {
   return /premium/i.test(interestedPlan || "") ? "Premium" : "Basic";
 }
 
+// Per-field limits for the approve form, applied live on every keystroke (and
+// on the prefilled inquiry values) so a field can never hold more than the
+// backend accepts. Mirrors the rules in convertInquiryToSchool().
+const CONVERT_LIMITS = {
+  school_name:    { maxLength: 150 },
+  // Codes are identifiers: uppercase letters, digits and hyphens only.
+  school_code:    { maxLength: 30, filter: (v) => v.toUpperCase().replace(/\s+/g, "-").replace(/[^A-Z0-9-]/g, "").replace(/-{2,}/g, "-").slice(0, 30) },
+  address:        { maxLength: 255 },
+  contact_email:  { maxLength: 100, filter: (v) => v.replace(/\s/g, "").slice(0, 100) },
+  // PH mobile number, same format as the registration form: 11 digits.
+  contact_number: { maxLength: 11, filter: (v) => v.replace(/\D/g, "").slice(0, 11) },
+  agreement_note: { maxLength: 500 },
+};
+
+function applyConvertLimit(name, value) {
+  const limit = CONVERT_LIMITS[name];
+  if (!limit) return value;
+  return limit.filter ? limit.filter(value) : value.slice(0, limit.maxLength);
+}
+
+// Peso amount: digits with at most one decimal point and 2 decimal places,
+// capped at `max` so the discount can never exceed the plan price.
+function sanitizeAmount(value, max) {
+  let v = value.replace(/[^\d.]/g, "");
+  const dot = v.indexOf(".");
+  if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+  v = v.replace(/^0+(?=\d)/, "");
+  if (v !== "" && v !== "." && Number(v) > max) return String(max);
+  return v;
+}
+
+const PH_MOBILE = /^\d{11}$/;
+const SCHOOL_CODE = /^[A-Z0-9]+(-[A-Z0-9]+)*$/;
+
 function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
   const [form, setForm] = useState({
-    school_name: inquiry.school_name || "",
-    school_code: slugifySchoolCode(inquiry.school_name),
-    address: inquiry.address || "",
-    contact_email: inquiry.email || "",
-    contact_number: inquiry.phone || "",
+    school_name: applyConvertLimit("school_name", inquiry.school_name || ""),
+    school_code: applyConvertLimit("school_code", slugifySchoolCode(inquiry.school_name)),
+    address: applyConvertLimit("address", inquiry.address || ""),
+    contact_email: applyConvertLimit("contact_email", inquiry.email || ""),
+    contact_number: applyConvertLimit("contact_number", inquiry.phone || ""),
     plan_name: guessPlanFromInterest(inquiry.interested_plan),
     billing_period: "yearly",
     discount_amount: "0",
@@ -166,7 +202,17 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
   const [error, setError] = useState("");
 
   function handleChange(e) {
-    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((f) => {
+      const next = { ...f, [name]: applyConvertLimit(name, value) };
+      // Switching to a cheaper plan/period re-caps a discount that was valid
+      // for the old price, so the field never shows more than the plan costs.
+      if (name === "plan_name" || name === "billing_period") {
+        const price = PLAN_PRICES[next.plan_name]?.[next.billing_period] ?? 0;
+        next.discount_amount = sanitizeAmount(next.discount_amount, price);
+      }
+      return next;
+    });
   }
 
   const listPrice = PLAN_PRICES[form.plan_name]?.[form.billing_period] ?? 0;
@@ -178,6 +224,18 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
     e.preventDefault();
     setError("");
 
+    if (!form.school_name.trim()) {
+      setError("School Name is required.");
+      return;
+    }
+    if (!SCHOOL_CODE.test(form.school_code)) {
+      setError("School Code can only use letters, numbers and single hyphens (e.g. ABC-COLLEGE-123).");
+      return;
+    }
+    if (form.contact_number && !PH_MOBILE.test(form.contact_number)) {
+      setError("Contact Number must be exactly 11 digits (e.g. 09171234567).");
+      return;
+    }
     if (needsReason && !form.agreement_note.trim()) {
       setError("Please add a Discount Reason / Agreement Note when applying a discount.");
       return;
@@ -189,9 +247,9 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        school_name: form.school_name,
+        school_name: form.school_name.trim(),
         school_code: form.school_code,
-        address: form.address,
+        address: form.address.trim(),
         contact_email: form.contact_email,
         contact_number: form.contact_number,
         plan_name: form.plan_name,
@@ -220,11 +278,11 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-lg font-semibold text-slate-900">Approve School & Send Subscription Offer</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
         </div>
         <p className="mb-4 text-sm text-slate-500">
           {inquiry.contact_person} ({inquiry.email}) already registered an account. This creates the school tenant and
@@ -232,33 +290,40 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <p className="text-xs font-semibold uppercase text-slate-500">School Details</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">School Name</label>
               <input name="school_name" value={form.school_name} onChange={handleChange} required
+                maxLength={CONVERT_LIMITS.school_name.maxLength}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">School Code</label>
               <input name="school_code" value={form.school_code} onChange={handleChange} required
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+                autoCapitalize="characters" spellCheck={false}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500" />
+              <p className="mt-1 text-xs text-slate-400">Letters, numbers and hyphens only.</p>
             </div>
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Address</label>
             <input name="address" value={form.address} onChange={handleChange}
+              maxLength={CONVERT_LIMITS.address.maxLength}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Email</label>
               <input name="contact_email" type="email" value={form.contact_email} onChange={handleChange} required
+                autoComplete="off" spellCheck={false}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Number</label>
-              <input name="contact_number" value={form.contact_number} onChange={handleChange}
+              <input name="contact_number" type="tel" inputMode="numeric" value={form.contact_number} onChange={handleChange}
+                placeholder="09171234567"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+              <p className="mt-1 text-xs text-slate-400">11 digits, e.g. 09171234567.</p>
             </div>
           </div>
 
@@ -272,11 +337,11 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
           <p className="text-xs text-slate-500 -mt-2">
             Their inquiry expressed interest in: <strong>{inquiry.interested_plan || "—"}</strong>. Confirm the actual plan you agreed on below.
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Agreed Plan</label>
               <select name="plan_name" value={form.plan_name} onChange={handleChange}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none">
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
                 <option value="Basic">Basic</option>
                 <option value="Premium">Premium</option>
               </select>
@@ -284,7 +349,7 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Billing Period</label>
               <select name="billing_period" value={form.billing_period} onChange={handleChange}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none">
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
                 <option value="monthly">Monthly</option>
                 <option value="yearly">Yearly</option>
               </select>
@@ -299,16 +364,26 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
             <div>
               <div className="flex items-center justify-between gap-3">
                 <label className="text-sm text-slate-500 shrink-0">Discount (optional)</label>
-                <input
-                  name="discount_amount" type="number" min="0" max={listPrice} step="0.01"
-                  value={form.discount_amount} onChange={handleChange}
-                  className="w-32 rounded-xl border border-slate-300 px-3 py-1.5 text-sm text-right outline-none focus:border-blue-500"
-                />
+                <div className="flex items-center rounded-xl border border-slate-300 px-3 py-1.5 focus-within:border-blue-500">
+                  <span className="text-sm text-slate-400">₱</span>
+                  <input
+                    name="discount_amount" type="text" inputMode="decimal" autoComplete="off"
+                    value={form.discount_amount}
+                    onChange={(e) => setForm((f) => ({ ...f, discount_amount: sanitizeAmount(e.target.value, listPrice) }))}
+                    onBlur={() => setForm((f) => ({
+                      ...f,
+                      discount_amount: f.discount_amount === "" || f.discount_amount === "." ? "0" : String(Number(f.discount_amount)),
+                    }))}
+                    className="w-28 bg-transparent pl-1 text-sm text-right tabular-nums outline-none"
+                  />
+                </div>
               </div>
+              <p className="mt-1 text-right text-xs text-slate-400">Up to ₱{listPrice.toLocaleString()}</p>
               {needsReason && (
                 <input
                   name="agreement_note"
                   value={form.agreement_note}
+                  maxLength={CONVERT_LIMITS.agreement_note.maxLength}
                   onChange={handleChange}
                   placeholder="Discount reason / agreement note (required)"
                   className="mt-2 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm outline-none focus:border-amber-500"
@@ -350,13 +425,13 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
 function NotesModal({ inquiry, onClose, onSave }) {
   const [notes, setNotes] = useState(inquiry.notes ?? "");
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900">Internal Notes</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
         </div>
-        <textarea
+        <textarea {...inputProps("longText")}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={5}
@@ -393,8 +468,15 @@ export default function InquiriesPage() {
       .then((r) => {
         const data = r.inquiries ?? [];
         setInquiries(data);
-        const firstActive = data.find((i) => ACTIVE_STATUSES.includes(i.status)) ?? data[0];
-        if (firstActive) setSelected(firstActive);
+        // Auto-picking one to show in the detail pane only makes sense on
+        // desktop, where the list stays visible alongside it — on mobile
+        // (list and detail share one column, see below) it would skip
+        // straight past the list to a detail screen on first load, with no
+        // "list" state to land on at all until Back is tapped once.
+        if (typeof window !== "undefined" && window.innerWidth >= 1024) {
+          const firstActive = data.find((i) => ACTIVE_STATUSES.includes(i.status)) ?? data[0];
+          if (firstActive) setSelected(firstActive);
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -495,10 +577,10 @@ export default function InquiriesPage() {
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* View toggle: Active pipeline vs Converted/Archive */}
-          <div className="flex gap-2 rounded-xl bg-slate-100 p-1 w-fit">
+          <div className="flex w-full gap-1 rounded-xl bg-slate-100 p-1 sm:w-fit sm:gap-2">
           <button
             onClick={() => switchView("active")}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition sm:flex-none sm:px-4 ${
               view === "active" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
             }`}
           >
@@ -509,11 +591,12 @@ export default function InquiriesPage() {
           </button>
           <button
             onClick={() => switchView("archive")}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition sm:flex-none sm:px-4 ${
               view === "archive" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            Converted / Archive
+            <span className="sm:hidden">Archive</span>
+            <span className="hidden sm:inline">Converted / Archive</span>
             <span className="ml-1.5 opacity-70">
               {ARCHIVE_STATUSES.reduce((n, s) => n + (counts[s] ?? 0), 0)}
             </span>
@@ -529,7 +612,9 @@ export default function InquiriesPage() {
         </div>
 
         {/* Status sub-tabs within the current view */}
-        <div className="mt-3 flex flex-wrap gap-3">
+        {/* One swipeable row on phones instead of chips wrapping into a
+            second and third line; wraps normally from sm up. */}
+        <div className="no-scrollbar -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:px-0">
           {tabs.map((tab) => {
             const value = tab === "All"
               ? viewStatuses.reduce((n, s) => n + (counts[s] ?? 0), 0)
@@ -538,7 +623,7 @@ export default function InquiriesPage() {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition sm:rounded-xl sm:px-4 sm:py-2 ${
                   activeTab === tab
                     ? "bg-blue-600 text-white"
                     : "border border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -554,8 +639,11 @@ export default function InquiriesPage() {
       {/* Two-column: list + detail */}
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
 
-        {/* Left: inquiry list */}
-        <div className="space-y-3">
+        {/* Left: inquiry list — hidden on mobile once something's selected,
+            since a master-detail split only makes sense side by side; below
+            lg: it's really two full-width screens, so show one at a time
+            (list, then detail with a way back) instead of stacking both. */}
+        <div className={`space-y-3 ${selected ? "hidden lg:block" : ""}`}>
           {loading ? (
             Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
@@ -586,8 +674,8 @@ export default function InquiriesPage() {
                     <StatusBadge status={inq.status} />
                   </div>
                   <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
-                    <span>🎓 {inq.interested_plan}</span>
-                    <span>👤 {inq.expected_interns} interns</span>
+                    <span className="flex items-center gap-1"><Icon name="card" size={12} /> {inq.interested_plan}</span>
+                    <span className="flex items-center gap-1"><Icon name="users" size={12} /> {inq.expected_interns} interns</span>
                   </div>
                   <p className="mt-2 line-clamp-2 text-xs text-slate-500">{inq.message}</p>
                   <p className="mt-2 text-xs text-slate-400">{inq.submitted_at}</p>
@@ -600,6 +688,13 @@ export default function InquiriesPage() {
         {/* Right: detail panel */}
         {selected ? (
           <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              className="flex w-full items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-6 py-3 text-sm font-semibold text-blue-600 hover:text-blue-700 lg:hidden"
+            >
+              <Icon name="arrow" size={14} className="rotate-180" /> Back to Inquiries
+            </button>
             {/* Detail header */}
             <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
               <div className="flex items-center justify-between">
@@ -633,9 +728,9 @@ export default function InquiriesPage() {
               {selected.status === "converted" && selected.school_id && (
                 <Link
                   href={`/superadmin/schools?highlight=${selected.school_id}`}
-                  className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
+                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:underline"
                 >
-                  🏫 View School Profile →
+                  <Icon name="building" size={14} /> View School Profile <Icon name="arrow" size={14} />
                 </Link>
               )}
             </div>
@@ -652,25 +747,16 @@ export default function InquiriesPage() {
                     <p className="text-sm text-slate-500">{selected.position}</p>
                   </div>
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm text-slate-700">
-                        <span>✉️</span>
-                        <span>{selected.email}</span>
-                      </div>
-                      <button
-                        onClick={() => copyToClipboard(selected.email, "Email")}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white"
-                      >Copy</button>
+                    {/* Copying either of these lives in Actions below (Reply
+                        via Email, Copy Phone Number) — a second Copy button
+                        right here just duplicated that. */}
+                    <div className="flex items-center gap-2 text-sm text-slate-700">
+                      <Icon name="mail" size={15} className="shrink-0 text-slate-400" />
+                      <span>{selected.email}</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm text-slate-700">
-                        <span>📱</span>
-                        <span>{selected.phone}</span>
-                      </div>
-                      <button
-                        onClick={() => copyToClipboard(selected.phone, "Phone number")}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-white"
-                      >Copy</button>
+                    <div className="flex items-center gap-2 text-sm text-slate-700">
+                      <Icon name="phone" size={15} className="shrink-0 text-slate-400" />
+                      <span>{selected.phone}</span>
                     </div>
                   </div>
                 </div>
@@ -741,49 +827,49 @@ export default function InquiriesPage() {
                     onClick={() => setShowEmail(true)}
                     className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
                   >
-                    ✉️ Reply via Email
+                    <Icon name="mail" size={15} /> Reply via Email
                   </button>
                   <button
                     onClick={() => copyToClipboard(selected.phone, "Phone number")}
                     className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    📞 Copy Phone Number
+                    <Icon name="phone" size={15} /> Copy Phone Number
                   </button>
                   <button
                     onClick={() => advanceStatus(selected)}
                     disabled={selected.status === "converted" || selected.status === "rejected"}
                     className="flex items-center justify-center gap-2 rounded-xl border border-blue-300 px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    ✅ Advance Status
+                    <Icon name="check" size={15} /> Advance Status
                   </button>
                   <button
                     onClick={() => setShowConvert(true)}
                     disabled={selected.status === "converted"}
                     className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    🏫 Approve School & Send Offer
+                    <Icon name="building" size={15} /> Approve School & Send Offer
                   </button>
                   <button
                     onClick={() => setShowNotes(true)}
                     className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    📝 Add / Edit Notes
+                    <Icon name="edit" size={15} /> Add / Edit Notes
                   </button>
                   <button
                     onClick={() => rejectInquiry(selected)}
                     disabled={selected.status === "rejected" || selected.status === "converted"}
                     className="flex items-center justify-center gap-2 rounded-xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    ✕ Reject Inquiry
+                    <Icon name="x" size={15} /> Reject Inquiry
                   </button>
                 </div>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center">
+          <div className="hidden items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center lg:flex">
             <div>
-              <p className="text-4xl">📋</p>
+              <Icon name="file" size={40} className="mx-auto text-slate-300" />
               <p className="mt-3 font-semibold text-slate-700">Select an inquiry to view details</p>
               <p className="mt-1 text-sm text-slate-500">Click any inquiry card on the left to review it.</p>
             </div>

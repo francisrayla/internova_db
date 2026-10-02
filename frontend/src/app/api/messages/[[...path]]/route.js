@@ -1,19 +1,23 @@
 import { NextResponse } from 'next/server';
 import { forwardHeaders } from '@/lib/serverProxy';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 async function proxy(request, params, method) {
   const pathSegments = Array.isArray(params?.path) ? params.path : [];
   const path = pathSegments.join('/');
   const { search } = new URL(request.url);
-  const upstream = path ? `http://127.0.0.1:8000/api/messages/${path}${search}` : `http://127.0.0.1:8000/api/messages${search}`;
+  const upstream = path ? `${BACKEND_URL}/api/messages/${path}${search}` : `${BACKEND_URL}/api/messages${search}`;
+
+  const contentType = request.headers.get('content-type') || '';
+  const isMultipart = contentType.includes('multipart/form-data');
 
   const init = {
     method,
-    headers: forwardHeaders(request, { 'Content-Type': 'application/json' }),
+    headers: forwardHeaders(request, isMultipart ? {} : { 'Content-Type': 'application/json' }),
   };
 
   if (method !== 'GET' && method !== 'HEAD') {
-    init.body = await request.text();
+    init.body = isMultipart ? await request.formData() : await request.text();
   }
 
   const response = await fetch(upstream, init);

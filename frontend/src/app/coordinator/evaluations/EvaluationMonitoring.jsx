@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import EvaluationView from "@/components/EvaluationView";
+import { clampOnBlur } from "@/lib/clampNumber";
 
+import { inputProps, cleanNumber } from "@/lib/inputRules";
 const AUTO_GRADED_CATEGORY = "A. Technical Ability";
 
 function NewCriterionForm({ onSaved }) {
@@ -38,19 +40,35 @@ function NewCriterionForm({ onSaved }) {
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
       <label className="text-sm">
         <span className="mb-1 block text-xs font-semibold text-slate-600">Section (optional)</span>
-        <input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. E. Extra" className="w-32 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500" />
+        <input {...inputProps("shortText")} value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. E. Extra" className="w-32 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500" />
       </label>
       <label className="text-sm">
         <span className="mb-1 block text-xs font-semibold text-slate-600">Criterion name</span>
-        <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Work Attitude" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500" />
+        <input {...inputProps("shortText")} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Work Attitude" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500" />
       </label>
       <label className="text-sm">
         <span className="mb-1 block text-xs font-semibold text-slate-600">Max score</span>
-        <input type="number" min="1" max="100" value={form.max_score} onChange={(e) => setForm((f) => ({ ...f, max_score: e.target.value }))} className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500" />
+        <input
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          value={form.max_score}
+          onChange={(e) => setForm((f) => ({ ...f, max_score: cleanNumber(e.target.value, { max: 100 }) }))}
+          onBlur={(e) => setForm((f) => ({ ...f, max_score: clampOnBlur(e.target.value, 1, 100) }))}
+          className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+        />
       </label>
       <label className="text-sm">
         <span className="mb-1 block text-xs font-semibold text-slate-600">Weight</span>
-        <input type="number" min="0.1" max="20" step="0.1" value={form.weight} onChange={(e) => setForm((f) => ({ ...f, weight: e.target.value }))} className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500" />
+        <input
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={form.weight}
+          onChange={(e) => setForm((f) => ({ ...f, weight: cleanNumber(e.target.value, { max: 20, decimals: 1 }) }))}
+          onBlur={(e) => setForm((f) => ({ ...f, weight: clampOnBlur(e.target.value, 0.1, 20) }))}
+          className="w-20 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-blue-500"
+        />
       </label>
       <button type="submit" disabled={saving} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{saving ? "Adding…" : "Add criterion"}</button>
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -136,7 +154,7 @@ export default function EvaluationMonitoring() {
 
       {evaluations.length > 0 && (
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <input
+          <input {...inputProps("search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by intern name…"

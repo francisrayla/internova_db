@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 
+import { inputProps } from "@/lib/inputRules";
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [query, setQuery] = useState("");
@@ -38,16 +39,16 @@ export default function UsersPage() {
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
-          <input
+          <input {...inputProps("search")}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search users"
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 sm:w-64"
           />
           <select
             value={roleFilter}
             onChange={(event) => setRoleFilter(event.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none"
+            className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
           >
             <option>All</option>
             <option>Superadmin</option>
@@ -61,7 +62,7 @@ export default function UsersPage() {
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr] border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+        <div className="hidden grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr] border-b border-slate-200 bg-slate-50 px-4 py-3 sm:grid text-sm font-semibold text-slate-600">
           <span>Name</span>
           <span>Role</span>
           <span>Status</span>
@@ -69,11 +70,14 @@ export default function UsersPage() {
         </div>
         {loading ? <p className="px-4 py-6 text-sm text-slate-600">Loading users…</p> : null}
         {!loading && filteredUsers.map((user) => (
-          <div key={user.id} className="grid grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr] border-b border-slate-100 px-4 py-4 text-sm text-slate-700 last:border-b-0">
-            <span className="font-medium text-slate-900">{user.name}</span>
-            <span>{user.role}</span>
-            <span>{user.status}</span>
-            <span>{user.team}</span>
+          // Phones get a stacked card (name, then role · status · team);
+          // the four-column grid only from sm up, where it has room.
+          <div key={user.id} className="border-b border-slate-100 px-4 py-3.5 text-sm text-slate-700 last:border-b-0 sm:grid sm:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr] sm:py-4">
+            <span className="block font-medium text-slate-900">{user.name}</span>
+            <span className="mt-0.5 block text-xs text-slate-500 sm:hidden">{[user.role, user.status, user.team].filter(Boolean).join(" · ")}</span>
+            <span className="hidden sm:block">{user.role}</span>
+            <span className="hidden sm:block">{user.status}</span>
+            <span className="hidden sm:block">{user.team}</span>
           </div>
         ))}
         {!loading && !filteredUsers.length ? <p className="px-4 py-6 text-sm text-slate-600">No users matched your search.</p> : null}

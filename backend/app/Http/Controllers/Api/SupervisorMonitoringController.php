@@ -10,6 +10,7 @@ use App\Models\EvaluationCriterion;
 use App\Models\EvaluationScore;
 use App\Models\InternProfile;
 use App\Models\InternshipDeployment;
+use App\Models\Portfolio;
 use App\Models\Subtask;
 use App\Models\SupervisorProfile;
 use App\Models\Task;
@@ -20,6 +21,7 @@ use App\Models\TaskProof;
 use App\Services\ActivityLogService;
 use App\Services\DeploymentSummaryService;
 use App\Services\NotificationService;
+use App\Services\PlanFeatures;
 use App\Services\TaskRatingAverage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -60,6 +62,27 @@ class SupervisorMonitoringController extends Controller
         $interns = $deployments->map(fn (InternshipDeployment $d) => DeploymentSummaryService::summarize($d, $profiles->get($d->intern_id)));
 
         return response()->json(['interns' => $interns->values()]);
+    }
+
+    /**
+     * Read-only — a supervisor never edits an intern's portfolio, only
+     * views what the intern chose to showcase. Never auto-created here;
+     * an intern who hasn't touched their portfolio yet just shows as null
+     * rather than conjuring an empty one on their behalf.
+     */
+    public function internPortfolio(Request $request, int $deploymentId): JsonResponse
+    {
+        $deployment = $this->deploymentForSupervisor($deploymentId, $request->user()->id);
+        if (!$deployment) {
+            return response()->json(['success' => false, 'message' => 'This intern is not assigned to you.'], 404);
+        }
+
+        $portfolio = Portfolio::with('items')->where('intern_id', $deployment->intern_id)->first();
+
+        return response()->json([
+            'intern_name' => trim("{$deployment->intern?->first_name} {$deployment->intern?->last_name}") ?: $deployment->intern?->name,
+            'portfolio' => $portfolio?->present(),
+        ]);
     }
 
     public function tasks(Request $request): JsonResponse
@@ -200,6 +223,10 @@ class SupervisorMonitoringController extends Controller
      */
     public function evaluateTask(Request $request, int $id): JsonResponse
     {
+        if (!PlanFeatures::has($request->user()->school, PlanFeatures::TASK_RATINGS)) {
+            return response()->json(['success' => false, 'message' => 'Per-task ratings aren\'t included in your school\'s current plan.'], 403);
+        }
+
         $supervisorId = $request->user()->id;
         $task = $this->taskForSupervisor($id, $supervisorId);
         if (!$task) {
@@ -293,6 +320,10 @@ class SupervisorMonitoringController extends Controller
 
     public function storeSubtask(Request $request, int $taskId): JsonResponse
     {
+        if (!PlanFeatures::has($request->user()->school, PlanFeatures::SUBTASKS)) {
+            return response()->json(['success' => false, 'message' => 'Subtasks aren\'t included in your school\'s current plan.'], 403);
+        }
+
         $supervisorId = $request->user()->id;
         $task = $this->taskForSupervisor($taskId, $supervisorId);
         if (!$task) {
@@ -446,6 +477,9 @@ class SupervisorMonitoringController extends Controller
                 'clock_out' => $a->clock_out?->format('h:i A'),
                 'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
                 'clock_out_location' => $a->clock_out_latitude !== null ? ['lat' => $a->clock_out_latitude, 'lng' => $a->clock_out_longitude] : null,
+                'auto_clocked_out' => (bool) $a->auto_clocked_out,
+                'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
+                'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
                 'status' => $a->status,
             ]),
@@ -628,6 +662,10 @@ class SupervisorMonitoringController extends Controller
 
     public function storeEvaluation(Request $request): JsonResponse
     {
+        if (!PlanFeatures::has($request->user()->school, PlanFeatures::FORMAL_EVALUATIONS)) {
+            return response()->json(['success' => false, 'message' => 'Formal, criteria-based evaluations aren\'t included in your school\'s current plan. Use the manual evaluation instead.'], 403);
+        }
+
         $supervisorId = $request->user()->id;
         $schoolId = $request->user()->school_id;
 
@@ -637,6 +675,7 @@ class SupervisorMonitoringController extends Controller
             'evaluation_date' => 'required|date',
             'remarks' => 'nullable|string|max:1000',
             'category_comments' => 'nullable|array',
+            'category_comments.*' => 'nullable|string|max:500',
             'scores' => 'required|array|min:1',
             'scores.*.criteria_id' => 'required|integer|exists:evaluation_criteria,id',
             'scores.*.score' => 'required|numeric|min:0',
@@ -707,6 +746,61 @@ class SupervisorMonitoringController extends Controller
         return response()->json(['success' => true, 'message' => 'Evaluation submitted.', 'id' => $evaluation->id]);
     }
 
+    /**
+     * The Basic-plan counterpart to storeEvaluation() — a school without
+     * Formal Evaluations still needs some way to grade an intern, just
+     * without the criteria rubric: one overall score the supervisor enters
+     * directly, plus remarks. No EvaluationScore rows are created, since
+     * there's no per-criterion breakdown to attach them to.
+     */
+    public function storeManualEvaluation(Request $request): JsonResponse
+    {
+        $supervisorId = $request->user()->id;
+        $schoolId = $request->user()->school_id;
+
+        $data = $request->validate([
+            'deployment_id' => 'required|integer',
+            'evaluation_date' => 'required|date',
+            'overall_score' => 'required|numeric|min:0|max:100',
+            'remarks' => 'nullable|string|max:2000',
+        ]);
+
+        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $supervisorId);
+        if (!$deployment) {
+            return response()->json(['success' => false, 'message' => 'This intern is not assigned to you.'], 404);
+        }
+
+        $evaluation = Evaluation::create([
+            'deployment_id' => $deployment->id,
+            'evaluator_id' => $supervisorId,
+            'evaluation_type' => 'Manual',
+            'evaluation_date' => $data['evaluation_date'],
+            'overall_score' => $data['overall_score'],
+            'remarks' => $data['remarks'] ?? null,
+            'status' => 'submitted',
+        ]);
+
+        ActivityLogService::record(
+            module: 'Evaluations',
+            action: 'Submitted manual evaluation',
+            description: "Manual evaluation for {$deployment->intern?->name} — score {$data['overall_score']}.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        NotificationService::toUser(
+            'intern',
+            $deployment->intern_id,
+            $schoolId,
+            'evaluation_submitted',
+            'New evaluation received',
+            "Evaluation received — overall score {$data['overall_score']}%.",
+            '/intern/evaluations'
+        );
+
+        return response()->json(['success' => true, 'message' => 'Evaluation submitted.', 'id' => $evaluation->id]);
+    }
+
     // ---------------------------------------------------------------
     // Daily activities — the intern's own narrative log (see
     // InternMonitoringController::activities/storeActivity); a supervisor
@@ -736,7 +830,6 @@ class SupervisorMonitoringController extends Controller
             'activity_date' => $a->activity_date?->format('M d, Y'),
             'title' => $a->title,
             'description' => $a->description,
-            'hours_rendered' => (float) $a->hours_rendered,
             'photo_url' => $a->photo_path ? Storage::disk('public')->url($a->photo_path) : null,
             'status' => $a->status,
             'review_remarks' => $a->review_remarks,

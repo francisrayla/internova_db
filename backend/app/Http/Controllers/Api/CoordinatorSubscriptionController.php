@@ -27,16 +27,13 @@ class CoordinatorSubscriptionController extends Controller
      */
     private const BANK_DETAILS = [
         'bank_name'     => 'BDO Unibank',
-        'account_name'  => 'Internova AI Technologies Inc.',
+        'account_name'  => 'Internova Technologies Inc.',
         'account_number'=> '0012-3456-7890',
     ];
 
-    // Local dev only — this app has no environment-specific frontend URL config yet.
-    private const FRONTEND_URL = 'http://localhost:3000';
-
     private function paymongo(): \Illuminate\Http\Client\PendingRequest
     {
-        return Http::withBasicAuth(config('services.paymongo.secret_key'), '')
+        return Http::withBasicAuth((string) config('services.paymongo.secret_key'), '')
             ->baseUrl('https://api.paymongo.com/v1');
     }
 
@@ -52,6 +49,13 @@ class CoordinatorSubscriptionController extends Controller
      */
     private function createCheckoutSession(School $school, string $lineItemName, float $amount, string $paymentMethod, string $referenceNumber): ?array
     {
+        // No PayMongo key on this server means online checkout simply isn't
+        // available — report it as such instead of crashing the request.
+        if (!config('services.paymongo.secret_key')) {
+            \Log::warning('PayMongo checkout attempted but PAYMONGO_SECRET_KEY is not set.');
+            return null;
+        }
+
         $paymongoMethod = $paymentMethod === 'maya' ? 'paymaya' : $paymentMethod;
 
         $response = $this->paymongo()->post('/checkout_sessions', [
@@ -64,9 +68,9 @@ class CoordinatorSubscriptionController extends Controller
                         'quantity' => 1,
                     ]],
                     'payment_method_types' => [$paymongoMethod],
-                    'success_url'          => self::FRONTEND_URL . '/coordinator/subscription?paid=1',
-                    'cancel_url'           => self::FRONTEND_URL . '/coordinator/subscription',
-                    'description'          => "Internova AI subscription — {$school->school_name}",
+                    'success_url'          => config('app.frontend_url') . '/coordinator/subscription?paid=1',
+                    'cancel_url'           => config('app.frontend_url') . '/coordinator/subscription',
+                    'description'          => "Internova subscription — {$school->school_name}",
                     'reference_number'     => $referenceNumber,
                 ],
             ],
@@ -249,7 +253,7 @@ class CoordinatorSubscriptionController extends Controller
         if (!$checkoutSession) {
             return response()->json([
                 'success' => false,
-                'message' => 'Could not start checkout with PayMongo. Please try again.',
+                'message' => 'Online payment is unavailable right now. Please try again later or choose Bank Transfer.',
             ], 502);
         }
 
@@ -513,7 +517,7 @@ class CoordinatorSubscriptionController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Could not start checkout with PayMongo. Please try again.',
+                'message' => 'Online payment is unavailable right now. Please try again later or choose Bank Transfer.',
             ], 502);
         }
 
@@ -537,6 +541,40 @@ class CoordinatorSubscriptionController extends Controller
             'checkout_url' => $checkoutSession['attributes']['checkout_url'],
             'message'      => 'Redirecting to PayMongo to complete payment…',
         ]);
+    }
+
+    /**
+     * Lets a coordinator back out of an upgrade payment that never completed —
+     * e.g. they closed PayMongo's checkout tab before finishing. Without this,
+     * requestUpgrade()'s "one pending upgrade at a time" guard above leaves them
+     * permanently stuck: they can't retry (blocked by that guard) and can't
+     * finish (the abandoned checkout session is gone). Only cancellable while
+     * nothing is actually under review — a bank-transfer proof already
+     * submitted needs a Super Admin decision, not a coordinator-side undo.
+     */
+    public function cancelPendingUpgrade(int $schoolId): JsonResponse
+    {
+        $school = School::findOrFail($schoolId);
+        $pending = $school->pendingUpgrade();
+
+        if (!$pending) {
+            return response()->json(['success' => true, 'message' => 'No pending upgrade to cancel.']);
+        }
+
+        if ($pending->payment_method === 'bank_transfer' && $pending->payment_status === 'pending_verification') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your bank transfer proof is already submitted and under review — contact the Super Admin if you need to cancel it.',
+            ], 422);
+        }
+
+        $pending->update(['status' => 'cancelled']);
+
+        PaymentTransaction::where('subscription_id', $pending->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'cancelled']);
+
+        return response()->json(['success' => true, 'message' => 'Upgrade cancelled. You can start a new one anytime.']);
     }
 
     /**

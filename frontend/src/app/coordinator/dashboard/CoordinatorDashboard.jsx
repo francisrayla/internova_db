@@ -73,17 +73,17 @@ export default function CoordinatorDashboard() {
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />)
           : stats.map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
-                className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:p-5 hover:border-blue-300 hover:shadow-md"
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                <p className="mt-3 text-3xl font-bold text-slate-900">{item.value}</p>
+                <p className="mt-2 text-2xl font-bold text-slate-900 sm:mt-3 sm:text-3xl">{item.value}</p>
                 <p className={`mt-2 text-xs font-medium ${item.urgent ? "text-red-600" : "text-blue-600"}`}>{item.note}</p>
               </Link>
             ))}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
+import OfflineEntryBadge from "@/components/OfflineEntryBadge";
 
 const STATUS_STYLES = {
   approved: "bg-emerald-100 text-emerald-700",
@@ -44,8 +45,8 @@ function LogAttendanceModal({ interns, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Log attendance</h3>
         <p className="mt-1 text-sm text-slate-500">Logged by you counts as verified — no separate approval needed.</p>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -168,6 +169,8 @@ export default function InternAttendance() {
                   <p className="font-medium text-slate-900">{r.intern_name}</p>
                   <p className="text-xs text-slate-500">
                     {r.attendance_date} · {r.clock_in ?? "—"} to {r.clock_out ?? "—"} {r.hours != null && `(${r.hours}h)`}
+                    {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}
+                    <OfflineEntryBadge record={r} className="ml-1.5" />
                   </p>
                   <div className="mt-0.5 flex gap-3 text-xs text-slate-400">
                     {r.clock_in_location && (

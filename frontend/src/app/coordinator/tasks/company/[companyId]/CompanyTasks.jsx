@@ -7,6 +7,7 @@ import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import DueDateBadge from "@/components/DueDateBadge";
 import TaskHistoryRow from "@/components/TaskHistoryRow";
 
+import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
   pending: "bg-slate-100 text-slate-700",
   in_progress: "bg-blue-100 text-blue-700",
@@ -132,7 +133,7 @@ export default function CompanyTasks() {
       </div>
 
       <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input
+        <input {...inputProps("search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by intern name or task title…"

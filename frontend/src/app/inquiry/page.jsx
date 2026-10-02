@@ -2,8 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import PasswordInput from "@/components/PasswordInput";
+import AddressPicker from "@/components/AddressPicker";
 
-const SCHOOL_TYPES = ["Public Elementary/High School", "Private High School", "Technical/Vocational", "State University/College", "Private College/University", "Other"];
+import { INPUT_RULES } from "@/lib/inputRules";
+// Only school types that actually run OJT/internship programs — basic
+// education (elementary/high school) doesn't, so it's excluded here rather
+// than accepted and rejected later during review.
+const SCHOOL_TYPES = ["Public College/University", "Private College/University", "Technical/Vocational Institution", "Other"];
 const HEARD_FROM = ["Social Media (Facebook, LinkedIn)", "Google Search", "Referral from another school", "Conference / CHED Event", "Colleague / Friend", "Other"];
 const PLANS = ["Basic Plan", "Premium Plan", "Not sure — I need more info", "I'd like a free demo first"];
 const INTERN_RANGES = ["Less than 50", "50 – 100", "101 – 200", "201 – 500", "More than 500"];
@@ -16,26 +22,75 @@ const EMPTY = {
   password: "", password_confirmation: "",
 };
 
-function Field({ label, name, value, onChange, type = "text", placeholder, required }) {
+// Field-specific input constraints, applied both as HTML attributes (maxLength,
+// inputMode) and as a live keystroke filter (onChange) — the attributes alone
+// don't stop someone from pasting or typing letters into a "numbers only"
+// field, so both are needed together.
+// Clamps a digit-only string to `max` numerically, not just by character
+// count — "999" would otherwise pass a maxLength=3 check while still being
+// way over a field whose real ceiling is, say, 500.
+function digitFilter(maxLength, max) {
+  return (v) => {
+    const digits = v.replace(/\D/g, "").slice(0, maxLength);
+    if (digits === "") return "";
+    return String(Math.min(max, parseInt(digits, 10)));
+  };
+}
+
+// Shared presets from lib/inputRules (same rules as every other form);
+// the inquiry-only fields keep their own entries.
+const FIELD_LIMITS = {
+  phone: INPUT_RULES.phone,
+  school_name: INPUT_RULES.orgName,
+  contact_person: INPUT_RULES.fullName,
+  position: INPUT_RULES.position,
+  website: INPUT_RULES.url,
+  email: INPUT_RULES.email,
+  // bcrypt (this app's password hasher) only uses a password's first 72
+  // bytes — anything typed past that is silently ignored at hash time, so
+  // letting someone type further would just mislead them about what their
+  // actual password is.
+  password: INPUT_RULES.password,
+  password_confirmation: INPUT_RULES.password,
+  expected_coordinators: { maxLength: 3, filter: digitFilter(3, 500) },
+};
+
+const errorBorder = "border-red-400 focus:border-red-500 focus:ring-red-100";
+const normalBorder = "border-slate-300 focus:border-blue-500 focus:ring-blue-200";
+
+function Field({ label, name, value, onChange, type = "text", placeholder, required, invalid, invalidMessage, ...rest }) {
+  const InputComponent = type === "password" ? PasswordInput : "input";
+  const limit = FIELD_LIMITS[name];
   return (
     <div>
       <label className="block text-sm font-semibold text-slate-700 mb-1.5">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </label>
-      <input
+      <InputComponent
         type={type}
         name={name}
         value={value}
-        onChange={onChange}
+        onChange={limit?.filter ? (e) => onChange({ target: { name, value: limit.filter(e.target.value).slice(0, limit.maxLength) } }) : onChange}
         placeholder={placeholder}
         required={required}
-        className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+        // Only set the raw maxLength when there's no filter — otherwise the
+        // browser truncates the RAW pasted text before the filter ever runs
+        // (e.g. pasting "+63 917 123 4567" would get chopped to "+63 917 12"
+        // first, losing digits, instead of the filter stripping the non-digit
+        // characters and keeping all 11). The filter enforces its own length.
+        maxLength={limit?.filter ? undefined : limit?.maxLength}
+        inputMode={limit?.inputMode}
+        autoComplete={limit?.autoComplete}
+        className={`w-full rounded-xl border px-4 py-2.5 text-sm outline-none focus:ring-1 ${invalid ? errorBorder : normalBorder}`}
+        {...rest}
       />
+      {invalid && <p className="mt-1 text-xs font-medium text-red-600">{invalidMessage || "This field is required."}</p>}
+      {name === "phone" && !invalid && <p className="mt-1 text-xs text-slate-400">11 digits, e.g. 09171234567.</p>}
     </div>
   );
 }
 
-function Select({ label, name, value, onChange, options, required }) {
+function Select({ label, name, value, onChange, options, required, invalid }) {
   return (
     <div>
       <label className="block text-sm font-semibold text-slate-700 mb-1.5">
@@ -46,27 +101,47 @@ function Select({ label, name, value, onChange, options, required }) {
         value={value}
         onChange={onChange}
         required={required}
-        className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500 appearance-none"
+        className={`w-full rounded-xl border px-4 py-2.5 text-sm outline-none appearance-none ${invalid ? errorBorder : normalBorder}`}
       >
         <option value="">Select an option…</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
+      {invalid && <p className="mt-1 text-xs font-medium text-red-600">This field is required.</p>}
     </div>
   );
 }
+
+const REQUIRED_FIELDS = [
+  "school_name", "school_type", "address", "contact_person", "position",
+  "email", "phone", "intern_range", "interested_plan", "message",
+  "password", "password_confirmation",
+];
 
 export default function InquiryPage() {
   const [form, setForm] = useState(EMPTY);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const [error, setError] = useState("");
   const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
+  const isInvalid = (name) => submitAttempted && !form[name].trim();
+
   function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setSubmitAttempted(true);
 
+    const missing = REQUIRED_FIELDS.some((name) => !form[name].trim());
+    if (missing) {
+      setError("Please fill in all required fields, marked in red below.");
+      return;
+    }
+    if (form.phone.length !== 11) {
+      setError("Contact number must be exactly 11 digits.");
+      return;
+    }
     if (form.password.length < 8) {
       setError("Password must be at least 8 characters.");
       return;
@@ -105,11 +180,12 @@ export default function InquiryPage() {
             Thank you, <strong>{form.contact_person}</strong>! We have received your registration for <strong>{form.school_name}</strong>.
           </p>
           <p className="mt-2 text-sm text-slate-500">
-            You can log in anytime using <strong>{form.email}</strong> and the password you just created to check your approval status.
+            We sent a 6-digit verification code to <strong>{form.email}</strong> — verify it before you can log in.
           </p>
           <div className="mt-6 rounded-2xl bg-blue-50 p-4 text-sm text-blue-800 text-left space-y-1">
             <p className="font-semibold">What happens next?</p>
             <ol className="list-decimal list-inside space-y-1 text-blue-700 mt-1">
+              <li>Verify your email with the code we just sent</li>
               <li>Our team reviews your registration (usually within 1–2 business days)</li>
               <li>We may reach out to discuss your needs and plan</li>
               <li>Once approved, your school account is created</li>
@@ -119,10 +195,10 @@ export default function InquiryPage() {
           </div>
           <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
             <Link
-              href="/login"
+              href={`/verify-email?email=${encodeURIComponent(form.email)}`}
               className="inline-block rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              Log In Now
+              Verify Your Email
             </Link>
             <Link
               href="/"
@@ -147,7 +223,7 @@ export default function InquiryPage() {
         {/* Brand header */}
         <div className="text-center mb-8 mt-4">
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 mb-4">
-            🎓 Internova AI — Internship Management Platform
+            🎓 Internova — Internship Management Platform
           </div>
           <h1 className="text-3xl font-bold text-slate-900">School Registration</h1>
           <p className="mt-2 text-slate-600 max-w-lg mx-auto">
@@ -179,27 +255,43 @@ export default function InquiryPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} noValidate className="space-y-6">
 
           {/* School info */}
           <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-900">School Information</h3>
-            <Field label="School Name" name="school_name" value={form.school_name} onChange={handleChange} placeholder="e.g. PMFTCI" required />
-            <Select label="School Type" name="school_type" value={form.school_type} onChange={handleChange} options={SCHOOL_TYPES} required />
-            <Field label="Complete Address" name="address" value={form.address} onChange={handleChange} placeholder="City, Province" required />
-            <Field label="School Website" name="website" value={form.website} onChange={handleChange} placeholder="www.yourschool.edu.ph (optional)" />
+            <Field label="School Name" name="school_name" value={form.school_name} onChange={handleChange} placeholder="e.g. PMFTCI" required invalid={isInvalid("school_name")} />
+            <Select label="School Type" name="school_type" value={form.school_type} onChange={handleChange} options={SCHOOL_TYPES} required invalid={isInvalid("school_type")} />
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Complete Address<span className="ml-0.5 text-red-500">*</span>
+              </label>
+              <AddressPicker onChange={(value) => setForm((f) => ({ ...f, address: value }))} invalid={isInvalid("address")} />
+              {isInvalid("address") && <p className="mt-1 text-xs font-medium text-red-600">Complete the address above.</p>}
+            </div>
+            <Field label="School Website" name="website" value={form.website} onChange={handleChange} type="url" placeholder="www.yourschool.edu.ph (optional)" />
           </div>
 
           {/* Contact person */}
           <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-900">Contact Person</h3>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Full Name" name="contact_person" value={form.contact_person} onChange={handleChange} placeholder="Juan Dela Cruz" required />
-              <Field label="Position / Title" name="position" value={form.position} onChange={handleChange} placeholder="OJT Coordinator" required />
+              <Field label="Full Name" name="contact_person" value={form.contact_person} onChange={handleChange} placeholder="Juan Dela Cruz" required invalid={isInvalid("contact_person")} />
+              <Field label="Position / Title" name="position" value={form.position} onChange={handleChange} placeholder="OJT Coordinator" required invalid={isInvalid("position")} />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Email Address" name="email" value={form.email} onChange={handleChange} type="email" placeholder="your@email.edu.ph" required />
-              <Field label="Contact Number" name="phone" value={form.phone} onChange={handleChange} placeholder="09XX-XXX-XXXX" required />
+              <Field label="Email Address" name="email" value={form.email} onChange={handleChange} type="email" placeholder="your@email.edu.ph" required invalid={isInvalid("email")} />
+              <Field
+                label="Contact Number"
+                name="phone"
+                value={form.phone}
+                onChange={handleChange}
+                type="tel"
+                placeholder="09XX-XXX-XXXX"
+                required
+                invalid={isInvalid("phone") || (submitAttempted && form.phone.length > 0 && form.phone.length !== 11)}
+                invalidMessage={form.phone && form.phone.length !== 11 ? "Must be exactly 11 digits." : undefined}
+              />
             </div>
           </div>
 
@@ -212,8 +304,8 @@ export default function InquiryPage() {
               </p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Password" name="password" value={form.password} onChange={handleChange} type="password" placeholder="At least 8 characters" required />
-              <Field label="Confirm Password" name="password_confirmation" value={form.password_confirmation} onChange={handleChange} type="password" placeholder="Re-enter password" required />
+              <Field label="Password" name="password" value={form.password} onChange={handleChange} type="password" placeholder="At least 8 characters" required invalid={isInvalid("password")} />
+              <Field label="Confirm Password" name="password_confirmation" value={form.password_confirmation} onChange={handleChange} type="password" placeholder="Re-enter password" required invalid={isInvalid("password_confirmation")} />
             </div>
           </div>
 
@@ -221,10 +313,10 @@ export default function InquiryPage() {
           <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-semibold text-slate-900">Program Details</h3>
             <div className="grid gap-4 md:grid-cols-2">
-              <Select label="Expected Number of Interns (per semester)" name="intern_range" value={form.intern_range} onChange={handleChange} options={INTERN_RANGES} required />
-              <Field label="Number of OJT Coordinators" name="expected_coordinators" value={form.expected_coordinators} onChange={handleChange} placeholder="e.g. 3" />
+              <Select label="Expected Number of Interns (per semester)" name="intern_range" value={form.intern_range} onChange={handleChange} options={INTERN_RANGES} required invalid={isInvalid("intern_range")} />
+              <Field label="Number of OJT Coordinators" name="expected_coordinators" value={form.expected_coordinators} onChange={handleChange} inputMode="numeric" placeholder="e.g. 3" />
             </div>
-            <Select label="Which plan are you interested in?" name="interested_plan" value={form.interested_plan} onChange={handleChange} options={PLANS} required />
+            <Select label="Which plan are you interested in?" name="interested_plan" value={form.interested_plan} onChange={handleChange} options={PLANS} required invalid={isInvalid("interested_plan")} />
             <Select label="How did you hear about Internova?" name="heard_from" value={form.heard_from} onChange={handleChange} options={HEARD_FROM} />
           </div>
 
@@ -241,9 +333,11 @@ export default function InquiryPage() {
                 onChange={handleChange}
                 required
                 rows={5}
+                maxLength={2000}
                 placeholder="Tell us about your school's internship program, any specific questions, or request for a demo and quotation…"
-                className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200 resize-none"
+                className={`w-full rounded-xl border px-4 py-2.5 text-sm outline-none focus:ring-1 resize-none ${isInvalid("message") ? errorBorder : normalBorder}`}
               />
+              {isInvalid("message") && <p className="mt-1 text-xs font-medium text-red-600">This field is required.</p>}
             </div>
           </div>
 

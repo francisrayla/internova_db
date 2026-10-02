@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,33 @@ class AuthController extends Controller
 
         if (!$user || !$user->password || !Hash::check($data['password'], $user->password)) {
             return response()->json(['success' => false, 'message' => 'Invalid email or password.'], 401);
+        }
+
+        // Self-registered accounts (the public Inquiry form) start with
+        // email_verified_at null and stay that way until the code emailed
+        // at signup is entered — see EmailVerificationController. Invited
+        // accounts (supervisors/interns) are already verified by the time
+        // they set a password, since clicking the invite link proves the
+        // same thing (see InvitationController::accept()).
+        if (!$user->email_verified_at) {
+            return response()->json([
+                'success'          => false,
+                'needsVerification'=> true,
+                'message'          => 'Please verify your email before logging in. Check your inbox for the code we sent you.',
+            ], 403);
+        }
+
+        // The login route can't go through EnforceMaintenanceMode (nothing to
+        // check who's signing in until credentials are verified, right
+        // above) — so it does the same Super-Admin-only check itself, right
+        // here, once it actually knows. A Super Admin can always still log
+        // in to turn maintenance back off.
+        if (Setting::value('maintenance_mode', '0') === '1' && (int) $user->role_id !== 1) {
+            return response()->json([
+                'success'     => false,
+                'maintenance' => true,
+                'message'     => 'Internova is currently undergoing maintenance. Please check back shortly.',
+            ], 503);
         }
 
         // Replace any tokens from previous sessions — a fresh login shouldn't
@@ -66,9 +94,30 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Password updated.']);
     }
 
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'first_name' => 'required|string|max:100',
+            'last_name'  => 'required|string|max:100',
+            'phone'      => 'nullable|string|regex:/^[0-9]{11}$/',
+        ]);
+
+        $user = $request->user();
+        $user->update([
+            'first_name' => trim($data['first_name']),
+            'last_name'  => trim($data['last_name']),
+            // Kept in sync since some views still read the plain `name`
+            // column as a fallback (see buildUserPayload below).
+            'name'       => trim("{$data['first_name']} {$data['last_name']}"),
+            'phone'      => $data['phone'] ?? null,
+        ]);
+
+        return response()->json(['success' => true, 'user' => $this->buildUserPayload($user->fresh())]);
+    }
+
     public function uploadAvatar(Request $request): JsonResponse
     {
-        $request->validate(['avatar' => 'required|image|mimes:jpg,jpeg,png,webp|max:3072']);
+        $request->validate(['avatar' => 'required|image|mimes:jpg,jpeg,png,webp,gif|max:3072']);
 
         $user = $request->user();
 
@@ -133,6 +182,9 @@ class AuthController extends Controller
         return [
             'id'         => $user->id,
             'name'       => trim("{$user->first_name} {$user->last_name}") ?: $user->name,
+            'first_name' => $user->first_name,
+            'last_name'  => $user->last_name,
+            'phone'      => $user->phone,
             'email'      => $user->email,
             'avatar_url' => $user->avatar_url,
             'role'       => $user->roles?->name,
@@ -152,6 +204,12 @@ class AuthController extends Controller
             'payment_method'      => $subscription?->payment_method,
             'payment_status'      => $subscription?->payment_status,
             'payment_reference'   => $subscription?->payment_reference,
+            // What this school's current plan actually unlocks — see
+            // App\Services\PlanFeatures. Frontend gates use this directly
+            // (e.g. plan_features.includes('Subtasks')); every gated backend
+            // endpoint re-checks it independently, since hiding a control
+            // client-side is never the real enforcement.
+            'plan_features'       => $subscription?->plan?->features ?? [],
             'pending_upgrade'     => $pendingUpgrade ? [
                 'plan'            => $pendingUpgrade->plan?->name,
                 'billing_period'  => $pendingUpgrade->billing_period,

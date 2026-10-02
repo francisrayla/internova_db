@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class SupportTicketMessage extends Model
 {
-    protected $fillable = ['ticket_id', 'sender_id', 'message'];
+    protected $fillable = ['ticket_id', 'sender_id', 'message', 'attachment_path', 'attachment_name', 'attachment_type', 'attachment_size'];
 
     public function ticket()
     {

@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 export async function POST(request, { params }) {
   const { token } = await params;
   const body = await request.text();
 
-  const response = await fetch(`http://127.0.0.1:8000/api/invitations/${token}/accept`, {
+  const response = await fetch(`${BACKEND_URL}/api/invitations/${token}/accept`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { apiFetch } from "@/lib/apiFetch";
 
+import { inputProps } from "@/lib/inputRules";
 export default function SystemSettingsPage() {
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,9 +64,9 @@ export default function SystemSettingsPage() {
             <div key={setting.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="font-semibold text-slate-900">{setting.name}</p>
               <p className="mt-1 text-sm text-slate-600">{setting.description}</p>
-              {setting.key === "maintenance_mode" && (
+              {setting.key === "maintenance_mode" && setting.value && (
                 <p className="mt-2 text-xs font-medium text-amber-600">
-                  Recorded here, but not yet enforced platform-wide — turning this on won&apos;t block access yet.
+                  Live now — every school and role except Super Admin sees a maintenance page until this is turned off.
                 </p>
               )}
 
@@ -84,7 +85,7 @@ export default function SystemSettingsPage() {
                   </button>
                 ) : (
                   <div className="flex gap-2">
-                    <input
+                    <input {...inputProps("settingValue")}
                       type="text"
                       value={drafts[setting.key] ?? ""}
                       onChange={(e) => setDrafts((d) => ({ ...d, [setting.key]: e.target.value }))}

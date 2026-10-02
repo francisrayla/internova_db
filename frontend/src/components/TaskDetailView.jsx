@@ -9,6 +9,7 @@ import DueDateBadge from "@/components/DueDateBadge";
 import ProofUploadModal from "@/components/ProofUploadModal";
 import ProofPreviewModal from "@/components/ProofPreviewModal";
 
+import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
   pending: "bg-slate-100 text-slate-700",
   in_progress: "bg-blue-100 text-blue-700",
@@ -70,13 +71,13 @@ function CommentThread({ comments, onSubmit, placeholder }) {
         </div>
       )}
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
+        <input {...inputProps("comment")}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={placeholder}
-          className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
-        <button type="submit" disabled={sending || !text.trim()} className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+        <button type="submit" disabled={sending || !text.trim()} className="shrink-0 rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
           {sending ? "…" : "Post"}
         </button>
       </form>
@@ -124,7 +125,7 @@ function SubtaskAssigneePicker({ candidates, selected, onChange }) {
             </button>
           </span>
         ))}
-        <input
+        <input {...inputProps("search")}
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
@@ -182,14 +183,14 @@ function AddSubtaskForm({ assignees, onAdd }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <input
+      <input {...inputProps("title")}
         value={form.title}
         onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
         placeholder="Subtask title"
         className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
         autoFocus
       />
-      <textarea
+      <textarea {...inputProps("longText")}
         value={form.description}
         onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
         placeholder="Description (optional)"
@@ -266,7 +267,7 @@ function RatingForm({ onSubmit }) {
         </div>
         <label className="block text-xs">
           <span className="mb-1.5 block font-semibold text-purple-900">Comments</span>
-          <textarea
+          <textarea {...inputProps("longText")}
             value={comments}
             onChange={(e) => setComments(e.target.value)}
             rows={3}
@@ -374,7 +375,7 @@ function SelectedSubtaskPanel({ subtask, onComment, onDelete, canManage, onPrevi
  * with zero subtasks falls back to a plain status control for the intern,
  * since there's nothing to drag yet.
  */
-export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel, resolveBackHref, canAddSubtask, canChangeStatus = false, canRate = false }) {
+export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel, resolveBackHref, canAddSubtask, canChangeStatus = false, canRate = false, requireProof = true }) {
   const params = useParams();
   const router = useRouter();
   const taskId = params.taskId ?? params.id;
@@ -399,8 +400,14 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   async function updateTaskStatus(status) {
     // Marking done needs proof first — open the modal instead of PATCHing
     // directly (the backend rejects a direct "completed" here anyway).
+    // Schools without the Attachments feature skip the modal entirely and
+    // complete straight away, since there's nothing to attach.
     if (status === "completed") {
-      setCompletingTarget({ type: "task", id: taskId, title: task.title });
+      if (requireProof) {
+        setCompletingTarget({ type: "task", id: taskId, title: task.title });
+      } else {
+        completeWithoutProof("task", taskId);
+      }
       return;
     }
     setTask((t) => ({ ...t, status }));
@@ -414,7 +421,12 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   async function updateSubtaskStatus(subtaskId, status) {
     if (status === "completed") {
       const subtask = task.subtasks.find((s) => s.id === subtaskId);
-      if (subtask) setCompletingTarget({ type: "subtask", id: subtaskId, title: subtask.title });
+      if (!subtask) return;
+      if (requireProof) {
+        setCompletingTarget({ type: "subtask", id: subtaskId, title: subtask.title });
+      } else {
+        completeWithoutProof("subtask", subtaskId);
+      }
       return;
     }
     setTask((t) => ({ ...t, subtasks: t.subtasks.map((s) => (s.id === subtaskId ? { ...s, status } : s)) }));
@@ -443,6 +455,19 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
     if (!res.ok || !data.success) throw new Error(data.message || "Could not mark this as done.");
     setCompletingTarget(null);
     load();
+  }
+
+  async function completeWithoutProof(type, id) {
+    const endpoint = type === "task" ? `${apiBase}/tasks/${id}/complete` : `${apiBase}/subtasks/${id}/complete`;
+    try {
+      const res = await apiFetch(endpoint, { method: "POST", body: new FormData() });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Could not mark this as done.");
+      load();
+    } catch (err) {
+      setError(err.message);
+      load();
+    }
   }
 
   async function addTaskComment(text) {
@@ -511,7 +536,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   const canManageSubtasks = task ? (typeof canAddSubtask === "function" ? canAddSubtask(task) : canAddSubtask) : false;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 sm:p-2 lg:p-6">
       <Link href={resolvedBackHref} className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700">
         ← {backLabel}
       </Link>
@@ -524,7 +549,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
         <p className="text-sm text-slate-400">Task not found.</p>
       ) : (
         <>
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -563,7 +588,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                   <p className="text-sm font-medium text-purple-800">Every subtask is done — mark the whole task complete to send it for the supervisor&apos;s rating.</p>
                   <button
                     type="button"
-                    onClick={() => setCompletingTarget({ type: "task", id: taskId, title: task.title })}
+                    onClick={() => (requireProof ? setCompletingTarget({ type: "task", id: taskId, title: task.title }) : completeWithoutProof("task", taskId))}
                     className="shrink-0 rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700"
                   >
                     Mark task complete

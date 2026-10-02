@@ -25,7 +25,7 @@
   <div class="wrapper">
     <div class="card">
       <div class="header">
-        <h1>Internova AI</h1>
+        <h1>Internova</h1>
         <p>Internship Management Platform</p>
       </div>
       <div class="body">
@@ -40,7 +40,7 @@
         </div>
         <p class="fallback">Or copy this link into your browser: {{ $acceptUrl }}</p>
         <p>This invitation link expires in {{ $expiresInDays }} days. If you did not expect this email, you can safely ignore it.</p>
-        <p style="margin-top: 24px;">Best regards,<br><strong>Internova AI Team</strong></p>
+        <p style="margin-top: 24px;">Best regards,<br><strong>Internova Team</strong></p>
       </div>
       <div class="footer">
         <p>

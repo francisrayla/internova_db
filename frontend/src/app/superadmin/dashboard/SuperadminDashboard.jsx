@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [schools, setSchools] = useState([]);
   const [inquiries, setInquiries] = useState([]);
   const [activity, setActivity] = useState([]);
+  const [aiUsage, setAiUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const echoChannelRef = useRef(null);
@@ -33,11 +34,14 @@ export default function DashboardPage() {
       fetchSuperadminData("schools"),
       fetchSuperadminData("plan-inquiries"),
       fetchSuperadminData("activity-logs"),
+      // Optional — the dashboard still loads if this one fails.
+      fetchSuperadminData("ai-usage").catch(() => null),
     ])
-      .then(([schoolsRes, inquiriesRes, activityRes]) => {
+      .then(([schoolsRes, inquiriesRes, activityRes, aiRes]) => {
         setSchools(schoolsRes.schools ?? []);
         setInquiries(inquiriesRes.inquiries ?? []);
         setActivity(activityRes.logs ?? []);
+        setAiUsage(aiRes);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -79,10 +83,10 @@ export default function DashboardPage() {
   }, 0);
 
   const pendingInquiries = inquiries.filter((i) => ACTIVE_INQUIRY_STATUSES.includes(i.status));
-  // Pending ones need a decision — surface those first, then fill any remaining
-  // slots with the most recent resolved ones so the widget isn't ever empty.
-  const resolvedInquiries = inquiries.filter((i) => !ACTIVE_INQUIRY_STATUSES.includes(i.status));
-  const recentInquiries = [...pendingInquiries, ...resolvedInquiries].slice(0, 3);
+  // `inquiries` already comes back newest-first (see SuperadminFullController::planInquiries),
+  // so the widget just takes the 3 most recent submissions regardless of status — a status-first
+  // grouping would otherwise bury a brand-new inquiry behind an older one still pending review.
+  const recentInquiries = inquiries.slice(0, 3);
 
   const expiringSoon = schools
     .filter((s) => s.days_until_expiry !== null && s.days_until_expiry !== undefined && s.days_until_expiry >= 0 && s.days_until_expiry <= 30)
@@ -126,7 +130,7 @@ export default function DashboardPage() {
       </section>
 
       {/* KPI cards */}
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
@@ -135,10 +139,10 @@ export default function DashboardPage() {
               <Link
                 key={item.label}
                 href={item.href}
-                className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm outline-none sm:p-5 transition hover:border-blue-300 hover:shadow-md focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-200"
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                <p className="mt-3 text-3xl font-bold text-slate-900">{item.value}</p>
+                <p className="mt-2 text-2xl font-bold text-slate-900 sm:mt-3 sm:text-3xl">{item.value}</p>
                 <p className={`mt-2 text-xs font-medium ${item.urgent ? "text-red-600" : "text-blue-600"}`}>{item.note}</p>
               </Link>
             ))}
@@ -155,9 +159,11 @@ export default function DashboardPage() {
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI Requests This Month</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">0</p>
+          <p className="mt-3 text-3xl font-bold text-slate-900">
+            {aiUsage ? (aiUsage.polished_count ?? 0) + (aiUsage.drafted_count ?? 0) : "—"}
+          </p>
           <Link href="/superadmin/ai-usage" className="mt-1 text-xs text-blue-600 hover:underline">
-            AI generation isn&apos;t live yet — view entitlement →
+            {aiUsage?.feature_live ? "Narratives polished and drafted — view usage →" : "AI isn't set up yet — view details →"}
           </Link>
         </div>
       </section>
@@ -257,15 +263,21 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-500">No activity recorded yet.</p>
           ) : (
             activity.slice(0, 5).map((item) => (
-              <div key={item.id} className="flex items-start gap-3 rounded-xl bg-slate-50 px-4 py-3">
-                <span className="mt-0.5 h-2 w-2 flex-shrink-0 rounded-full bg-blue-400" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-900">{item.action}</p>
-                  <p className="text-xs text-slate-500">
-                    {item.description}{item.school ? ` · ${item.school}` : ""}
-                  </p>
+              // Stacked below sm: — with no flex-wrap at all, the timestamp
+              // (shrink-0, ~150px) shared one line with the flex-1 text
+              // column no matter how little room was left, squeezing
+              // "Updated Maintenance Mode" down to a few characters per line.
+              <div key={item.id} className="flex flex-col gap-1 rounded-xl bg-slate-50 px-4 py-3 sm:flex-row sm:items-start sm:gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-blue-400" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900">{item.action}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.description}{item.school ? ` · ${item.school}` : ""}
+                    </p>
+                  </div>
                 </div>
-                <span className="shrink-0 text-xs text-slate-400">{item.timestamp}</span>
+                <span className="shrink-0 pl-5 text-xs text-slate-400 sm:pl-0">{item.timestamp}</span>
               </div>
             ))
           )}

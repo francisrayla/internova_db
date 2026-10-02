@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { forwardHeaders } from '@/lib/serverProxy';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 export async function POST(request, { params }) {
   const { id } = await params;
@@ -9,7 +10,7 @@ export async function POST(request, { params }) {
   const file = incomingForm.get('proof');
   if (file) forwardForm.append('proof', file, file.name);
 
-  const response = await fetch(`http://127.0.0.1:8000/api/coordinator/schools/${id}/upload-proof`, {
+  const response = await fetch(`${BACKEND_URL}/api/coordinator/schools/${id}/upload-proof`, {
     method: 'POST',
     headers: forwardHeaders(request),
     body: forwardForm,

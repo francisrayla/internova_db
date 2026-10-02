@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
 import { apiFetch } from "@/lib/apiFetch";
+import { clampOnBlur } from "@/lib/clampNumber";
 
+import { inputProps, cleanNumber } from "@/lib/inputRules";
 // Canonical feature catalog — the checkboxes in the Edit modal are built from
 // this list, but a plan's actual entitlements are whatever's saved in its
 // `features` column, not this list itself.
@@ -28,8 +30,8 @@ function peso(amount) {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
@@ -168,9 +170,14 @@ export default function PlansPage() {
         <div className="grid gap-6 md:grid-cols-2">
           {plans.map((plan) => (
             <div key={plan.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              {/* min-w-0 on the text side matters here specifically because
+                  the price row below has two side-by-side blocks with no
+                  wrap — without it, that row's natural width pushed this
+                  whole card (and the page) wider than the viewport on
+                  narrow screens instead of wrapping or shrinking. */}
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-2xl font-bold text-slate-900">{plan.name}</h3>
                     <span
                       className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
@@ -181,7 +188,7 @@ export default function PlansPage() {
                     </span>
                   </div>
                   {plan.description && <p className="mt-1 text-sm text-slate-500">{plan.description}</p>}
-                  <div className="mt-3 flex items-baseline gap-4">
+                  <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
                     <div>
                       <span className="text-2xl font-semibold text-blue-700">{peso(plan.monthly_price)}</span>
                       <span className="ml-1 text-sm text-slate-500">/month</span>
@@ -220,7 +227,7 @@ export default function PlansPage() {
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">Description</label>
-              <textarea
+              <textarea {...inputProps("note")}
                 value={editing.description}
                 onChange={(e) => setEditing((ed) => ({ ...ed, description: e.target.value }))}
                 rows={2}
@@ -231,20 +238,24 @@ export default function PlansPage() {
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Monthly price (₱)</label>
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   value={editing.monthly_price}
-                  onChange={(e) => setEditing((ed) => ({ ...ed, monthly_price: e.target.value }))}
+                  onChange={(e) => setEditing((ed) => ({ ...ed, monthly_price: cleanNumber(e.target.value, { max: 1000000, decimals: 2 }) }))}
+                  onBlur={(e) => setEditing((ed) => ({ ...ed, monthly_price: clampOnBlur(e.target.value, 0, 1000000) }))}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Yearly price (₱)</label>
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
                   value={editing.yearly_price}
-                  onChange={(e) => setEditing((ed) => ({ ...ed, yearly_price: e.target.value }))}
+                  onChange={(e) => setEditing((ed) => ({ ...ed, yearly_price: cleanNumber(e.target.value, { max: 10000000, decimals: 2, maxDigits: 8 }) }))}
+                  onBlur={(e) => setEditing((ed) => ({ ...ed, yearly_price: clampOnBlur(e.target.value, 0, 10000000) }))}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
               </div>

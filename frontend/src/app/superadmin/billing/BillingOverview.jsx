@@ -5,11 +5,13 @@ import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
 import { apiFetch } from "@/lib/apiFetch";
+import { clampOnBlur } from "@/lib/clampNumber";
 
+import { inputProps, cleanNumber } from "@/lib/inputRules";
 function Modal({ title, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
@@ -154,10 +156,12 @@ function PlanChangeRequests({ showToast, reloadKey }) {
             <label className="block text-sm">
               <span className="mb-1 block font-semibold text-slate-700">Discount Amount (optional)</span>
               <input
-                type="number"
-                min="0"
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
                 value={discount}
-                onChange={(e) => setDiscount(e.target.value)}
+                onChange={(e) => setDiscount(cleanNumber(e.target.value, { max: Number(reviewing.list_price ?? 0), decimals: 2 }))}
+                onBlur={(e) => setDiscount(clampOnBlur(e.target.value, 0, Number(reviewing.list_price ?? 0)))}
                 placeholder="0"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
@@ -166,7 +170,7 @@ function PlanChangeRequests({ showToast, reloadKey }) {
               <span className="mb-1 block font-semibold text-slate-700">
                 Agreement Note {Number(discount || 0) > 0 && <span className="text-red-500">*</span>}
               </span>
-              <textarea
+              <textarea {...inputProps("note")}
                 rows={2}
                 required={Number(discount || 0) > 0}
                 value={agreementNote}
@@ -264,20 +268,20 @@ export default function BillingPage() {
     <div className="space-y-6">
       {toast && <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 px-5 py-3 text-sm text-white shadow-lg">{toast}</div>}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active Subscriptions</p>
           <p className="mt-2 text-2xl font-bold text-slate-900">{activeSchools.length}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Est. Monthly Revenue</p>
           <p className="mt-2 text-2xl font-bold text-slate-900">₱{monthlyRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending Payment</p>
           <p className="mt-2 text-2xl font-bold text-slate-900">{pendingCount}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paused</p>
           <p className="mt-2 text-2xl font-bold text-slate-900">{pausedCount}</p>
         </div>
@@ -293,60 +297,98 @@ export default function BillingPage() {
             Live{lastLiveUpdate ? ` — updated ${lastLiveUpdate.toLocaleTimeString()}` : ""}
           </span>
         </div>
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50">
-            <tr>
-              {["School", "Plan", "Payment", "Subscription", "Expiry", "Action"].map((h) => (
-                <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {loading ? (
-              <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500">Loading schools…</td></tr>
-            ) : schools.length === 0 ? (
-              <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500">No schools found</td></tr>
-            ) : (
-              schools.map((school) => (
-                <tr key={school.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4 font-medium text-slate-900">
-                    {school.name}
-                    {school.is_suspended && (
-                      <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">⏸ Paused</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">
-                    {school.plan}
-                    {school.amount != null && (
-                      <span className="block text-xs text-slate-400">
-                        ₱{Number(school.amount).toLocaleString()} / {school.billing_period === "monthly" ? "mo" : "yr"}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${PAYMENT_STYLE[school.payment] ?? "bg-slate-100 text-slate-500"}`}>
-                      {school.payment === "paid" ? "Paid" : "Unpaid"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${SUBSCRIPTION_STYLE[school.subscription_status] ?? "bg-slate-100 text-slate-500"}`}>
-                      {String(school.subscription_status ?? "—").replace(/_/g, " ")}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">{school.expiry}</td>
-                  <td className="px-6 py-4">
+        {loading ? (
+          <p className="px-6 py-8 text-center text-sm text-slate-500">Loading schools…</p>
+        ) : schools.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-slate-500">No schools found</p>
+        ) : (
+          <>
+            <div className="divide-y divide-slate-100 sm:hidden">
+              {schools.map((school) => (
+                <div key={school.id} className="px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="truncate font-medium text-slate-900">
+                      {school.name}
+                      {school.is_suspended && (
+                        <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">⏸ Paused</span>
+                      )}
+                    </p>
                     <Link
                       href={`/superadmin/schools?highlight=${school.id}`}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
                       Manage →
                     </Link>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${PAYMENT_STYLE[school.payment] ?? "bg-slate-100 text-slate-500"}`}>
+                      {school.payment === "paid" ? "Paid" : "Unpaid"}
+                    </span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${SUBSCRIPTION_STYLE[school.subscription_status] ?? "bg-slate-100 text-slate-500"}`}>
+                      {String(school.subscription_status ?? "—").replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {school.plan}
+                    {school.amount != null && ` · ₱${Number(school.amount).toLocaleString()} / ${school.billing_period === "monthly" ? "mo" : "yr"}`}
+                    {school.expiry && ` · Expires ${school.expiry}`}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    {["School", "Plan", "Payment", "Subscription", "Expiry", "Action"].map((h) => (
+                      <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {schools.map((school) => (
+                    <tr key={school.id} className="hover:bg-slate-50">
+                      <td className="px-6 py-4 font-medium text-slate-900">
+                        {school.name}
+                        {school.is_suspended && (
+                          <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">⏸ Paused</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {school.plan}
+                        {school.amount != null && (
+                          <span className="block text-xs text-slate-400">
+                            ₱{Number(school.amount).toLocaleString()} / {school.billing_period === "monthly" ? "mo" : "yr"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${PAYMENT_STYLE[school.payment] ?? "bg-slate-100 text-slate-500"}`}>
+                          {school.payment === "paid" ? "Paid" : "Unpaid"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${SUBSCRIPTION_STYLE[school.subscription_status] ?? "bg-slate-100 text-slate-500"}`}>
+                          {String(school.subscription_status ?? "—").replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{school.expiry}</td>
+                      <td className="px-6 py-4">
+                        <Link
+                          href={`/superadmin/schools?highlight=${school.id}`}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Manage →
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

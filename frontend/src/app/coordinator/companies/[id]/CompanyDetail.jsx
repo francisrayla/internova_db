@@ -6,7 +6,9 @@ import { useParams, useRouter } from "next/navigation";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import AddInternModal from "@/components/AddInternModal";
+import { clampOnBlur } from "@/lib/clampNumber";
 
+import { clean, inputProps, cleanNumber } from "@/lib/inputRules";
 const STATUS_STYLES = {
   active: "bg-emerald-100 text-emerald-700",
   pending: "bg-amber-100 text-amber-700",
@@ -66,26 +68,26 @@ function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Edit company</h3>
         <form onSubmit={(e) => { e.preventDefault(); save(); }} className="mt-4 space-y-4">
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Company name</span>
-            <input value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+            <input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Address</span>
-            <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+            <input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Contact email</span>
-              <input type="email" value={form.contact_email} onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("email")} type="email" value={form.contact_email} onChange={(e) => setForm((f) => ({ ...f, contact_email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Contact number</span>
-              <input value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("phone")} type="tel" value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: clean("phone", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
           </div>
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -116,7 +118,8 @@ function AddSupervisorModal({ companyId, companyName, onClose, onSaved }) {
   const [form, setForm] = useState({ first_name: "", last_name: "", email: "", position: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [invited, setInvited] = useState(false);
+  const [created, setCreated] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -133,7 +136,7 @@ function AddSupervisorModal({ companyId, companyName, onClose, onSaved }) {
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not add supervisor.");
-      setInvited(true);
+      setCreated({ email: data.email, password: data.temporary_password });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -141,15 +144,38 @@ function AddSupervisorModal({ companyId, companyName, onClose, onSaved }) {
     }
   }
 
-  if (invited) {
+  async function copyCredentials() {
+    const text = `Email: ${created.email}\nPassword: ${created.password}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  if (created) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-        <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
-          <h3 className="text-lg font-semibold text-slate-900">Invitation sent</h3>
+      <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+        <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+          <h3 className="text-lg font-semibold text-slate-900">Supervisor account created</h3>
           <p className="mt-1 text-sm text-slate-600">
-            We emailed <span className="font-medium text-slate-900">{form.email}</span> a link to set their own password and activate their account.
+            The account is active right away. Share these sign-in details with the supervisor yourself — this password is shown only once and can&apos;t be viewed again after you close this window.
           </p>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">Email</span>
+              <span className="font-medium text-slate-900">{created.email}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">Temporary password</span>
+              <span className="font-mono font-semibold text-slate-900">{created.password}</span>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button type="button" onClick={copyCredentials} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              {copied ? "Copied!" : "Copy details"}
+            </button>
             <button type="button" onClick={onSaved} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Done</button>
           </div>
         </div>
@@ -158,25 +184,25 @@ function AddSupervisorModal({ companyId, companyName, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Add a supervisor</h3>
         <p className="mt-1 text-sm text-slate-500">At {companyName}</p>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">First name</span>
-              <input value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("personName")} value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Last name</span>
-              <input value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("personName")} value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
           </div>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-            <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="supervisor@example.com" />
-            <span className="mt-1 block text-xs text-slate-400">They&apos;ll get an email here to set their own password and activate the account.</span>
+            <input {...inputProps("email")} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="supervisor@example.com" />
+            <span className="mt-1 block text-xs text-slate-400">Used as their sign-in email. The account is created active with a password you&apos;ll hand them yourself.</span>
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Position</span>
@@ -189,7 +215,7 @@ function AddSupervisorModal({ companyId, companyName, onClose, onSaved }) {
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Sending invite…" : "Send invite"}</button>
+            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Creating…" : "Create account"}</button>
           </div>
         </form>
       </div>
@@ -249,23 +275,23 @@ function EditSupervisorModal({ supervisor, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Edit supervisor</h3>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">First name</span>
-              <input value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("personName")} value={form.first_name} onChange={(e) => setForm((f) => ({ ...f, first_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Last name</span>
-              <input value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input {...inputProps("personName")} value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
           </div>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-            <input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+            <input {...inputProps("email")} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Position</span>
@@ -381,8 +407,8 @@ function ManageDeploymentModal({ intern, currentCompanyId, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Manage deployment</h3>
         <p className="mt-1 text-sm text-slate-500">{intern.intern_name} — currently at {intern.company_name}</p>
 
@@ -401,7 +427,15 @@ function ManageDeploymentModal({ intern, currentCompanyId, onClose, onSaved }) {
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Required hours</span>
-              <input type="number" min="1" value={hoursForm.required_hours} onChange={(e) => setHoursForm((f) => ({ ...f, required_hours: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={hoursForm.required_hours}
+                onChange={(e) => setHoursForm((f) => ({ ...f, required_hours: cleanNumber(e.target.value, { max: 2000 }) }))}
+                onBlur={(e) => setHoursForm((f) => ({ ...f, required_hours: clampOnBlur(e.target.value, 1, 2000) }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              />
             </label>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
@@ -437,14 +471,22 @@ function ManageDeploymentModal({ intern, currentCompanyId, onClose, onSaved }) {
                   {supervisors.map((s) => <option key={s.user_id} value={s.user_id}>{s.name}</option>)}
                 </select>
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm">
                   <span className="mb-1.5 block font-semibold text-slate-700">New start date</span>
                   <input type="date" value={reassignForm.start_date} onChange={(e) => setReassignForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1.5 block font-semibold text-slate-700">Required hours</span>
-                  <input type="number" min="1" value={reassignForm.required_hours} onChange={(e) => setReassignForm((f) => ({ ...f, required_hours: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={reassignForm.required_hours}
+                    onChange={(e) => setReassignForm((f) => ({ ...f, required_hours: cleanNumber(e.target.value, { max: 2000 }) }))}
+                    onBlur={(e) => setReassignForm((f) => ({ ...f, required_hours: clampOnBlur(e.target.value, 1, 2000) }))}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                  />
                 </label>
               </div>
             </>
@@ -483,6 +525,8 @@ export default function CompanyDetail() {
   const [showAddIntern, setShowAddIntern] = useState(false);
   const [deletingInternId, setDeletingInternId] = useState(null);
   const [managingIntern, setManagingIntern] = useState(null);
+  const [resendingUserId, setResendingUserId] = useState(null);
+  const [resentUserId, setResentUserId] = useState(null);
 
   function load() {
     setLoading(true);
@@ -493,6 +537,21 @@ export default function CompanyDetail() {
   }
 
   useEffect(load, [id]);
+
+  async function handleResendInvite(userId) {
+    setResendingUserId(userId);
+    setResentUserId(null);
+    try {
+      const res = await apiFetch(`/api/coordinator/users/${userId}/resend-invitation`, { method: "POST" });
+      const resData = await res.json();
+      if (!res.ok || !resData.success) throw new Error(resData.message || "Could not resend the invitation.");
+      setResentUserId(userId);
+    } catch (err) {
+      window.alert(err.message);
+    } finally {
+      setResendingUserId(null);
+    }
+  }
 
   async function handleDeleteIntern(intern) {
     if (!window.confirm(`Delete ${intern.intern_name}? This can't be undone.`)) return;
@@ -554,12 +613,22 @@ export default function CompanyDetail() {
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-semibold text-slate-900">Supervisors ({data.supervisors.length})</h3>
-          <button onClick={() => setShowAddSupervisor(true)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Add supervisor</button>
+          <button
+            onClick={() => setShowAddSupervisor(true)}
+            disabled={data.supervisors.length >= 2}
+            title={data.supervisors.length >= 2 ? "This company already has the maximum of 2 supervisors." : undefined}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Add supervisor
+          </button>
         </div>
+        {data.supervisors.length >= 2 && (
+          <p className="mt-1.5 text-xs text-slate-400">Maximum of 2 supervisors reached for this company.</p>
+        )}
 
         {data.supervisors.length > 0 && (
           <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-            <input
+            <input {...inputProps("search")}
               value={supervisorQuery}
               onChange={(e) => setSupervisorQuery(e.target.value)}
               placeholder="Search supervisors by name…"
@@ -579,6 +648,23 @@ export default function CompanyDetail() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-slate-900">{s.name}</p>
                   <p className="text-xs text-slate-500">{s.position ?? "Supervisor"} · {s.email}</p>
+                  {s.account_status === "pending_activation" && (
+                    <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-600">
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5">Invite pending</span>
+                      {resentUserId === s.user_id ? (
+                        <span className="text-emerald-600">Sent!</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleResendInvite(s.user_id)}
+                          disabled={resendingUserId === s.user_id}
+                          className="font-semibold text-blue-600 hover:underline disabled:opacity-50"
+                        >
+                          {resendingUserId === s.user_id ? "Resending…" : "Resend invite"}
+                        </button>
+                      )}
+                    </p>
+                  )}
                 </div>
                 <button onClick={() => setEditingSupervisor(s)} className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
               </div>
@@ -598,7 +684,7 @@ export default function CompanyDetail() {
         {data.interns.length > 0 && (
           <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center gap-3">
-              <input
+              <input {...inputProps("search")}
                 value={internQuery}
                 onChange={(e) => setInternQuery(e.target.value)}
                 placeholder="Search interns by name…"
@@ -623,15 +709,36 @@ export default function CompanyDetail() {
           ) : (
             filteredInterns.map((i) => (
               <div key={i.deployment_id} className="border-b border-slate-100 px-6 py-4 last:border-b-0">
-                <div className="flex items-center justify-between gap-3">
+                {/* Stacked on mobile — name/course on top, status+actions
+                    below, full width each — instead of squeezing both into
+                    one row, which left almost no room for the name and
+                    wrapped "Supervisor: ..." across several lines. */}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-900">{i.intern_name}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="truncate text-xs text-slate-500">
                       {i.course ?? "—"}
                       {i.supervisor_name ? ` · Supervisor: ${i.supervisor_name}` : ""}
                     </p>
                     {!i.supervisor_name && i.status === "active" && (
                       <p className="mt-0.5 text-xs font-medium text-amber-600">No supervisor assigned — they won&apos;t be able to log attendance yet.</p>
+                    )}
+                    {i.account_status === "pending_activation" && (
+                      <p className="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-amber-600">
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5">Invite pending</span>
+                        {resentUserId === i.intern_id ? (
+                          <span className="text-emerald-600">Sent!</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleResendInvite(i.intern_id)}
+                            disabled={resendingUserId === i.intern_id}
+                            className="font-semibold text-blue-600 hover:underline disabled:opacity-50"
+                          >
+                            {resendingUserId === i.intern_id ? "Resending…" : "Resend invite"}
+                          </button>
+                        )}
+                      </p>
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

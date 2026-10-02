@@ -10,12 +10,19 @@ use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\SuperadminFullController;
 use App\Http\Controllers\Api\SupervisorMonitoringController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', function () {
-    return response()->json(['status' => 'ok']);
+    return response()->json([
+        'status' => 'ok',
+        // Exempt from EnforceMaintenanceMode (see its ALWAYS_ALLOWED list) so
+        // the frontend's /maintenance page can poll this to find out when
+        // it's safe to send people back, without itself getting a 503.
+        'maintenance' => \App\Models\Setting::value('maintenance_mode', '0') === '1',
+    ]);
 });
 
 Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
@@ -41,6 +48,7 @@ Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->g
     Route::post('/support-messages/{id}/reply', [SuperadminFullController::class, 'supportMessageReply']);
     Route::patch('/support-messages/{id}', [SuperadminFullController::class, 'supportMessageUpdateStatus']);
     Route::get('/activity-logs', [SuperadminFullController::class, 'activityLogs']);
+    Route::get('/activity-logs/schools', [SuperadminFullController::class, 'activityLogSchools']);
     Route::get('/system-settings', [SuperadminFullController::class, 'systemSettings']);
     Route::patch('/system-settings/{key}', [SuperadminFullController::class, 'updateSystemSetting']);
     Route::get('/plan-change-requests', [SuperadminFullController::class, 'planChangeRequests']);
@@ -56,11 +64,20 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 
 // Public — no auth required; proving control of the email IS the auth here
 Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgotPassword']);
-Route::post('/auth/reset-password', [PasswordResetController::class, 'resetPassword']);
+// Throttled — a 6-digit code has only a million possibilities, so the
+// verify/submit steps need a real rate limit, not just an expiry.
+Route::post('/auth/verify-reset-code', [PasswordResetController::class, 'verifyResetCode'])->middleware('throttle:10,1');
+Route::post('/auth/reset-password', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:10,1');
+
+// Public — gates login for self-registered (Inquiry form) accounts until
+// the code emailed at signup is entered. See AuthController::login().
+Route::post('/auth/verify-email', [EmailVerificationController::class, 'verify'])->middleware('throttle:10,1');
+Route::post('/auth/resend-verification', [EmailVerificationController::class, 'resend']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+    Route::patch('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::post('/auth/avatar', [AuthController::class, 'uploadAvatar']);
     Route::delete('/auth/avatar', [AuthController::class, 'deleteAvatar']);
 
@@ -80,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/messages/contacts', [MessageController::class, 'contacts']);
     Route::get('/messages/thread/{userId}', [MessageController::class, 'thread']);
     Route::post('/messages', [MessageController::class, 'store']);
+    Route::post('/messages/forward', [MessageController::class, 'forwardMessage']);
     Route::post('/messages/typing', [MessageController::class, 'typing']);
     Route::patch('/messages/settings', [MessageController::class, 'updateThreadSetting']);
 
@@ -100,14 +118,21 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     Route::post('/schools/{id}/upload-proof', [CoordinatorSubscriptionController::class, 'uploadProof']);
     Route::post('/schools/{id}/switch-plan', [CoordinatorSubscriptionController::class, 'switchPlan']);
     Route::post('/schools/{id}/upgrade-plan', [CoordinatorSubscriptionController::class, 'requestUpgrade']);
+    Route::post('/schools/{id}/cancel-pending-upgrade', [CoordinatorSubscriptionController::class, 'cancelPendingUpgrade']);
     Route::get('/schools/{id}/upgrade-quote', [CoordinatorSubscriptionController::class, 'upgradeQuote']);
     Route::post('/schools/{id}/request-plan-change', [CoordinatorSubscriptionController::class, 'requestPlanChange']);
 
     // Day-to-day internship monitoring — always scoped server-side to the
     // authenticated coordinator's own school (see CoordinatorMonitoringController).
     Route::get('/interns', [CoordinatorMonitoringController::class, 'interns']);
+    Route::get('/interns/{deploymentId}/portfolio', [CoordinatorMonitoringController::class, 'internPortfolio']);
+    Route::get('/interns/{deploymentId}/report', [CoordinatorMonitoringController::class, 'internReport']);
     Route::post('/interns', [CoordinatorMonitoringController::class, 'storeIntern']);
+    // Bulk add from a masterlist: check first (saves nothing), then import.
+    Route::post('/intern-imports/preview', [CoordinatorMonitoringController::class, 'previewInternImport']);
+    Route::post('/intern-imports', [CoordinatorMonitoringController::class, 'importInterns']);
     Route::patch('/interns/{deploymentId}', [CoordinatorMonitoringController::class, 'updateDeployment']);
+    Route::patch('/interns/{deploymentId}/status', [CoordinatorMonitoringController::class, 'updateInternStatus']);
     Route::delete('/interns/{deploymentId}', [CoordinatorMonitoringController::class, 'destroyIntern']);
     Route::post('/interns/{deploymentId}/reassign', [CoordinatorMonitoringController::class, 'reassignIntern']);
 
@@ -122,8 +147,17 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     Route::patch('/supervisors/{userId}', [CoordinatorMonitoringController::class, 'updateSupervisor']);
     Route::delete('/supervisors/{userId}', [CoordinatorMonitoringController::class, 'destroySupervisor']);
 
+    // Works for either an intern or a supervisor still awaiting activation —
+    // see CoordinatorMonitoringController::resendInvitation.
+    Route::post('/users/{userId}/resend-invitation', [CoordinatorMonitoringController::class, 'resendInvitation']);
+    Route::patch('/users/{userId}/email', [CoordinatorMonitoringController::class, 'updatePendingEmail']);
+
+    Route::get('/school-settings', [CoordinatorMonitoringController::class, 'schoolSettings']);
+    Route::patch('/school-settings', [CoordinatorMonitoringController::class, 'updateSchoolSettings']);
+
     // View-only — logging/approving attendance is the supervisor's job (see the
     // supervisor route group below), not the coordinator's.
+    Route::get('/attendance/companies', [CoordinatorMonitoringController::class, 'attendanceCompanies']);
     Route::get('/attendance', [CoordinatorMonitoringController::class, 'attendance']);
 
     // Coordinator is view-only for tasks — a supervisor assigns and manages
@@ -159,6 +193,7 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     // Always scoped server-side to deployments where supervisor_id is the
     // logged-in supervisor — never their whole school's roster.
     Route::get('/interns', [SupervisorMonitoringController::class, 'interns']);
+    Route::get('/interns/{deploymentId}/portfolio', [SupervisorMonitoringController::class, 'internPortfolio']);
 
     Route::get('/attendance', [SupervisorMonitoringController::class, 'attendance']);
     Route::post('/attendance', [SupervisorMonitoringController::class, 'storeAttendance']);
@@ -186,12 +221,13 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::get('/evaluation-criteria', [SupervisorMonitoringController::class, 'evaluationCriteria']);
     Route::get('/evaluations', [SupervisorMonitoringController::class, 'evaluations']);
     Route::post('/evaluations', [SupervisorMonitoringController::class, 'storeEvaluation']);
+    Route::post('/evaluations/manual', [SupervisorMonitoringController::class, 'storeManualEvaluation']);
 });
 
 Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(function () {
     // Always scoped server-side to the logged-in intern's own record — never
-    // another intern's. Attendance is self-reported via selfie + GPS but
-    // always lands "pending" until the supervisor reviews it (see
+    // another intern's. Attendance is self-reported via selfie + GPS and
+    // lands "approved" immediately — the stamp is the verification (see
     // InternMonitoringController).
     Route::get('/tasks', [InternMonitoringController::class, 'tasks']);
     Route::get('/tasks/{id}', [InternMonitoringController::class, 'taskShow']);
@@ -209,7 +245,10 @@ Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(func
     Route::get('/evaluations', [InternMonitoringController::class, 'evaluations']);
     Route::get('/profile-summary', [InternMonitoringController::class, 'profileSummary']);
     Route::get('/activities', [InternMonitoringController::class, 'activities']);
+    Route::get('/activities/suggestions', [InternMonitoringController::class, 'activitySuggestions']);
+    Route::post('/activities/polish-narrative', [InternMonitoringController::class, 'polishNarrative']);
     Route::post('/activities', [InternMonitoringController::class, 'storeActivity']);
+    Route::patch('/activities/{id}', [InternMonitoringController::class, 'updateActivity']);
     Route::get('/documents', [InternMonitoringController::class, 'documents']);
     Route::post('/documents', [InternMonitoringController::class, 'storeDocument']);
     Route::get('/portfolio', [InternMonitoringController::class, 'portfolio']);
@@ -220,6 +259,8 @@ Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(func
 
 // Public endpoints — no auth required; coordinator accepts a school invitation
 // using the one-time token itself as the credential, before any login exists.
+// Delivery events (bounces) from the mail provider — verified by signature.
+Route::post('/webhooks/resend', [\App\Http\Controllers\Api\ResendWebhookController::class, 'handle'])->middleware('throttle:120,1');
 Route::get('/invitations/{token}', [InvitationController::class, 'show']);
 Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept']);
 

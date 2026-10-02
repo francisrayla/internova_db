@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 import { forwardHeaders } from '@/lib/serverProxy';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 async function proxy(request, params, method) {
   const pathSegments = Array.isArray(params?.path) ? params.path : [];
   const path = pathSegments.join('/');
   const { search } = new URL(request.url);
-  const upstream = `http://127.0.0.1:8000/api/intern/${path}${search}`;
+  const upstream = `${BACKEND_URL}/api/intern/${path}${search}`;
 
   const contentType = request.headers.get('content-type') || '';
   const isMultipart = contentType.includes('multipart/form-data');

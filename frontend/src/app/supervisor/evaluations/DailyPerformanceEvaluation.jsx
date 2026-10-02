@@ -4,14 +4,22 @@ import { useEffect, useState } from "react";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import EvaluationForm from "@/components/EvaluationForm";
+import ManualEvaluationForm from "@/components/ManualEvaluationForm";
 import EvaluationView from "@/components/EvaluationView";
+import { useCurrentUser } from "@/lib/UserContext";
+import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
 
 /**
  * The school's own rubric, filled in by the supervisor for the interns
  * they actually supervise — the coordinator defines the criteria, but only
- * the supervisor submits an evaluation against them.
+ * the supervisor submits an evaluation against them. Schools without the
+ * Formal Evaluations feature get the simpler ManualEvaluationForm instead
+ * (one overall score + remarks, no criteria).
  */
 export default function DailyPerformanceEvaluation() {
+  const { user } = useCurrentUser();
+  const formalEnabled = hasPlanFeature(user, PLAN_FEATURES.FORMAL_EVALUATIONS);
+
   const [criteria, setCriteria] = useState([]);
   const [interns, setInterns] = useState([]);
   const [evaluations, setEvaluations] = useState([]);
@@ -21,7 +29,10 @@ export default function DailyPerformanceEvaluation() {
 
   function load() {
     setLoading(true);
-    Promise.all([fetchSupervisorData("evaluation-criteria"), fetchSupervisorData("evaluations")])
+    Promise.all([
+      formalEnabled ? fetchSupervisorData("evaluation-criteria") : Promise.resolve({ criteria: [] }),
+      fetchSupervisorData("evaluations"),
+    ])
       .then(([criteriaRes, evalRes]) => {
         setCriteria(criteriaRes.criteria ?? []);
         setEvaluations(evalRes.evaluations ?? []);
@@ -31,7 +42,7 @@ export default function DailyPerformanceEvaluation() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, []);
+  useEffect(load, [formalEnabled]);
 
   async function handleSubmit(payload) {
     const res = await apiFetch("/api/supervisor/evaluations", {
@@ -45,17 +56,33 @@ export default function DailyPerformanceEvaluation() {
     load();
   }
 
+  async function handleSubmitManual(payload) {
+    const res = await apiFetch("/api/supervisor/evaluations/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.message || "Could not submit evaluation.");
+    setShowForm(false);
+    load();
+  }
+
+  const canSubmit = formalEnabled ? interns.length > 0 && criteria.length > 0 : interns.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Performance Evaluation</h2>
-          <p className="mt-1 text-sm text-slate-600">Submit the school evaluation form for interns you supervise.</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {formalEnabled ? "Submit the school evaluation form for interns you supervise." : "Submit a manual evaluation for interns you supervise."}
+          </p>
         </div>
         {!showForm && (
           <button
             onClick={() => setShowForm(true)}
-            disabled={interns.length === 0 || criteria.length === 0}
+            disabled={!canSubmit}
             className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
           >
             New evaluation
@@ -67,7 +94,7 @@ export default function DailyPerformanceEvaluation() {
 
       {loading ? (
         <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm">Loading…</p>
-      ) : criteria.length === 0 ? (
+      ) : formalEnabled && criteria.length === 0 ? (
         <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400 shadow-sm">
           Your coordinator has not set up the evaluation criteria yet.
         </p>
@@ -76,7 +103,11 @@ export default function DailyPerformanceEvaluation() {
       ) : (
         <>
           {showForm && (
-            <EvaluationForm interns={interns} criteria={criteria} onSubmit={handleSubmit} onCancel={() => setShowForm(false)} />
+            formalEnabled ? (
+              <EvaluationForm interns={interns} criteria={criteria} onSubmit={handleSubmit} onCancel={() => setShowForm(false)} />
+            ) : (
+              <ManualEvaluationForm interns={interns} onSubmit={handleSubmitManual} onCancel={() => setShowForm(false)} />
+            )
           )}
 
           <section className="space-y-3">

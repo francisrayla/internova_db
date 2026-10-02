@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Toggled by ThemeToggle/useTheme via a `dark` class on <html>, not the OS
+   `prefers-color-scheme` — a person's explicit choice should win over their
+   system setting, and it needs to persist across visits regardless of what
+   the OS says. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f5f7f2;
   --foreground: #182031;
@@ -7,6 +13,15 @@
   --line: #dbdfe5;
   --leaf: #254377;
   --coral: #e67d63;
+}
+
+.dark {
+  --background: #0b0f1a;
+  --foreground: #eef2f8;
+  --ink-muted: #8a96ab;
+  --line: #263043;
+  --leaf: #6ea1f2;
+  --coral: #f0906f;
 }
 
 @theme inline {
@@ -22,10 +37,251 @@ body {
   font-family: var(--font-geist-sans), "Trebuchet MS", sans-serif;
 }
 
-* { box-sizing: border-box; }
-button, input, textarea, select { font: inherit; }
-button { cursor: pointer; }
+/* In the base layer, not unlayered: an unlayered `font: inherit` outranks
+   every Tailwind utility, so buttons and fields silently ignored their own
+   text-sm / font-semibold classes and all rendered at the body's 16px. */
+@layer base {
+  * { box-sizing: border-box; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+}
+
+/* Phone density: the same layouts, just a notch tighter — spacing and the
+   larger type steps scale down together so screens read calmer instead of
+   every card, chip and heading competing at desktop size. Form fields stay
+   at 16px: iOS zooms the page into any field smaller than that on focus. */
+@media (max-width: 639px) {
+  :root {
+    --spacing: 0.225rem;
+    --text-base: 0.9375rem;
+    --text-lg: 1.0625rem;
+    --text-xl: 1.1875rem;
+    --text-2xl: 1.375rem;
+    --text-3xl: 1.625rem;
+    --text-4xl: 1.875rem;
+  }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
+}
 ::selection { background: #bdcfe7; color: #182031; }
+.dark ::selection { background: #2c4a78; color: #eef2f8; }
+
+/* =====================================================================
+   Dark mode retrofit
+   ---------------------------------------------------------------------
+   The app's screens were built with a small, consistent set of Tailwind
+   utilities (bg-white for cards, bg-slate-50 for page fill, the slate-*
+   scale for text/borders, plus a handful of status-pill colors). Because
+   that vocabulary repeats everywhere rather than each screen inventing its
+   own shades, overriding those exact utility classes under a `.dark`
+   ancestor reaches every screen at once instead of hand-editing class
+   names in 80+ files one by one. Buttons/badges that use white text on a
+   saturated background (blue-600, red-600, etc.) already have enough
+   contrast in both themes and are intentionally left alone.
+   ===================================================================== */
+
+/* ---- Neutral surfaces ---- */
+/* Public marketing/auth pages (landing hero, inquiry form, accept-invite)
+   use this light decorative gradient as their page background — gradient
+   stop utilities (the "from" and "to" classes) aren't part of the covered
+   bg- vocabulary above, so it stayed a light gradient under a `.dark`
+   ancestor while headings on top of it correctly turned near-white, making
+   them invisible. Scoped to this exact from/to pair so it doesn't touch
+   the dashboard banners, which use a different (already dark-safe)
+   gradient. */
+.dark .bg-gradient-to-br.from-blue-50.to-white {
+  background-image: none;
+  background-color: #0b0f1a;
+}
+
+.dark .bg-white { background-color: #141a2c; }
+.dark .bg-slate-50 { background-color: #0b0f1a; }
+.dark .bg-slate-100 { background-color: #212a40; }
+.dark .bg-slate-200 { background-color: #2b3550; }
+.dark .bg-slate-300 { background-color: #3a4560; }
+.dark .bg-\[\#f5f7f2\] { background-color: #0b0f1a; }
+.dark .bg-\[\#fbfcf9\] { background-color: #101524; }
+.dark .bg-white\/95 { background-color: rgba(20, 26, 44, 0.95); }
+.dark .bg-white\/90 { background-color: rgba(20, 26, 44, 0.9); }
+.dark .bg-white\/80 { background-color: rgba(20, 26, 44, 0.8); }
+.dark .hover\:bg-white:hover { background-color: #212a40; }
+.dark .hover\:bg-slate-50:hover { background-color: #212a40; }
+.dark .hover\:bg-slate-100:hover { background-color: #2b3550; }
+
+/* ---- Text ---- */
+.dark .text-slate-900 { color: #f5f8fc; }
+.dark .text-slate-800 { color: #e4e9f2; }
+.dark .text-slate-700 { color: #ccd4e2; }
+.dark .text-slate-600 { color: #a9b4c8; }
+.dark .text-slate-500 { color: #8994ab; }
+.dark .text-slate-400 { color: #66718a; }
+.dark .hover\:text-slate-800:hover { color: #e4e9f2; }
+
+/* ---- Borders ---- */
+.dark .border-slate-50 { border-color: #1a2236; }
+.dark .border-slate-100 { border-color: #212a40; }
+.dark .border-slate-200 { border-color: #283251; }
+.dark .border-slate-300 { border-color: #3a4560; }
+/* Tailwind v4 draws divide-* as a bottom border on every child but the
+   last (v3 used a top border on every child but the first), so both shapes
+   are covered — otherwise the first row's line stays light-mode white. */
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-100 > :not(:last-child) { border-color: #212a40; }
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not(:last-child) { border-color: #283251; }
+
+/* ---- Blue brand: subtle tints get a dark treatment; solid blue-600/700
+   buttons already read fine on a dark ground and are left untouched. ---- */
+.dark .bg-blue-50 { background-color: #172a44; }
+.dark .bg-blue-50\/40 { background-color: rgba(23, 42, 68, 0.6); }
+.dark .bg-blue-100 { background-color: #1c3253; }
+.dark .text-blue-700 { color: #8ec0fb; }
+.dark .text-blue-800 { color: #bcdbff; }
+.dark .text-blue-600 { color: #6fa8f5; }
+.dark .border-blue-200 { border-color: rgba(96, 165, 250, 0.35); }
+.dark .hover\:bg-blue-50:hover { background-color: #1c3253; }
+.dark .hover\:bg-blue-100:hover { background-color: #234066; }
+
+/* ---- Status pill colors (light bg + saturated text, used for badges,
+   banners, and inline alerts) — translucent dark bg + lightened text. ---- */
+.dark .bg-emerald-50 { background-color: rgba(52, 211, 153, 0.08); }
+.dark .bg-emerald-100 { background-color: rgba(52, 211, 153, 0.16); }
+.dark .text-emerald-700 { color: #6ee7b7; }
+.dark .text-emerald-600 { color: #4ade80; }
+.dark .border-emerald-200 { border-color: rgba(52, 211, 153, 0.35); }
+.dark .hover\:bg-emerald-50:hover { background-color: rgba(52, 211, 153, 0.12); }
+
+.dark .bg-amber-50 { background-color: rgba(251, 191, 36, 0.08); }
+.dark .bg-amber-100 { background-color: rgba(251, 191, 36, 0.16); }
+.dark .text-amber-700 { color: #fcd34d; }
+.dark .text-amber-600 { color: #fbbf24; }
+.dark .text-amber-800 { color: #fde68a; }
+.dark .border-amber-200 { border-color: rgba(251, 191, 36, 0.35); }
+.dark .border-amber-300 { border-color: rgba(251, 191, 36, 0.45); }
+.dark .hover\:bg-amber-50:hover { background-color: rgba(251, 191, 36, 0.12); }
+
+.dark .bg-red-50 { background-color: rgba(248, 113, 113, 0.08); }
+.dark .bg-red-100 { background-color: rgba(248, 113, 113, 0.16); }
+.dark .text-red-700 { color: #fca5a5; }
+.dark .text-red-600 { color: #f87171; }
+.dark .text-red-500 { color: #f87171; }
+.dark .text-red-800 { color: #fecaca; }
+.dark .border-red-200 { border-color: rgba(248, 113, 113, 0.35); }
+.dark .hover\:bg-red-50:hover { background-color: rgba(248, 113, 113, 0.12); }
+
+.dark .bg-purple-50 { background-color: rgba(192, 132, 252, 0.08); }
+.dark .bg-purple-100 { background-color: rgba(192, 132, 252, 0.16); }
+.dark .text-purple-700 { color: #d8b4fe; }
+.dark .text-purple-900 { color: #f3e8ff; }
+.dark .border-purple-200 { border-color: rgba(192, 132, 252, 0.35); }
+
+.dark .bg-cyan-100 { background-color: rgba(34, 211, 238, 0.16); }
+.dark .text-cyan-700 { color: #67e8f9; }
+
+.dark .bg-orange-50 { background-color: rgba(251, 146, 60, 0.08); }
+.dark .bg-orange-100 { background-color: rgba(251, 146, 60, 0.16); }
+.dark .text-orange-700 { color: #fdba74; }
+
+.dark .bg-rose-100 { background-color: rgba(251, 113, 133, 0.16); }
+.dark .text-rose-700 { color: #fda4af; }
+
+.dark .bg-yellow-50 { background-color: rgba(250, 204, 21, 0.08); }
+.dark .bg-yellow-100 { background-color: rgba(250, 204, 21, 0.16); }
+.dark .border-yellow-200 { border-color: rgba(250, 204, 21, 0.35); }
+.dark .text-yellow-700 { color: #fde047; }
+
+.dark .bg-green-700 { background-color: #15803d; }
+.dark .text-green-700 { color: #86efac; }
+
+/* ---- Form controls: browsers default an unstyled input/select/textarea
+   to a light native background, which stays white even under `.dark` on an
+   ancestor unless set explicitly — most fields in this app rely on that
+   native default rather than an explicit bg-white class. ---- */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #141a2c;
+  color: #eef2f8;
+  color-scheme: dark;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #5b6784;
+}
+
+/* ---- Gap fill: tints, inks and hover states that screens started using
+   after the retrofit above was written. Same rule as the rest — light
+   tints become a low-alpha wash of their own hue on the dark card, dark
+   inks become the matching light ink — so nothing renders as a pale
+   light-mode panel with white text on top of it. ---- */
+.dark .bg-slate-50\/70 { background-color: #182037; }
+.dark .bg-blue-50\/50 { background-color: rgba(23, 42, 68, 0.55); }
+.dark .bg-blue-50\/60 { background-color: rgba(23, 42, 68, 0.65); }
+.dark .bg-cyan-50 { background-color: rgba(34, 211, 238, 0.08); }
+.dark .bg-emerald-50\/60 { background-color: rgba(52, 211, 153, 0.07); }
+.dark .bg-green-100 { background-color: rgba(74, 222, 128, 0.16); }
+.dark .bg-purple-50\/60 { background-color: rgba(192, 132, 252, 0.07); }
+.dark .bg-rose-50 { background-color: rgba(251, 113, 133, 0.08); }
+.dark .bg-red-50\/40 { background-color: rgba(248, 113, 113, 0.05); }
+.dark .focus\:bg-white:focus { background-color: #141a2c; }
+.dark .focus\:bg-slate-200:focus { background-color: #2b3550; }
+.dark .hover\:bg-slate-200:hover { background-color: #343f5e; }
+.dark .hover\:bg-amber-100:hover { background-color: rgba(251, 191, 36, 0.2); }
+.dark .hover\:bg-purple-100:hover { background-color: rgba(192, 132, 252, 0.2); }
+.dark .hover\:bg-red-100:hover { background-color: rgba(248, 113, 113, 0.2); }
+
+.dark .text-blue-900 { color: #d6e7ff; }
+.dark .text-amber-900 { color: #fef3c7; }
+.dark .text-emerald-800 { color: #a7f3d0; }
+.dark .text-emerald-900 { color: #d1fae5; }
+.dark .text-cyan-800 { color: #a5f3fc; }
+.dark .text-purple-600 { color: #c084fc; }
+.dark .text-purple-800 { color: #e9d5ff; }
+.dark .text-rose-800 { color: #fecdd3; }
+.dark .hover\:text-blue-600:hover { color: #6fa8f5; }
+.dark .hover\:text-blue-700:hover,
+.dark .group:hover .group-hover\:text-blue-700 { color: #8ec0fb; }
+.dark .hover\:text-blue-800:hover { color: #bcdbff; }
+.dark .hover\:text-red-600:hover { color: #f87171; }
+.dark .hover\:text-slate-600:hover { color: #a9b4c8; }
+.dark .hover\:text-slate-700:hover { color: #ccd4e2; }
+
+.dark .border-blue-100 { border-color: rgba(96, 165, 250, 0.22); }
+.dark .border-blue-300 { border-color: rgba(96, 165, 250, 0.45); }
+.dark .border-cyan-200 { border-color: rgba(34, 211, 238, 0.35); }
+.dark .border-purple-300 { border-color: rgba(192, 132, 252, 0.45); }
+.dark .border-red-100 { border-color: rgba(248, 113, 113, 0.22); }
+.dark .border-rose-200 { border-color: rgba(251, 113, 133, 0.35); }
+.dark .hover\:border-blue-200:hover { border-color: rgba(96, 165, 250, 0.35); }
+.dark .hover\:border-blue-300:hover { border-color: rgba(96, 165, 250, 0.45); }
+.dark .hover\:border-slate-300:hover { border-color: #3a4560; }
+.dark .ring-blue-50 { --tw-ring-color: rgba(96, 165, 250, 0.15); }
+.dark .ring-blue-300 { --tw-ring-color: rgba(96, 165, 250, 0.45); }
+.dark .ring-slate-100 { --tw-ring-color: #212a40; }
+.dark .focus\:ring-blue-200:focus { --tw-ring-color: rgba(96, 165, 250, 0.3); }
+.dark .focus\:ring-red-100:focus { --tw-ring-color: rgba(248, 113, 113, 0.22); }
+
+/* ---- Scrollbars: the native light scrollbar on a dark page reads as a
+   bug, not a stylistic choice. ---- */
+.dark { color-scheme: dark; }
+
+/* Keeps a row/column scrollable (e.g. the open-chat-windows strip) without
+   showing the OS scrollbar track across it — a full-width horizontal
+   scrollbar sitting right at the bottom of the viewport reads as broken
+   layout, not an affordance, especially when it's usually not even needed. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* The "Choose File" button is native browser chrome, not a Tailwind
+   utility, so it doesn't pick up `color-scheme: dark` the way the rest of
+   the input does — style it to match explicitly. */
+.dark input[type="file"]::file-selector-button {
+  background-color: #212a40;
+  color: #ccd4e2;
+  border: 1px solid #3a4560;
+}
+.dark input[type="file"]::file-selector-button:hover {
+  background-color: #2b3550;
+}
 
 .app-shell { min-height: 100vh; display: flex; background: #f5f7f2; }
 .sidebar { width: 246px; flex: 0 0 246px; padding: 27px 16px 20px; display: flex; flex-direction: column; border-right: 1px solid #e1e5e9; background: #fbfcf9; }

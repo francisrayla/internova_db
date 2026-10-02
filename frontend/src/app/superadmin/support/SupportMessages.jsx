@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { apiFetch } from "@/lib/apiFetch";
+import { validateAttachmentFile } from "@/lib/imageValidation";
+import TicketAttachment from "@/components/TicketAttachment";
+import { AttachIconButton, FileChip } from "@/components/TicketAttachButton";
+
+import { inputProps } from "@/lib/inputRules";
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 const STATUS_STYLES = {
   Open: "bg-blue-100 text-blue-700",
@@ -13,8 +19,10 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState("");
+  const [file, setFile] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const listRef = useRef(null);
 
   function load() {
     setLoading(true);
@@ -26,19 +34,34 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
 
   useEffect(load, [ticketId]);
 
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [ticket?.messages]);
+
+  function pickFile(picked) {
+    const err = validateAttachmentFile(picked, MAX_ATTACHMENT_BYTES);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setError("");
+    setFile(picked);
+  }
+
   async function handleReply(e) {
     e.preventDefault();
-    if (!reply.trim()) return;
+    if (!reply.trim() && !file) return;
     setSending(true);
+    setError("");
     try {
-      const res = await apiFetch(`/api/superadmin/support-messages/${ticketId}/reply`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: reply.trim() }),
-      });
+      const body = new FormData();
+      if (reply.trim()) body.append("message", reply.trim());
+      if (file) body.append("attachment", file);
+      const res = await apiFetch(`/api/superadmin/support-messages/${ticketId}/reply`, { method: "POST", body });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not send your reply.");
       setReply("");
+      setFile(null);
       load();
       onUpdated();
     } catch (err) {
@@ -71,8 +94,6 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
         ← Back to Support
       </button>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-
       {loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : !ticket ? (
@@ -95,31 +116,45 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
               </div>
             </div>
 
-            <div className="mt-5 space-y-3 border-t border-slate-100 pt-5">
-              {ticket.messages.map((m) => (
-                <div key={m.id} className={`flex ${m.is_superadmin ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${m.is_superadmin ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-800"}`}>
-                    <p className={`mb-1 text-[11px] font-semibold ${m.is_superadmin ? "text-blue-100" : "text-slate-500"}`}>
-                      {m.is_superadmin ? "You (Support)" : m.sender_name} · {m.created_at}
-                    </p>
-                    <p>{m.message}</p>
+            <div ref={listRef} className="mt-5 max-h-[50vh] overflow-y-auto border-t border-slate-100 pt-5">
+              {ticket.messages.map((m, i) => {
+                const startsRun = i === 0 || ticket.messages[i - 1].is_superadmin !== m.is_superadmin;
+                return (
+                  <div key={m.id} className={`flex ${m.is_superadmin ? "justify-end" : "justify-start"} ${startsRun ? "mt-3 first:mt-0" : "mt-1"}`}>
+                    <div className="max-w-[80%]">
+                      {startsRun && (
+                        <p className={`mb-1 text-[11px] font-semibold text-slate-400 ${m.is_superadmin ? "text-right" : "text-left"}`}>
+                          {m.is_superadmin ? "You (Support)" : m.sender_name} · {m.created_at}
+                        </p>
+                      )}
+                      <div className={`min-w-16 space-y-2 rounded-2xl px-4 py-2.5 text-sm ${m.is_superadmin ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-800"}`}>
+                        <TicketAttachment url={m.attachment_url} name={m.attachment_name} type={m.attachment_type} size={m.attachment_size} mine={m.is_superadmin} />
+                        {m.message && <p>{m.message}</p>}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
 
-          <form onSubmit={handleReply} className="flex gap-2 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
-            <input
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder="Write a reply…"
-              className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-            <button type="submit" disabled={sending || !reply.trim()} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-              {sending ? "…" : "Reply"}
-            </button>
-          </form>
+            {error && <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+
+            <form onSubmit={handleReply} className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+              <FileChip file={file} onRemove={() => setFile(null)} />
+              <div className="flex items-center gap-2">
+                <AttachIconButton onPick={pickFile} disabled={sending} />
+                <input {...inputProps("message")}
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  placeholder="Write a reply…"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                />
+                <button type="submit" disabled={sending || (!reply.trim() && !file)} className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                  {sending ? "…" : "Reply"}
+                </button>
+              </div>
+            </form>
+          </div>
         </>
       )}
     </div>
@@ -160,30 +195,55 @@ export default function SupportPage() {
         ) : messages.length === 0 ? (
           <p className="px-6 py-10 text-center text-sm text-slate-400">No support requests yet.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50">
-              <tr>
-                {["School", "Subject", "Category", "Status", "Last Message"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
+          <>
+            <div className="divide-y divide-slate-100 sm:hidden">
               {messages.map((msg) => (
-                <tr key={msg.id} onClick={() => setOpenTicketId(msg.id)} className="cursor-pointer hover:bg-slate-50">
-                  <td className="px-6 py-4 font-medium text-slate-900">{msg.school_name}</td>
-                  <td className="px-6 py-4 text-slate-600">{msg.subject}</td>
-                  <td className="px-6 py-4 text-slate-600">{msg.category}</td>
-                  <td className="px-6 py-4">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[msg.status]}`}>
+                <button
+                  key={msg.id}
+                  type="button"
+                  onClick={() => setOpenTicketId(msg.id)}
+                  className="block w-full px-5 py-4 text-left hover:bg-slate-50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="truncate font-medium text-slate-900">{msg.school_name}</p>
+                    <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[msg.status]}`}>
                       {msg.status}
                     </span>
-                  </td>
-                  <td className="max-w-xs truncate px-6 py-4 text-slate-600">{msg.last_message}</td>
-                </tr>
+                  </div>
+                  <p className="mt-1 truncate text-sm text-slate-600">{msg.subject}</p>
+                  <p className="mt-1 text-xs text-slate-500">{msg.category}</p>
+                  {msg.last_message && <p className="mt-1.5 truncate text-xs text-slate-400">{msg.last_message}</p>}
+                </button>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    {["School", "Subject", "Category", "Status", "Last Message"].map((h) => (
+                      <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {messages.map((msg) => (
+                    <tr key={msg.id} onClick={() => setOpenTicketId(msg.id)} className="cursor-pointer hover:bg-slate-50">
+                      <td className="px-6 py-4 font-medium text-slate-900">{msg.school_name}</td>
+                      <td className="px-6 py-4 text-slate-600">{msg.subject}</td>
+                      <td className="px-6 py-4 text-slate-600">{msg.category}</td>
+                      <td className="px-6 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_STYLES[msg.status]}`}>
+                          {msg.status}
+                        </span>
+                      </td>
+                      <td className="max-w-xs truncate px-6 py-4 text-slate-600">{msg.last_message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>

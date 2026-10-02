@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { forwardHeaders } from '@/lib/serverProxy';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 export async function POST(request) {
-  const response = await fetch('http://127.0.0.1:8000/api/auth/logout', {
+  const response = await fetch(`${BACKEND_URL}/api/auth/logout`, {
     method: 'POST',
     headers: forwardHeaders(request),
   });

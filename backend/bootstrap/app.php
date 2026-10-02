@@ -21,6 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => EnsureRole::class,
         ]);
 
+        $middleware->appendToGroup('api', \App\Http\Middleware\AutoCloseStaleAttendance::class);
+        $middleware->appendToGroup('api', \App\Http\Middleware\EnforceMaintenanceMode::class);
+
         // Pure JSON API, no 'login' web route to redirect a guest to — always
         // fail with a 401 response instead of Laravel's default redirect.
         $middleware->redirectGuestsTo(fn () => null);

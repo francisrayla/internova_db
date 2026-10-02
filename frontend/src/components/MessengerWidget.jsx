@@ -5,7 +5,9 @@ import { createPortal } from "react-dom";
 import { getEcho } from "@/lib/echo";
 import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
+import { MAX_ATTACHMENT_BYTES, validateAttachmentFile } from "@/lib/imageValidation";
 
+import { inputProps } from "@/lib/inputRules";
 const ROLE_LABELS = { coordinator: "Coordinator", supervisor: "Supervisor", intern: "Intern" };
 const MAX_OPEN_CHATS = 3;
 // Only a coordinator/supervisor starts a group (see backend
@@ -23,6 +25,25 @@ const CHAT_COLORS = [
   { label: "Teal", value: "#0d9488" },
   { label: "Slate", value: "#475569" },
 ];
+
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Mirrors the backend's previewLabel() — a one-line stand-in for a message
+// with no text of its own, used for the reply banner and the quoted strip
+// above a reply.
+function messagePreview(m) {
+  if (!m) return "";
+  if (m.message) return m.message;
+  if (m.attachment_url) {
+    return m.attachment_type?.startsWith("image/") ? "📷 Photo" : `📎 ${m.attachment_name || "File"}`;
+  }
+  return "";
+}
 
 function initialsOf(name) {
   return (name || "?")
@@ -88,11 +109,21 @@ function MinimizedBubble({ conversation, onRestore, onClose }) {
 // viewport rather than a full page, so chatting never interrupts whatever
 // screen the conversation started from. Works for both a 1:1 conversation
 // and a group (sender names above bubbles, member count in the subtitle).
-function ChatWindow({ conversation, messages, loading, isTyping, typingName, onSend, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, currentUserId }) {
+function ChatWindow({ conversation, messages, loading, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, forwardTargets, currentUserId }) {
   const [text, setText] = useState("");
   const [showOptions, setShowOptions] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
+  const [attachError, setAttachError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [forwardingId, setForwardingId] = useState(null);
+  const [forwardError, setForwardError] = useState("");
+  const [detailsMessage, setDetailsMessage] = useState(null);
   const listRef = useRef(null);
   const optionsRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const messageMenuRef = useRef(null);
   const isGroup = conversation.type === "group";
   const activeColor = conversation.color || (isGroup ? "#9333ea" : DEFAULT_CHAT_COLOR);
 
@@ -103,6 +134,7 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
   useEffect(() => {
     function handleClickOutside(e) {
       if (optionsRef.current && !optionsRef.current.contains(e.target)) setShowOptions(false);
+      if (messageMenuRef.current && !messageMenuRef.current.contains(e.target)) setOpenMenuId(null);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -112,12 +144,79 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
     e.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSend(trimmed);
+    onSend(trimmed, replyingTo?.id);
     setText("");
+    setReplyingTo(null);
+  }
+
+  async function handleFilePick(e) {
+    const picked = e.target.files?.[0];
+    e.target.value = "";
+    if (!picked) return;
+    const validationError = validateAttachmentFile(picked, MAX_ATTACHMENT_BYTES);
+    if (validationError) {
+      setAttachError(validationError);
+      return;
+    }
+    setAttachError("");
+    setUploading(true);
+    try {
+      await onSendFile(picked, text.trim(), replyingTo?.id);
+      setText("");
+      setReplyingTo(null);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function startReply(m) {
+    setReplyingTo({ id: m.id, sender_name: mineName(m) ? "You" : (m.sender_name ?? conversation.name), preview: messagePreview(m) });
+    setOpenMenuId(null);
+  }
+
+  function mineName(m) {
+    return m.sender_id === currentUserId;
+  }
+
+  // The attachment lives on the Laravel origin, which the browser can't
+  // fetch() directly (no CORS on /storage there, and it's not meant to be
+  // reachable from the browser at all — every other call in this app goes
+  // through a same-origin Next.js proxy). Route the download through our
+  // own /api/download proxy instead, which streams it back with a real
+  // Content-Disposition: attachment header.
+  async function handleSave(m) {
+    setOpenMenuId(null);
+    try {
+      const path = new URL(m.attachment_url).pathname.replace(/^\//, "");
+      const proxyUrl = `/api/download?path=${encodeURIComponent(path)}&name=${encodeURIComponent(m.attachment_name || "download")}`;
+      const res = await fetch(proxyUrl);
+      if (!res.ok) throw new Error("download failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = m.attachment_name || "download";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(m.attachment_url, "_blank");
+    }
+  }
+
+  async function handleForwardTo(target) {
+    setForwardError("");
+    try {
+      await onForward(forwardingId, target);
+      setForwardingId(null);
+    } catch (err) {
+      setForwardError(err.message || "Could not forward this message.");
+    }
   }
 
   return (
-    <div className="flex h-[26rem] w-72 flex-col border border-slate-200 bg-white shadow-2xl">
+    <div className="relative flex h-[26rem] w-72 max-w-[calc(100vw-2rem)] flex-col border border-slate-200 bg-white shadow-2xl">
       <div className="relative" ref={optionsRef}>
         <div
           onClick={onToggleMinimize}
@@ -171,6 +270,13 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
             >
               <Icon name="bellOff" size={15} /> {conversation.muted ? "Unmute conversation" : "Mute conversation"}
             </button>
+            <button
+              type="button"
+              onClick={() => { setShowMedia(true); setShowOptions(false); }}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <Icon name="file" size={15} /> Shared photos &amp; files
+            </button>
             <div className="my-1 border-t border-slate-100" />
             <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Chat color</p>
             <div className="flex flex-wrap gap-2 px-3 pb-2">
@@ -194,6 +300,16 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
         )}
       </div>
 
+      {forwardingId ? (
+        <ForwardPicker
+          targets={forwardTargets}
+          error={forwardError}
+          onPick={handleForwardTo}
+          onBack={() => { setForwardingId(null); setForwardError(""); }}
+        />
+      ) : showMedia ? (
+        <MediaGallery messages={messages} onBack={() => setShowMedia(false)} />
+      ) : (
       <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
         {loading ? (
           <p className="mt-8 text-center text-xs text-slate-400">Loading…</p>
@@ -211,17 +327,92 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
               );
             }
             const mine = m.sender_id === currentUserId;
+            const isImageAttachment = m.attachment_url && m.attachment_type?.startsWith("image/");
+            const isSent = typeof m.id === "number";
+            const menuOpen = openMenuId === m.id;
+            const menuButton = isSent && (
+              <div className="relative shrink-0 self-center">
+                <button
+                  type="button"
+                  onClick={() => setOpenMenuId((v) => (v === m.id ? null : m.id))}
+                  className={`grid h-6 w-6 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600 ${
+                    menuOpen ? "bg-slate-200 text-slate-600" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                  aria-label="Message actions"
+                >
+                  <Icon name="dots" size={13} />
+                </button>
+                {menuOpen && (
+                  <div
+                    ref={messageMenuRef}
+                    className="absolute top-full left-0 z-20 mt-1 w-36 rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+                  >
+                    <button type="button" onClick={() => startReply(m)} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                      Reply
+                    </button>
+                    <button type="button" onClick={() => { setForwardingId(m.id); setOpenMenuId(null); }} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                      Forward
+                    </button>
+                    {m.attachment_url && (
+                      <button type="button" onClick={() => handleSave(m)} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                        Save
+                      </button>
+                    )}
+                    <button type="button" onClick={() => { setDetailsMessage(m); setOpenMenuId(null); }} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                      Details
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
             return (
-              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+              <div key={m.id} className={`group flex items-center gap-1 ${mine ? "justify-end" : "justify-start"}`}>
+                {menuButton}
                 <div className="max-w-[75%]">
                   {isGroup && !mine && <p className="mb-0.5 ml-1 text-[10px] font-semibold text-slate-500">{m.sender_name}</p>}
                   <div
                     className={`break-words rounded-2xl px-3 py-1.5 text-sm ${
                       mine ? "text-white" : "border border-slate-200 bg-white text-slate-800"
+                    } ${m.attachment_url || m.reply_to ? "space-y-1.5" : ""} ${
+                      // A one-word message ("hahaha") hugs its own text so
+                      // tightly that a 16px radius reads as a full pill/oval
+                      // instead of a rounded rectangle — a minimum width
+                      // gives short bubbles enough straight edge to look like
+                      // the same shape as longer ones. Skipped for
+                      // attachments, which already have their own natural
+                      // width from the image/file row.
+                      !m.attachment_url ? "min-w-16" : ""
                     }`}
                     style={mine ? { backgroundColor: activeColor } : undefined}
                   >
-                    {m.message}
+                    {m.reply_to && (
+                      <div className={`-mx-1 rounded-lg border-l-2 px-2 py-1 text-xs ${mine ? "border-white/50 bg-white/10" : "border-slate-300 bg-slate-50"}`}>
+                        <p className="font-semibold opacity-90">{m.reply_to.sender_name}</p>
+                        <p className="truncate opacity-75">{m.reply_to.preview}</p>
+                      </div>
+                    )}
+                    {isImageAttachment && (
+                      <a href={m.attachment_url} target="_blank" rel="noreferrer" className="-mx-3 -mt-1.5 block overflow-hidden rounded-t-2xl first:rounded-t-2xl">
+                        <img src={m.attachment_url} alt={m.attachment_name || "Attachment"} className="max-h-48 w-full object-cover" />
+                      </a>
+                    )}
+                    {m.attachment_url && !isImageAttachment && (
+                      <a
+                        href={m.attachment_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-xs ${
+                          mine ? "border-white/30 bg-white/10" : "border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <Icon name="file" size={16} className="shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{m.attachment_name || "File"}</span>
+                          {m.attachment_size != null && <span className="block opacity-75">{formatBytes(m.attachment_size)}</span>}
+                        </span>
+                      </a>
+                    )}
+                    {m.message && <div>{m.message}</div>}
                   </div>
                 </div>
               </div>
@@ -241,13 +432,44 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
           </div>
         )}
       </div>
+      )}
 
-      <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-slate-100 p-2">
-        <input
+      {replyingTo && (
+        <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50 px-3 py-1.5">
+          <div className="min-w-0 flex-1 border-l-2 border-slate-400 pl-2">
+            <p className="text-[11px] font-semibold text-slate-600">Replying to {replyingTo.sender_name}</p>
+            <p className="truncate text-[11px] text-slate-500">{replyingTo.preview}</p>
+          </div>
+          <button type="button" onClick={() => setReplyingTo(null)} className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-200" aria-label="Cancel reply">
+            <Icon name="x" size={13} />
+          </button>
+        </div>
+      )}
+      {attachError && (
+        <p className="border-t border-red-100 bg-red-50 px-3 py-1.5 text-[11px] text-red-700">{attachError}</p>
+      )}
+      <form onSubmit={handleSubmit} className="flex items-center gap-1.5 border-t border-slate-100 p-2">
+        <input ref={fileInputRef} type="file" onChange={handleFilePick} className="hidden" />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          style={{ color: activeColor }}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full hover:bg-slate-100 disabled:opacity-40"
+          aria-label="Attach a photo or file"
+          title="Attach a photo or file"
+        >
+          {uploading ? (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          ) : (
+            <Icon name="paperclip" size={16} />
+          )}
+        </button>
+        <input {...inputProps("message")}
           value={text}
           onChange={(e) => { setText(e.target.value); onTyping(); }}
           placeholder="Aa"
-          className="flex-1 rounded-full bg-slate-100 px-3.5 py-2 text-sm outline-none focus:bg-slate-200"
+          className="min-w-0 flex-1 rounded-full bg-slate-100 px-3.5 py-2 text-sm outline-none focus:bg-slate-200"
         />
         <button
           type="submit"
@@ -259,6 +481,170 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
           <Icon name="send" size={16} />
         </button>
       </form>
+
+      {detailsMessage && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-900/30 p-4" onClick={() => setDetailsMessage(null)}>
+          <div className="w-full max-w-[15rem] rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900">Message details</p>
+              <button type="button" onClick={() => setDetailsMessage(null)} className="rounded-full p-1 text-slate-400 hover:bg-slate-100" aria-label="Close details">
+                <Icon name="x" size={14} />
+              </button>
+            </div>
+            <dl className="mt-3 space-y-2 text-xs">
+              <div>
+                <dt className="font-semibold text-slate-500">From</dt>
+                <dd className="text-slate-700">{detailsMessage.sender_id === currentUserId ? "You" : (detailsMessage.sender_name ?? conversation.name)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-slate-500">Sent</dt>
+                <dd className="text-slate-700">{detailsMessage.created_at_full ?? detailsMessage.created_at}</dd>
+              </div>
+              {!isGroup && detailsMessage.sender_id === currentUserId && (
+                <div>
+                  <dt className="font-semibold text-slate-500">Status</dt>
+                  <dd className="text-slate-700">{detailsMessage.read_at ? `Read ${detailsMessage.read_at}` : "Sent, not yet read"}</dd>
+                </div>
+              )}
+              {detailsMessage.attachment_name && (
+                <div>
+                  <dt className="font-semibold text-slate-500">Attachment</dt>
+                  <dd className="truncate text-slate-700">{detailsMessage.attachment_name}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every photo/file shared in this conversation, pulled straight from the
+ * already-loaded message list — no separate endpoint needed, since the
+ * messages (and their attachment fields) are already in memory. Sized and
+ * positioned identically to the message list it temporarily replaces, so
+ * switching in and out doesn't resize the window.
+ */
+function MediaGallery({ messages, onBack }) {
+  const photos = messages.filter((m) => m.attachment_url && m.attachment_type?.startsWith("image/"));
+  const files = messages.filter((m) => m.attachment_url && !m.attachment_type?.startsWith("image/"));
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+        <button type="button" onClick={onBack} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Back to conversation">
+          <Icon name="arrow" size={16} className="rotate-180" />
+        </button>
+        <p className="text-sm font-semibold text-slate-800">Shared photos &amp; files</p>
+      </div>
+
+      <div className="flex-1 space-y-4 overflow-y-auto p-3">
+        {photos.length === 0 && files.length === 0 ? (
+          <p className="mt-8 text-center text-xs text-slate-400">Nothing shared here yet.</p>
+        ) : (
+          <>
+            {photos.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Photos</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {photos.map((m) => (
+                    <a key={m.id} href={m.attachment_url} target="_blank" rel="noreferrer" className="block aspect-square overflow-hidden rounded-lg">
+                      <img src={m.attachment_url} alt={m.attachment_name || "Shared photo"} className="h-full w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {files.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Files</p>
+                <div className="space-y-1.5">
+                  {files.map((m) => (
+                    <a
+                      key={m.id}
+                      href={m.attachment_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs hover:bg-slate-50"
+                    >
+                      <Icon name="file" size={16} className="shrink-0 text-slate-500" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-slate-700">{m.attachment_name || "File"}</span>
+                        {m.attachment_size != null && <span className="block text-slate-400">{formatBytes(m.attachment_size)}</span>}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Where to send a forwarded message — every other open-able conversation
+ * (every DM contact plus every group this viewer belongs to), sized and
+ * positioned like MediaGallery so it swaps in over the message list rather
+ * than opening yet another window.
+ */
+function ForwardPicker({ targets, error, onPick, onBack }) {
+  const [query, setQuery] = useState("");
+  const [sendingKey, setSendingKey] = useState(null);
+  const filtered = targets.filter((t) => t.name.toLowerCase().includes(query.trim().toLowerCase()));
+
+  async function handlePick(t) {
+    setSendingKey(keyOf(t));
+    try {
+      await onPick(t);
+    } finally {
+      setSendingKey(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
+      <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+        <button type="button" onClick={onBack} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Back to conversation">
+          <Icon name="arrow" size={16} className="rotate-180" />
+        </button>
+        <p className="text-sm font-semibold text-slate-800">Forward to…</p>
+      </div>
+      <div className="border-b border-slate-100 bg-white p-2">
+        <input {...inputProps("search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search people or groups…"
+          className="w-full rounded-full bg-slate-100 px-3 py-1.5 text-xs outline-none focus:bg-slate-200"
+          autoFocus
+        />
+      </div>
+      {error && <p className="bg-red-50 px-3 py-1.5 text-[11px] text-red-700">{error}</p>}
+      <div className="flex-1 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="mt-8 text-center text-xs text-slate-400">No matches.</p>
+        ) : (
+          filtered.map((t) => (
+            <button
+              key={keyOf(t)}
+              type="button"
+              onClick={() => handlePick(t)}
+              disabled={sendingKey === keyOf(t)}
+              className="flex w-full items-center gap-2.5 border-b border-slate-100 px-3 py-2.5 text-left hover:bg-white disabled:opacity-50"
+            >
+              <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-200 text-xs font-bold text-slate-600">
+                <AvatarContent conversation={t} iconSize={13} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.name}</span>
+              {sendingKey === keyOf(t) && <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />}
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -296,8 +682,10 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
   }
 
   async function handleCreate() {
-    if (selectedIds.length === 0) {
-      setError("Add at least one person.");
+    // The creator is auto-added as a member server-side, so a group needs at
+    // least 2 people picked here to reach the 3-member minimum overall.
+    if (selectedIds.length < 2) {
+      setError("A group needs at least 3 members — add at least 2 people.");
       return;
     }
     setSaving(true);
@@ -319,15 +707,15 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">New group chat</h3>
         <p className="mt-1 text-xs text-slate-500">Add people from your interns, supervisors, or coordinators.</p>
 
         <div className="mt-4 space-y-4">
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Group name (optional)</span>
-            <input
+            <input {...inputProps("shortText")}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. OJT Batch 2026"
@@ -348,7 +736,7 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
                     </button>
                   </span>
                 ))}
-                <input
+                <input {...inputProps("search")}
                   value={query}
                   onChange={(e) => { setQuery(e.target.value); setPickerOpen(true); }}
                   onFocus={() => setPickerOpen(true)}
@@ -378,6 +766,11 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
                 </div>
               )}
             </div>
+            {selectedIds.length < 2 && (
+              <p className="mt-1.5 text-xs text-slate-400">
+                Groups need at least 3 members total — add {2 - selectedIds.length} more.
+              </p>
+            )}
           </div>
 
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -420,6 +813,8 @@ export default function MessengerWidget({ currentUser }) {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [mounted, setMounted] = useState(false);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
+  const [menuPos, setMenuPos] = useState(null);
   const optimisticIdRef = useRef(0);
   const typingClearTimeoutsRef = useRef({});
   const lastTypingSentRef = useRef({});
@@ -452,11 +847,36 @@ export default function MessengerWidget({ currentUser }) {
 
   useEffect(() => {
     function handleClickOutside(event) {
-      if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+      const insideRoot = rootRef.current?.contains(event.target);
+      const insideMenu = menuRef.current?.contains(event.target);
+      if (!insideRoot && !insideMenu) setOpen(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // The panel used to be an `absolute right-0 w-80` child of the icon's own
+  // small wrapper — fine on desktop where that icon sits near the screen's
+  // right edge, but on mobile it's mid-header (theme toggle, bell, avatar
+  // all share the row), so right-0 anchored the panel's right edge to the
+  // icon instead of the viewport and the fixed 320px width bled off the
+  // left side of the screen. Measuring the icon's real position and
+  // clamping the panel's left offset keeps it fully on-screen regardless of
+  // where the icon lands.
+  useEffect(() => {
+    if (!open) return;
+    function computePosition() {
+      if (!rootRef.current) return;
+      const rect = rootRef.current.getBoundingClientRect();
+      const margin = 12;
+      const width = Math.min(320, window.innerWidth - margin * 2);
+      const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin);
+      setMenuPos({ top: rect.bottom + 8, left, width });
+    }
+    computePosition();
+    window.addEventListener("resize", computePosition);
+    return () => window.removeEventListener("resize", computePosition);
+  }, [open]);
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -568,7 +988,7 @@ export default function MessengerWidget({ currentUser }) {
     apiFetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
   }
 
-  async function sendMessage(conversation, text) {
+  async function sendMessage(conversation, text, replyToId) {
     const key = keyOf(conversation);
     optimisticIdRef.current += 1;
     const optimisticId = `tmp-${optimisticIdRef.current}`;
@@ -582,7 +1002,9 @@ export default function MessengerWidget({ currentUser }) {
 
     try {
       const url = conversation.type === "group" ? `/api/messages/groups/${conversation.id}/messages` : "/api/messages";
-      const body = conversation.type === "group" ? { message: text } : { receiver_id: conversation.id, message: text };
+      const body = conversation.type === "group"
+        ? { message: text, reply_to_id: replyToId ?? undefined }
+        : { receiver_id: conversation.id, message: text, reply_to_id: replyToId ?? undefined };
       const res = await apiFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -599,6 +1021,85 @@ export default function MessengerWidget({ currentUser }) {
     } catch {
       // Best-effort — the optimistic bubble stays visible either way.
     }
+  }
+
+  // Same optimistic-then-reconcile flow as sendMessage, using a local blob
+  // URL so the picture/file preview appears instantly instead of waiting on
+  // the upload — swapped out for the real storage URL once the server
+  // responds (or left as-is on failure, same best-effort posture as text).
+  async function sendAttachment(conversation, file, caption, replyToId) {
+    const key = keyOf(conversation);
+    optimisticIdRef.current += 1;
+    const optimisticId = `tmp-${optimisticIdRef.current}`;
+    const localUrl = URL.createObjectURL(file);
+    setThreads((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        messages: [
+          ...(prev[key]?.messages ?? []),
+          {
+            id: optimisticId,
+            sender_id: currentUser.id,
+            sender_name: currentUser.name,
+            message: caption || "",
+            attachment_url: localUrl,
+            attachment_name: file.name,
+            attachment_type: file.type,
+            attachment_size: file.size,
+          },
+        ],
+      },
+    }));
+
+    try {
+      const formData = new FormData();
+      if (conversation.type !== "group") formData.append("receiver_id", String(conversation.id));
+      if (caption) formData.append("message", caption);
+      if (replyToId) formData.append("reply_to_id", String(replyToId));
+      formData.append("attachment", file);
+
+      const url = conversation.type === "group" ? `/api/messages/groups/${conversation.id}/messages` : "/api/messages";
+      const res = await apiFetch(url, { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.success && data.message_data) {
+        setThreads((prev) => ({
+          ...prev,
+          [key]: { ...prev[key], messages: prev[key].messages.map((m) => (m.id === optimisticId ? data.message_data : m)) },
+        }));
+        loadConversations();
+        URL.revokeObjectURL(localUrl);
+      }
+    } catch {
+      // Best-effort — the optimistic bubble (with its local preview) stays visible either way.
+    }
+  }
+
+  // The forwarded copy lands wherever the target conversation's own thread
+  // is currently kept — appended locally if it's already open, otherwise it
+  // just shows up next time that thread loads. No optimistic bubble here
+  // (unlike sendMessage/sendAttachment): forwarding already has to round-trip
+  // to the server to resolve the source message, so there's nothing to show
+  // before that response arrives anyway.
+  async function forwardMessage(sourceConversation, sourceMessageId, targetConversation) {
+    const res = await apiFetch("/api/messages/forward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_type: sourceConversation.type === "group" ? "group" : "dm",
+        source_id: sourceMessageId,
+        target_type: targetConversation.type === "group" ? "group" : "dm",
+        target_id: targetConversation.id,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.message || "Could not forward this message.");
+
+    const targetKey = keyOf(targetConversation);
+    setThreads((prev) =>
+      prev[targetKey] ? { ...prev, [targetKey]: { ...prev[targetKey], messages: [...prev[targetKey].messages, data.message_data] } } : prev
+    );
+    loadConversations();
   }
 
   // Mute/color are per-viewer preferences (see backend MessageThreadSetting)
@@ -633,6 +1134,8 @@ export default function MessengerWidget({ currentUser }) {
           onClick={() => setOpen((v) => !v)}
           className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
           title="Messages"
+          aria-label={unreadTotal > 0 ? `Messages, ${unreadTotal} unread` : "Messages"}
+          aria-expanded={open}
         >
           <Icon name="message" size={18} />
           {unreadTotal > 0 && (
@@ -642,8 +1145,15 @@ export default function MessengerWidget({ currentUser }) {
           )}
         </button>
 
-        {open && (
-          <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-slate-200 bg-white shadow-lg">
+      </div>
+
+      {mounted && open && menuPos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: menuPos.top, left: menuPos.left, width: menuPos.width }}
+            className="z-30 rounded-2xl border border-slate-200 bg-white shadow-lg"
+          >
             <div className="border-b border-slate-100 px-4 py-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900">Messages</p>
@@ -657,11 +1167,11 @@ export default function MessengerWidget({ currentUser }) {
                   </button>
                 )}
               </div>
-              <input
+              <input {...inputProps("search")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search people…"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm outline-none focus:border-blue-500 focus:bg-white"
               />
             </div>
             <div className="max-h-96 overflow-y-auto">
@@ -713,9 +1223,9 @@ export default function MessengerWidget({ currentUser }) {
                 })
               )}
             </div>
-          </div>
+          </div>,
+          document.body
         )}
-      </div>
 
       {mounted &&
         createPortal(
@@ -731,7 +1241,7 @@ export default function MessengerWidget({ currentUser }) {
                 ))}
             </div>
 
-            <div className="fixed bottom-0 right-20 z-50 flex items-end gap-3">
+            <div className="no-scrollbar fixed bottom-0 right-4 z-50 flex max-w-[100vw] items-end gap-3 overflow-x-auto sm:right-20">
               {openChats
                 .filter((c) => !minimizedIds.includes(keyOf(c)))
                 .map((c) => {
@@ -744,12 +1254,15 @@ export default function MessengerWidget({ currentUser }) {
                       loading={threads[key]?.loading ?? false}
                       isTyping={Boolean(typingFrom[key])}
                       typingName={typeof typingFrom[key] === "string" ? typingFrom[key] : null}
-                      onSend={(text) => sendMessage(c, text)}
+                      onSend={(text, replyToId) => sendMessage(c, text, replyToId)}
+                      onSendFile={(file, caption, replyToId) => sendAttachment(c, file, caption, replyToId)}
                       onTyping={() => sendTyping(c)}
                       onClose={() => closeChat(key)}
                       onToggleMinimize={() => toggleMinimize(key)}
                       onToggleMute={() => updateThreadSetting(c, { muted: !c.muted })}
                       onSetColor={(color) => updateThreadSetting(c, { color })}
+                      onForward={(messageId, target) => forwardMessage(c, messageId, target)}
+                      forwardTargets={conversations.filter((t) => keyOf(t) !== key)}
                       currentUserId={currentUser.id}
                     />
                   );

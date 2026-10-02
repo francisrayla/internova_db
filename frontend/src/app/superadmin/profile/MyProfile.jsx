@@ -24,7 +24,7 @@ export default function MyProfile() {
       </section>
 
       <section className="max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4 sm:flex-nowrap">
           <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-blue-600 text-lg font-semibold text-white">
             {user?.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : initials}
           </div>
@@ -35,7 +35,7 @@ export default function MyProfile() {
           <button
             type="button"
             onClick={() => setShowAvatarModal(true)}
-            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-300 px-3.5 py-2 sm:w-auto sm:shrink-0 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <Icon name="camera" size={15} /> Change photo
           </button>

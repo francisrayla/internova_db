@@ -70,7 +70,12 @@ export default function InternActivities() {
           <p className="px-6 py-10 text-center text-sm text-slate-400">No activity entries yet.</p>
         ) : (
           activities.map((a) => (
-            <div key={a.id} className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-6 py-4 last:border-b-0">
+            <div key={a.id} className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 last:border-b-0 sm:flex-row sm:items-start sm:justify-between">
+              {/* Stacked below sm: — a flex-1 text block next to a shrink-0
+                  badge+buttons group can end up sharing one flex line even
+                  under flex-wrap (flex-1's basis-0 makes the wrap check
+                  under-count its real space need), then get compressed with
+                  min-w-0 down to a sliver, wrapping one word per line. */}
               <div className="flex min-w-0 flex-1 gap-3">
                 {a.photo_url && (
                   <a href={a.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
@@ -80,9 +85,9 @@ export default function InternActivities() {
                 <div className="min-w-0">
                   <p className="font-medium text-slate-900">{a.title}</p>
                   <p className="text-xs text-slate-500">
-                    {a.intern_name} · {a.activity_date}{a.hours_rendered > 0 ? ` · ${a.hours_rendered}h` : ""}
+                    {a.intern_name} · {a.activity_date}
                   </p>
-                  {a.description && <p className="mt-1.5 text-sm text-slate-600">{a.description}</p>}
+                  {a.description && <p className="mt-1.5 whitespace-pre-line text-sm text-slate-600">{a.description}</p>}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">

@@ -7,6 +7,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import DueDateBadge from "@/components/DueDateBadge";
 import TaskHistoryRow from "@/components/TaskHistoryRow";
 
+import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
   pending: "bg-slate-100 text-slate-700",
   in_progress: "bg-blue-100 text-blue-700",
@@ -67,7 +68,7 @@ function InternPicker({ interns, selected, onChange }) {
             </button>
           </span>
         ))}
-        <input
+        <input {...inputProps("search")}
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
@@ -140,8 +141,8 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Assign a task</h3>
         <p className="mt-1 text-xs text-slate-500">Check one intern for an individual task, or several for a group task.</p>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -161,13 +162,13 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
           )}
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Title</span>
-            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. Prepare weekly report" />
+            <input {...inputProps("title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. Prepare weekly report" />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Description</span>
-            <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+            <textarea {...inputProps("longText")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Priority</span>
               <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
@@ -298,7 +299,7 @@ export default function TaskManagement() {
       </div>
 
       <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input
+        <input {...inputProps("search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by task title or intern name…"

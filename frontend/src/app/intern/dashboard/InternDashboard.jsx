@@ -33,14 +33,14 @@ function ProgressBar({ pct, tone = "bg-blue-600" }) {
 
 function StatCard({ icon, tone, label, value, sub, pct }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-center gap-2.5">
-        <span className={`grid h-9 w-9 place-items-center rounded-xl ${tone}`}>
+        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl sm:h-9 sm:w-9 ${tone}`}>
           <Icon name={icon} size={16} className="text-white" />
         </span>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
       </div>
-      <p className="mt-3 text-2xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
       {typeof pct === "number" && <div className="mt-3"><ProgressBar pct={pct} /></div>}
     </div>
@@ -84,7 +84,7 @@ export default function InternDashboard() {
       </section>
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
           ))}
@@ -94,7 +94,7 @@ export default function InternDashboard() {
           <p className="text-sm text-slate-500">You&apos;re not deployed to a company yet — once your coordinator sets that up, your dashboard fills in here.</p>
         </section>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <StatCard
             icon="calendar"
             tone="bg-blue-600"

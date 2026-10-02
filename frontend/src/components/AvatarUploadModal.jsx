@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
+import { validateImageFile } from "@/lib/imageValidation";
 
 function initialsOf(name) {
   return (name || "?")
@@ -48,12 +49,9 @@ export default function AvatarUploadModal({ user, onClose, onUpdated }) {
   function handlePick(e) {
     const picked = e.target.files?.[0];
     if (!picked) return;
-    if (!picked.type.startsWith("image/")) {
-      setError("Please choose an image file.");
-      return;
-    }
-    if (picked.size > MAX_BYTES) {
-      setError("Image must be 3MB or smaller.");
+    const validationError = validateImageFile(picked, MAX_BYTES);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setError("");
@@ -98,8 +96,8 @@ export default function AvatarUploadModal({ user, onClose, onUpdated }) {
   if (!mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-sm overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Profile photo</h3>
         <p className="mt-1 text-xs text-slate-500">This is shown across the app, including in messages.</p>
 

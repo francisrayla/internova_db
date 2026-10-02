@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 
+import { inputProps } from "@/lib/inputRules";
 const CATEGORY_DESCRIPTIONS = {
   "B. Interpersonal Skills": "The measure of the trainee's ability to relate to one another and to operate within the division where they are assigned through social communication and interaction.",
 };
@@ -153,7 +154,7 @@ export default function EvaluationForm({ interns, criteria: initialCriteria, onS
                 </div>
               ))}
             </div>
-            <textarea
+            <textarea {...inputProps("note")}
               value={categoryComments[cat] ?? ""}
               onChange={(e) => setCategoryComments((prev) => ({ ...prev, [cat]: e.target.value }))}
               placeholder="Comments (optional)"
@@ -166,7 +167,7 @@ export default function EvaluationForm({ interns, criteria: initialCriteria, onS
 
       <label className="block text-sm">
         <span className="mb-1.5 block font-semibold text-slate-700">In what areas do you recommend this student focus for development?</span>
-        <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+        <textarea {...inputProps("comment")} value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
       </label>
 
       <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">

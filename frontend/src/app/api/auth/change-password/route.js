@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { forwardHeaders } from '@/lib/serverProxy';
+import { BACKEND_URL } from '@/lib/backendUrl';
 
 export async function POST(request) {
   const body = await request.text();
 
-  const response = await fetch('http://127.0.0.1:8000/api/auth/change-password', {
+  const response = await fetch(`${BACKEND_URL}/api/auth/change-password`, {
     method: 'POST',
     headers: forwardHeaders(request, { 'Content-Type': 'application/json' }),
     body,

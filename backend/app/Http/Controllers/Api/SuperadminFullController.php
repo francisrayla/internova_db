@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\EmailVerificationController;
 use App\Mail\InquiryReply;
+use App\Mail\SupportTicketNotification;
 use App\Models\ActivityLog;
+use App\Models\AiUsageLog;
 use App\Models\Company;
 use App\Models\CoordinatorProfile;
 use App\Models\InternshipDeployment;
@@ -21,7 +24,9 @@ use App\Models\SupportTicketMessage;
 use App\Models\User;
 use App\Services\ActivityLogService;
 use App\Services\DefaultEvaluationCriteria;
+use App\Services\NarrativeAiService;
 use App\Services\NotificationService;
+use App\Services\PlanFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -240,9 +245,9 @@ class SuperadminFullController extends Controller
             'contact_person'        => 'required|string|max:255',
             'position'              => 'nullable|string|max:255',
             'email'                 => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
-            'phone'                 => 'nullable|string|max:50',
+            'phone'                 => ['required', 'string', 'regex:/^[0-9]{11}$/'],
             'intern_range'          => 'nullable|string|max:50',
-            'expected_coordinators' => 'nullable|string|max:50',
+            'expected_coordinators' => 'nullable|integer|min:0|max:500',
             'interested_plan'       => 'nullable|string|max:100',
             'heard_from'            => 'nullable|string|max:100',
             'message'               => 'required|string',
@@ -254,7 +259,7 @@ class SuperadminFullController extends Controller
             return response()->json(['success' => false, 'message' => 'coordinator role is not configured.'], 500);
         }
 
-        $inquiry = DB::transaction(function () use ($data, $coordinatorRole) {
+        [$inquiry, $user] = DB::transaction(function () use ($data, $coordinatorRole) {
             [$firstName, $lastName] = array_pad(explode(' ', trim($data['contact_person']), 2), 2, '');
 
             $user = User::create([
@@ -267,14 +272,22 @@ class SuperadminFullController extends Controller
                 'phone'      => $data['phone'] ?? null,
                 'password'   => Hash::make($data['password']),
                 'status'     => 'pending_approval',
+                // Stays null until they enter the code emailed below — see
+                // EmailVerificationController and AuthController::login(),
+                // which refuses to sign in an unverified account.
+                'email_verified_at' => null,
             ]);
 
-            return PlanInquiry::create([
+            $inquiry = PlanInquiry::create([
                 ...collect($data)->except(['password', 'password_confirmation'])->toArray(),
                 'user_id' => $user->id,
                 'status'  => 'new',
             ]);
+
+            return [$inquiry, $user];
         });
+
+        EmailVerificationController::sendCode($user);
 
         NotificationService::toSuperadmin(
             'new_inquiry',
@@ -294,7 +307,7 @@ class SuperadminFullController extends Controller
         return response()->json([
             'success' => true,
             'id'      => $inquiry->id,
-            'message' => 'Registration received. You can log in anytime to check your approval status — we will review your request within 1–2 business days.',
+            'message' => 'Registration received. Check your email for a verification code before logging in — we will also review your request within 1–2 business days.',
         ], 201);
     }
 
@@ -322,20 +335,24 @@ class SuperadminFullController extends Controller
         }
 
         $data = $request->validate([
-            'school_name'      => 'required|string|max:255',
-            'school_code'      => 'required|string|max:50|unique:schools,school_code',
-            'address'          => 'nullable|string|max:500',
-            'contact_email'    => 'required|email|max:255',
-            'contact_number'   => 'nullable|string|max:50',
+            'school_name'      => 'required|string|max:150',
+            'school_code'      => ['required', 'string', 'max:30', 'regex:/^[A-Z0-9]+(-[A-Z0-9]+)*$/', 'unique:schools,school_code'],
+            'address'          => 'nullable|string|max:255',
+            'contact_email'    => 'required|email|max:100',
+            'contact_number'   => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'plan_name'        => 'required|string|in:Basic,Premium',
             'billing_period'   => 'required|string|in:monthly,yearly',
             'list_price'       => 'required|numeric|min:0',
-            'discount_amount'  => 'nullable|numeric|min:0',
+            'discount_amount'  => 'nullable|numeric|min:0|lte:list_price|decimal:0,2',
             'amount'           => 'required|numeric|min:0',
             'agreement_note'   => [
                 Rule::requiredIf(fn () => (float) ($request->discount_amount ?? 0) > 0),
                 'nullable', 'string', 'max:500',
             ],
+        ], [
+            'school_code.regex'    => 'School Code can only use uppercase letters, numbers and single hyphens.',
+            'contact_number.regex' => 'Contact Number must be exactly 11 digits.',
+            'discount_amount.lte'  => 'Discount cannot be more than the plan price.',
         ]);
 
         $school = DB::transaction(function () use ($data, $inquiry) {
@@ -729,7 +746,7 @@ class SuperadminFullController extends Controller
 
         $data = $request->validate([
             'status' => 'sometimes|string|in:new,contacted,under_discussion,approved,converted,rejected',
-            'notes'  => 'sometimes|nullable|string',
+            'notes'  => 'sometimes|nullable|string|max:2000',
         ]);
 
         $inquiry->update($data);
@@ -748,12 +765,14 @@ class SuperadminFullController extends Controller
             'body'       => 'required|string',
         ]);
 
-        Mail::to($data['to_email'], $data['to_name'])->send(
+        Mail::to($data['to_email'], $data['to_name'])->queue(
             new InquiryReply(
                 recipientName: $data['to_name'],
                 schoolName:    $data['school_name'],
                 replySubject:  $data['subject'],
                 replyBody:     $data['body'],
+                replyToEmail:  $request->user()->email,
+                replyToName:   $request->user()->name,
             )
         );
 
@@ -849,32 +868,46 @@ class SuperadminFullController extends Controller
      * What IS real here is which schools are entitled to the feature at all,
      * read straight from their active plan's `features` list.
      */
+    /**
+     * Real AI usage for the current month, per school: narratives polished by
+     * interns and narratives auto-drafted for days they didn't log, from
+     * ai_usage_logs. "Live" means a Gemini key is configured on the server.
+     */
     public function aiUsage(): JsonResponse
     {
-        $schools = School::with(['subscriptions' => fn ($q) => $q->where('status', 'active')->with('plan')])
-            ->orderBy('school_name')
-            ->get()
-            ->map(function ($school) {
-                $subscription = $school->subscriptions->first();
-                $plan = $subscription?->plan;
-                $entitled = collect($plan?->features ?? [])->contains(fn ($f) => str_contains($f, 'AI'));
+        $monthStart = now()->startOfMonth();
 
-                return [
-                    'id'                   => $school->id,
-                    'school_name'          => $school->school_name,
-                    'plan'                 => $plan?->name,
-                    'ai_entitled'          => $entitled,
-                    'reports_generated'    => 0,
-                    'portfolios_generated' => 0,
-                ];
-            });
+        $counts = AiUsageLog::where('created_at', '>=', $monthStart)
+            ->selectRaw('school_id, feature, succeeded, COUNT(*) as total')
+            ->groupBy('school_id', 'feature', 'succeeded')
+            ->get();
+
+        $countFor = fn ($schoolId, $feature) => (int) $counts
+            ->where('school_id', $schoolId)->where('feature', $feature)->where('succeeded', true)->sum('total');
+
+        $schools = School::orderBy('school_name')->get()->map(function ($school) use ($countFor) {
+            return [
+                'id'             => $school->id,
+                'school_name'    => $school->school_name,
+                'plan'           => $school->currentSubscription()?->plan?->name,
+                'ai_entitled'    => PlanFeatures::has($school, PlanFeatures::AI_FEATURES),
+                'polished_count' => $countFor($school->id, AiUsageLog::POLISH),
+                'drafted_count'  => $countFor($school->id, AiUsageLog::DRAFT),
+            ];
+        });
+
+        $succeeded = $counts->where('succeeded', true);
 
         return response()->json([
             'schools'          => $schools,
             'entitled_schools' => $schools->where('ai_entitled', true)->count(),
-            'total_reports'    => 0,
-            'total_portfolios' => 0,
-            'feature_live'     => false,
+            'polished_count'   => (int) $succeeded->where('feature', AiUsageLog::POLISH)->sum('total'),
+            'drafted_count'    => (int) $succeeded->where('feature', AiUsageLog::DRAFT)->sum('total'),
+            'failed_count'     => (int) $counts->where('succeeded', false)->sum('total'),
+            'requests_count'   => (int) $counts->sum('total'),
+            'feature_live'     => NarrativeAiService::isConfigured(),
+            'model'            => NarrativeAiService::isConfigured() ? NarrativeAiService::model() : null,
+            'period_label'     => now()->format('F Y'),
         ]);
     }
 
@@ -894,9 +927,24 @@ class SuperadminFullController extends Controller
             'subject' => $t->subject,
             'category' => $t->category,
             'status' => $t->status,
-            'last_message' => $last?->message,
+            'last_message' => $last?->message ?: ($last?->attachment_name ? "📎 {$last->attachment_name}" : null),
             'last_message_at' => $last?->created_at?->format('M d, Y g:i A'),
             'created_at' => $t->created_at->format('M d, Y'),
+        ];
+    }
+
+    private function mapSupportTicketMessage(SupportTicketMessage $m): array
+    {
+        return [
+            'id' => $m->id,
+            'sender_name' => $m->sender?->name,
+            'is_superadmin' => $m->sender?->role_id == 1,
+            'message' => $m->message,
+            'attachment_url' => $m->attachment_path ? Storage::disk('public')->url($m->attachment_path) : null,
+            'attachment_name' => $m->attachment_name,
+            'attachment_type' => $m->attachment_type,
+            'attachment_size' => $m->attachment_size,
+            'created_at' => $m->created_at->format('M d, Y g:i A'),
         ];
     }
 
@@ -919,25 +967,37 @@ class SuperadminFullController extends Controller
 
         return response()->json(['ticket' => [
             ...$this->mapSupportTicket($ticket),
-            'messages' => $ticket->messages->map(fn (SupportTicketMessage $m) => [
-                'id' => $m->id,
-                'sender_name' => $m->sender?->name,
-                'is_superadmin' => $m->sender?->role_id == 1,
-                'message' => $m->message,
-                'created_at' => $m->created_at->format('M d, Y g:i A'),
-            ]),
+            'messages' => $ticket->messages->map(fn (SupportTicketMessage $m) => $this->mapSupportTicketMessage($m)),
         ]]);
     }
 
     public function supportMessageReply(Request $request, int $id): JsonResponse
     {
-        $ticket = SupportTicket::find($id);
+        $ticket = SupportTicket::with('coordinator')->find($id);
         if (!$ticket) {
             return response()->json(['success' => false, 'message' => 'Ticket not found.'], 404);
         }
 
-        $data = $request->validate(['message' => 'required|string|max:3000']);
-        $ticket->messages()->create(['sender_id' => $request->user()->id, 'message' => $data['message']]);
+        $data = $request->validate([
+            'message' => 'nullable|string|max:3000',
+            'attachment' => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf,doc,docx|max:5120',
+        ]);
+
+        $attachment = ['attachment_path' => null, 'attachment_name' => null, 'attachment_type' => null, 'attachment_size' => null];
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $attachment = [
+                'attachment_path' => $file->store("support-attachments/{$request->user()->id}", 'public'),
+                'attachment_name' => $file->getClientOriginalName(),
+                'attachment_type' => $file->getClientMimeType(),
+                'attachment_size' => $file->getSize(),
+            ];
+        }
+        if (empty($data['message']) && !$attachment['attachment_path']) {
+            return response()->json(['success' => false, 'message' => 'Write a message or attach a file.'], 422);
+        }
+
+        $ticket->messages()->create(['sender_id' => $request->user()->id, 'message' => $data['message'] ?? '', ...$attachment]);
         $ticket->touch();
 
         NotificationService::send(
@@ -949,6 +1009,17 @@ class SuperadminFullController extends Controller
             userId: $ticket->coordinator_id,
             link: '/coordinator/support'
         );
+
+        if ($ticket->coordinator?->email) {
+            Mail::to($ticket->coordinator->email, $ticket->coordinator->name)->queue(new SupportTicketNotification(
+                recipientName: $ticket->coordinator->name,
+                senderLabel: $request->user()->name . ' (Internova Support)',
+                ticketSubject: $ticket->subject,
+                messageBody: $data['message'] ?? '(attachment only)',
+                hasAttachment: (bool) $attachment['attachment_path'],
+                ticketUrl: config('app.frontend_url') . '/coordinator/support',
+            ));
+        }
 
         return response()->json(['success' => true]);
     }
@@ -971,19 +1042,34 @@ class SuperadminFullController extends Controller
      * calls placed alongside the actions that actually change something
      * (payments, approvals, suspensions, plan edits...), not synthetic data.
      */
+    /**
+     * Logs for one school (or, with school_id=none, the system/superadmin-only
+     * bucket) at a time — the Activity screen calls this once per school
+     * section rather than one global feed, so each school's history loads
+     * and paginates independently instead of interleaving into a single
+     * scroll a superadmin has to hunt through.
+     */
     public function activityLogs(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'module' => 'nullable|string',
-            'page'   => 'nullable|integer|min:1',
+            'module'    => 'nullable|string',
+            'page'      => 'nullable|integer|min:1',
+            'school_id' => 'nullable|string',
         ]);
 
-        $perPage = 25;
+        $perPage = 10;
         $page = $data['page'] ?? 1;
 
         $query = ActivityLog::with(['user', 'school'])->latest('id');
         if (!empty($data['module']) && $data['module'] !== 'All') {
             $query->where('module', $data['module']);
+        }
+        if (!empty($data['school_id'])) {
+            if ($data['school_id'] === 'none') {
+                $query->whereNull('school_id');
+            } else {
+                $query->where('school_id', (int) $data['school_id']);
+            }
         }
 
         $total = (clone $query)->count();
@@ -999,11 +1085,44 @@ class SuperadminFullController extends Controller
                 'action'      => $log->action,
                 'description' => $log->description,
             ]),
-            'modules'  => ActivityLog::query()->select('module')->distinct()->orderBy('module')->pluck('module'),
             'page'     => $page,
             'per_page' => $perPage,
             'total'    => $total,
             'has_more' => $page * $perPage < $total,
+        ]);
+    }
+
+    /**
+     * The Activity screen's starting point — which schools have logged
+     * activity at all (plus the system/superadmin-only bucket) and how many
+     * entries each has, so it can render one section per school and let
+     * activityLogs() above fill each in on demand.
+     */
+    public function activityLogSchools(Request $request): JsonResponse
+    {
+        $data = $request->validate(['module' => 'nullable|string']);
+        $hasModuleFilter = !empty($data['module']) && $data['module'] !== 'All';
+
+        $schoolCounts = ActivityLog::whereNotNull('school_id')
+            ->when($hasModuleFilter, fn ($q) => $q->where('module', $data['module']))
+            ->selectRaw('school_id, count(*) as total')
+            ->groupBy('school_id')
+            ->orderByDesc('total')
+            ->get()
+            ->map(fn ($row) => [
+                'id'    => $row->school_id,
+                'name'  => School::find($row->school_id)?->school_name ?? 'Unknown school',
+                'total' => (int) $row->total,
+            ]);
+
+        $systemTotal = ActivityLog::whereNull('school_id')
+            ->when($hasModuleFilter, fn ($q) => $q->where('module', $data['module']))
+            ->count();
+
+        return response()->json([
+            'schools'      => $schoolCounts,
+            'system_total' => $systemTotal,
+            'modules'      => ActivityLog::query()->select('module')->distinct()->orderBy('module')->pluck('module'),
         ]);
     }
 

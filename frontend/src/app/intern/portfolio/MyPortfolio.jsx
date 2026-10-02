@@ -5,6 +5,10 @@ import Link from "next/link";
 import Icon from "@/components/Icon";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
+import { validateImageFile } from "@/lib/imageValidation";
+
+import { clean, inputProps } from "@/lib/inputRules";
+const MAX_ITEM_IMAGE_BYTES = 3 * 1024 * 1024;
 
 export default function MyPortfolio() {
   const [portfolio, setPortfolio] = useState(null);
@@ -12,7 +16,6 @@ export default function MyPortfolio() {
   const [editing, setEditing] = useState(false);
   const [details, setDetails] = useState({ title: "", bio: "" });
   const [savingDetails, setSavingDetails] = useState(false);
-  const [togglingPublic, setTogglingPublic] = useState(false);
 
   const [showItemForm, setShowItemForm] = useState(false);
   const [itemForm, setItemForm] = useState({ title: "", description: "", project_url: "" });
@@ -53,21 +56,6 @@ export default function MyPortfolio() {
     }
   }
 
-  async function togglePublic() {
-    setTogglingPublic(true);
-    try {
-      const res = await apiFetch("/api/intern/portfolio", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_public: !portfolio.is_public }),
-      });
-      const data = await res.json();
-      if (data.success) setPortfolio(data.portfolio);
-    } finally {
-      setTogglingPublic(false);
-    }
-  }
-
   async function handleAddItem(e) {
     e.preventDefault();
     if (!itemForm.title.trim()) {
@@ -97,6 +85,23 @@ export default function MyPortfolio() {
     }
   }
 
+  function handleItemImage(e) {
+    const picked = e.target.files?.[0];
+    if (!picked) {
+      setItemImage(null);
+      return;
+    }
+    const validationError = validateImageFile(picked, MAX_ITEM_IMAGE_BYTES);
+    if (validationError) {
+      setError(validationError);
+      e.target.value = "";
+      setItemImage(null);
+      return;
+    }
+    setError("");
+    setItemImage(picked);
+  }
+
   async function handleDeleteItem(id) {
     setPortfolio((prev) => (prev ? { ...prev, items: prev.items.filter((i) => i.id !== id) } : prev));
     await apiFetch(`/api/intern/portfolio/items/${id}`, { method: "DELETE" }).catch(() => {});
@@ -109,18 +114,18 @@ export default function MyPortfolio() {
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Portfolio</p>
             {editing ? (
               <form onSubmit={saveDetails} className="mt-2 space-y-3">
-                <input
+                <input {...inputProps("title")}
                   value={details.title}
                   onChange={(e) => setDetails((d) => ({ ...d, title: e.target.value }))}
                   placeholder="Portfolio title"
                   className="w-full max-w-md rounded-xl border border-slate-300 px-3 py-2 text-lg font-semibold outline-none focus:border-blue-500"
                 />
-                <textarea
+                <textarea {...inputProps("longText")}
                   value={details.bio}
                   onChange={(e) => setDetails((d) => ({ ...d, bio: e.target.value }))}
                   rows={3}
@@ -147,26 +152,16 @@ export default function MyPortfolio() {
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            <Link
-              href="/intern/portfolio/report"
-              className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              <Icon name="file" size={14} /> Generate Report
-            </Link>
-            <button
-              type="button"
-              onClick={togglePublic}
-              disabled={togglingPublic}
-              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-sm font-medium disabled:opacity-60 ${
-                portfolio?.is_public ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-300 text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              <Icon name={portfolio?.is_public ? "check" : "x"} size={14} />
-              {portfolio?.is_public ? "Public" : "Private"}
-            </button>
-          </div>
+          <Link
+            href="/intern/portfolio/report"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            <Icon name="file" size={14} /> Generate Report
+          </Link>
         </div>
+        <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+          <Icon name="user" size={12} /> Visible to your supervisor and coordinator.
+        </p>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -183,30 +178,31 @@ export default function MyPortfolio() {
 
         {showItemForm && (
           <form onSubmit={handleAddItem} className="mb-5 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <input
+            <input {...inputProps("title")}
               value={itemForm.title}
               onChange={(e) => setItemForm((f) => ({ ...f, title: e.target.value }))}
               placeholder="Title, e.g. Company Attendance Module"
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               autoFocus
             />
-            <textarea
+            <textarea {...inputProps("longText")}
               value={itemForm.description}
               onChange={(e) => setItemForm((f) => ({ ...f, description: e.target.value }))}
               rows={3}
               placeholder="What did you build or contribute?"
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
             />
-            <input
+            <input {...inputProps("url")}
+              type="url"
               value={itemForm.project_url}
-              onChange={(e) => setItemForm((f) => ({ ...f, project_url: e.target.value }))}
+              onChange={(e) => setItemForm((f) => ({ ...f, project_url: clean("url", e.target.value) }))}
               placeholder="Project link (optional)"
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
             />
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => setItemImage(e.target.files?.[0] ?? null)}
+              onChange={handleItemImage}
               className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700"
             />
             {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}

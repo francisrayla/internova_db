@@ -7,7 +7,10 @@ import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import TaskListBoard from "@/components/TaskListBoard";
 import TaskHistoryRow from "@/components/TaskHistoryRow";
 import ProofUploadModal from "@/components/ProofUploadModal";
+import { useCurrentUser } from "@/lib/UserContext";
+import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
 
+import { inputProps } from "@/lib/inputRules";
 const LIVE_TYPES = ["task_evaluated", "task_comment"];
 
 /**
@@ -19,6 +22,8 @@ const LIVE_TYPES = ["task_evaluated", "task_comment"];
  * active view entirely and live in History instead.
  */
 export default function MyTasks() {
+  const { user } = useCurrentUser();
+  const requireProof = hasPlanFeature(user, PLAN_FEATURES.ATTACHMENTS);
   const [tasks, setTasks] = useState([]);
   const [view, setView] = useState("active");
   const [statusFilter, setStatusFilter] = useState("");
@@ -66,7 +71,12 @@ export default function MyTasks() {
 
   function requestComplete(id) {
     const task = tasks.find((t) => t.id === id);
-    if (task) setCompletingTask(task);
+    if (!task) return;
+    if (requireProof) {
+      setCompletingTask(task);
+    } else {
+      completeDirectly(id);
+    }
   }
 
   async function confirmComplete(files) {
@@ -77,6 +87,18 @@ export default function MyTasks() {
     if (!res.ok || !data.success) throw new Error(data.message || "Could not mark task done.");
     setCompletingTask(null);
     load();
+  }
+
+  async function completeDirectly(id) {
+    try {
+      const res = await apiFetch(`/api/intern/tasks/${id}/complete`, { method: "POST", body: new FormData() });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Could not mark task done.");
+      load();
+    } catch (err) {
+      setError(err.message);
+      load();
+    }
   }
 
   // A finished task still needs your supervisor's rating before it's truly
@@ -122,7 +144,7 @@ export default function MyTasks() {
       </div>
 
       <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input
+        <input {...inputProps("search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by task title…"

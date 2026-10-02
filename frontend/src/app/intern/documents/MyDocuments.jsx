@@ -6,6 +6,7 @@ import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
 
+import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
   pending: "bg-amber-100 text-amber-700",
   approved: "bg-green-100 text-green-700",
@@ -87,7 +88,7 @@ export default function MyDocuments() {
         <form onSubmit={handleSubmit} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Document type</span>
-            <input
+            <input {...inputProps("shortText")}
               value={docType}
               onChange={(e) => setDocType(e.target.value)}
               placeholder="e.g. Resume, Endorsement Letter, MOA"

@@ -3,14 +3,20 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Message extends Model
 {
-    protected $fillable = ['sender_id', 'receiver_id', 'school_id', 'message', 'read_at'];
+    protected $fillable = [
+        'sender_id', 'receiver_id', 'reply_to_id', 'school_id', 'message', 'read_at',
+        'attachment_path', 'attachment_name', 'attachment_type', 'attachment_size',
+    ];
 
     protected $casts = [
         'read_at' => 'datetime',
     ];
+
+    protected $appends = ['attachment_url'];
 
     public function sender()
     {
@@ -20,5 +26,15 @@ class Message extends Model
     public function receiver()
     {
         return $this->belongsTo(User::class, 'receiver_id');
+    }
+
+    public function replyTo()
+    {
+        return $this->belongsTo(Message::class, 'reply_to_id');
+    }
+
+    public function getAttachmentUrlAttribute(): ?string
+    {
+        return $this->attachment_path ? Storage::disk('public')->url($this->attachment_path) : null;
     }
 }

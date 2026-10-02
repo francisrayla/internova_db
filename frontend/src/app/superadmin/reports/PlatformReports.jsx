@@ -28,23 +28,23 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 [&>*:last-child:nth-child(odd)]:col-span-2 md:[&>*:last-child:nth-child(odd)]:col-span-1">
         {data?.platformPerformance && (
-          <button className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:shadow-md">
+          <button className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm sm:p-5 transition hover:shadow-md">
             <p className="text-sm font-semibold text-slate-600">Platform performance</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">{data.platformPerformance.uptime}</p>
             <p className="mt-1 text-sm text-blue-700">uptime</p>
           </button>
         )}
         {data?.userAdoption && (
-          <button className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:shadow-md">
+          <button className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm sm:p-5 transition hover:shadow-md">
             <p className="text-sm font-semibold text-slate-600">User adoption</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">{data.userAdoption.activeAccounts}</p>
             <p className="mt-1 text-sm text-blue-700">active accounts</p>
           </button>
         )}
         {data?.revenueSnapshot && (
-          <button className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:shadow-md">
+          <button className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm sm:p-5 transition hover:shadow-md">
             <p className="text-sm font-semibold text-slate-600">Revenue snapshot</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">{data.revenueSnapshot.monthly}</p>
             <p className="mt-1 text-sm text-blue-700">monthly</p>
@@ -58,7 +58,7 @@ export default function ReportsPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Preview</p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">Platform performance</h3>
           </div>
-          <button className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Export report</button>
+          <button className="shrink-0 whitespace-nowrap rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600">Export report</button>
         </div>
         <p className="mt-4 text-sm text-slate-600">
           This report would summarize attendance, task completion, evaluation scores, company activity, and AI-assisted summaries for the selected organization or date range.

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import PasswordInput from "@/components/PasswordInput";
+import { clean, inputProps } from "@/lib/inputRules";
 
 const ROLE_LABELS = { coordinator: "coordinator", supervisor: "supervisor", intern: "intern" };
 
@@ -12,6 +14,7 @@ export default function AcceptInvitePage() {
   const [invite, setInvite] = useState(null);
   const [loadError, setLoadError] = useState("");
 
+  const [studentNumber, setStudentNumber] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
@@ -34,6 +37,10 @@ export default function AcceptInvitePage() {
     e.preventDefault();
     setSubmitError("");
 
+    if (invite.needs_student_number && !studentNumber.trim()) {
+      setSubmitError("Enter your student number.");
+      return;
+    }
     if (password.length < 8) {
       setSubmitError("Password must be at least 8 characters.");
       return;
@@ -47,7 +54,11 @@ export default function AcceptInvitePage() {
     fetch(`/api/invitations/${token}/accept`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password, password_confirmation: confirm }),
+      body: JSON.stringify({
+        password,
+        password_confirmation: confirm,
+        ...(invite.needs_student_number ? { student_number: studentNumber } : {}),
+      }),
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
@@ -106,11 +117,11 @@ export default function AcceptInvitePage() {
       <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 mb-4">
-            🎓 Internova AI
+            🎓 Internova
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Welcome, {invite.first_name}!</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Set a password to activate your {ROLE_LABELS[invite.role] ?? "Internova"} account
+            {invite.needs_student_number ? "Add your student number and set a password" : "Set a password"} to activate your {ROLE_LABELS[invite.role] ?? "Internova"} account
             {invite.school_name ? <> for <strong>{invite.school_name}</strong></> : null}.
           </p>
         </div>
@@ -121,13 +132,28 @@ export default function AcceptInvitePage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {invite.needs_student_number && (
+            <div>
+              <label htmlFor="student-number" className="block text-xs font-semibold text-slate-600 mb-1">Student Number</label>
+              <input
+                id="student-number"
+                {...inputProps("studentNumber")}
+                value={studentNumber}
+                onChange={(e) => setStudentNumber(clean("studentNumber", e.target.value))}
+                required
+                placeholder="e.g. 2022-00123"
+                className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+              />
+              <p className="mt-1 text-xs text-slate-400">Your school ID number. Only you, your coordinator and your supervisor can see it.</p>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">New Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={8}
+              maxLength={72}
               required
               placeholder="At least 8 characters"
               className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
@@ -135,11 +161,11 @@ export default function AcceptInvitePage() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Confirm Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               minLength={8}
+              maxLength={72}
               required
               className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
             />

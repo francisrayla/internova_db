@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 
+import { inputProps } from "@/lib/inputRules";
 function CompanyCard({ company, activeCount, totalCount }) {
   return (
     <Link
@@ -74,7 +75,7 @@ export default function TaskMonitoring() {
 
       {companies.length > 0 && (
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <input
+          <input {...inputProps("search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search companies…"

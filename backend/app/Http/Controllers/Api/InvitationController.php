@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\InternProfile;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class InvitationController extends Controller
@@ -32,6 +34,9 @@ class InvitationController extends Controller
             'email'        => $user->email,
             'role'         => $user->roles?->name,
             'school_name'  => $user->school?->school_name,
+            // Interns enter their own student number here — it's their
+            // school record, so the coordinator never has to type it in.
+            'needs_student_number' => $user->roles?->name === 'intern',
         ]);
     }
 
@@ -43,24 +48,50 @@ class InvitationController extends Controller
             return response()->json(['success' => false, 'message' => 'This invitation link is invalid or has expired.'], 404);
         }
 
+        $isIntern = $user->roles?->name === 'intern';
+
+        // Same shape the rest of the app uses: uppercase letters, digits and
+        // hyphens, spaces dropped ("2022 00123" → "202200123").
+        if ($isIntern) {
+            $request->merge([
+                'student_number' => strtoupper(str_replace(' ', '', (string) $request->input('student_number', ''))),
+            ]);
+        }
+
         $data = $request->validate([
             'password' => 'required|string|min:8|confirmed',
+            'student_number' => $isIntern ? ['required', 'string', 'max:20', 'regex:/^[A-Z0-9-]+$/'] : ['prohibited'],
+        ], [
+            'student_number.required' => 'Enter your student number.',
+            'student_number.regex' => 'Student number can only have letters, numbers and hyphens.',
         ]);
 
-        $user->update([
-            'password'               => Hash::make($data['password']),
-            'status'                 => 'active',
-            'email_verified_at'      => now(),
-            'invitation_token'       => null,
-            'invitation_expires_at'  => null,
-        ]);
-
-        // Only a coordinator accepting their own invite should move the school into
-        // billing — a supervisor or intern accepting theirs has nothing to do with
-        // the school's subscription.
-        if ($user->school_id && $user->roles?->name === 'coordinator') {
-            $user->school()->update(['status' => 'pending_payment']);
+        if ($isIntern) {
+            $taken = InternProfile::where('school_id', $user->school_id)
+                ->where('user_id', '!=', $user->id)
+                ->where('student_number', $data['student_number'])
+                ->exists();
+            if ($taken) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'That student number is already used by another intern at your school. Check it, or contact your coordinator.',
+                ], 422);
+            }
         }
+
+        DB::transaction(function () use ($user, $data, $isIntern) {
+            $user->update([
+                'password'               => Hash::make($data['password']),
+                'status'                 => 'active',
+                'email_verified_at'      => now(),
+                'invitation_token'       => null,
+                'invitation_expires_at'  => null,
+            ]);
+
+            if ($isIntern) {
+                InternProfile::where('user_id', $user->id)->update(['student_number' => $data['student_number']]);
+            }
+        });
 
         return response()->json(['success' => true, 'message' => 'Account activated. You can now log in.']);
     }

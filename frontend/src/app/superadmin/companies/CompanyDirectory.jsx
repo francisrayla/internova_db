@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 
+import { inputProps } from "@/lib/inputRules";
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState([]);
   const [query, setQuery] = useState("");
@@ -36,7 +37,7 @@ export default function CompaniesPage() {
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
-            <input
+            <input {...inputProps("search")}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search company"
@@ -45,7 +46,7 @@ export default function CompaniesPage() {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none"
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
             >
               <option>All</option>
               <option>Verified</option>

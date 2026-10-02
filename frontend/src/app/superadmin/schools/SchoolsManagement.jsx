@@ -7,6 +7,7 @@ import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
 import { apiFetch } from "@/lib/apiFetch";
 
+import { inputProps } from "@/lib/inputRules";
 const FILTERS = ["All Schools", "Awaiting Acceptance", "Accepted", "Pending Payment", "Active", "Offer Expired", "Paused", "Past Due", "Expired"];
 
 function filterToStatus(filter) {
@@ -23,8 +24,8 @@ function matchesFilter(school, filter) {
 
 function Modal({ title, subtitle, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
@@ -211,17 +212,17 @@ export default function SchoolsPage() {
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search school name"
-            className="rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500" />
+          <input {...inputProps("search")} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search school name"
+            className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 sm:w-auto" />
           <select value={filter} onChange={(e) => setFilter(e.target.value)}
-            className="rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none">
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500">
             {FILTERS.map((f) => <option key={f}>{f}</option>)}
           </select>
           <div className="group relative flex shrink-0 items-center">
             <span className="grid h-6 w-6 cursor-help place-items-center rounded-full border border-slate-300 text-xs font-semibold text-slate-500">
               i
             </span>
-            <div className="pointer-events-none absolute left-0 top-8 z-10 w-72 rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-600 opacity-0 shadow-lg transition group-hover:opacity-100">
+            <div className="pointer-events-none absolute right-0 top-8 z-10 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-600 opacity-0 shadow-lg transition group-hover:opacity-100">
               Schools are created from approved Plan Inquiries. A school becomes fully active once its primary coordinator accepts the subscription offer and payment is confirmed.
             </div>
           </div>
@@ -235,75 +236,121 @@ export default function SchoolsPage() {
       </section>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50">
-              <tr>
-                {["School", "Plan", "Account Setup", "Payment", "Subscription", "Action"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {loading ? (
-                <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500">Loading schools…</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500">No schools found</td></tr>
-              ) : (
-                filtered.map((school) => (
-                  <tr
-                    key={school.id}
-                    className={`hover:bg-slate-50 ${String(school.id) === String(highlightId) ? "bg-blue-50/60" : ""}`}
-                  >
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-slate-900">{school.name}</p>
-                      <p className="text-xs text-slate-500">{school.admin_name}{school.admin_email ? ` · ${school.admin_email}` : ""}</p>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {school.plan}
-                      {school.amount != null && (
-                        <span className="block text-xs text-slate-400">
-                          ₱{Number(school.amount).toLocaleString()} / {school.billing_period === "monthly" ? "mo" : "yr"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <Pill ok={school.account_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
-                    </td>
-                    <td className="px-6 py-4">
-                      <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {(() => { const m = overallStatusMeta(school.status); return (
-                          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${m.color}`}>{m.label}</span>
-                        ); })()}
-                        {school.is_suspended && (
-                          <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">⏸ Paused</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={() => {
-                          // Clicking Manage on the row that's already open closes it —
-                          // the button doubles as its own close control, not just an opener.
-                          if (manageSchool?.id === school.id) {
-                            setManageSchool(null);
-                          } else {
-                            setManageSchool(school);
-                          }
-                          setConfirmingPauseId(null);
-                        }}
-                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >Manage</button>
-                    </td>
+        {loading ? (
+          <p className="px-6 py-8 text-center text-sm text-slate-500">Loading schools…</p>
+        ) : filtered.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-slate-500">No schools found</p>
+        ) : (
+          <>
+            {/* Cards below sm: — the desktop table's 6 columns (School, Plan,
+                Account Setup, Payment, Subscription, Action) never fit a
+                phone width; forcing them to meant either an unreadable
+                horizontal scrollbar or columns clipped off past the edge. */}
+            <div className="divide-y divide-slate-100 sm:hidden">
+              {filtered.map((school) => (
+                <button
+                  key={school.id}
+                  type="button"
+                  onClick={() => {
+                    if (manageSchool?.id === school.id) {
+                      setManageSchool(null);
+                    } else {
+                      setManageSchool(school);
+                    }
+                    setConfirmingPauseId(null);
+                  }}
+                  className={`block w-full px-5 py-4 text-left ${String(school.id) === String(highlightId) ? "bg-blue-50/60" : "hover:bg-slate-50"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900">{school.name}</p>
+                      <p className="truncate text-xs text-slate-500">{school.admin_name}{school.admin_email ? ` · ${school.admin_email}` : ""}</p>
+                    </div>
+                    <span className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700">Manage</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    {(() => { const m = overallStatusMeta(school.status); return (
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${m.color}`}>{m.label}</span>
+                    ); })()}
+                    {school.is_suspended && (
+                      <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">⏸ Paused</span>
+                    )}
+                    <Pill ok={school.account_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
+                    <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {school.plan}
+                    {school.amount != null && ` · ₱${Number(school.amount).toLocaleString()} / ${school.billing_period === "monthly" ? "mo" : "yr"}`}
+                  </p>
+                </button>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr>
+                    {["School", "Plan", "Account Setup", "Payment", "Subscription", "Action"].map((h) => (
+                      <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700 whitespace-nowrap">{h}</th>
+                    ))}
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {filtered.map((school) => (
+                    <tr
+                      key={school.id}
+                      className={`hover:bg-slate-50 ${String(school.id) === String(highlightId) ? "bg-blue-50/60" : ""}`}
+                    >
+                      <td className="px-6 py-4">
+                        <p className="font-medium text-slate-900">{school.name}</p>
+                        <p className="text-xs text-slate-500">{school.admin_name}{school.admin_email ? ` · ${school.admin_email}` : ""}</p>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">
+                        {school.plan}
+                        {school.amount != null && (
+                          <span className="block text-xs text-slate-400">
+                            ₱{Number(school.amount).toLocaleString()} / {school.billing_period === "monthly" ? "mo" : "yr"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <Pill ok={school.account_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(() => { const m = overallStatusMeta(school.status); return (
+                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${m.color}`}>{m.label}</span>
+                          ); })()}
+                          {school.is_suspended && (
+                            <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">⏸ Paused</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => {
+                            // Clicking Manage on the row that's already open closes it —
+                            // the button doubles as its own close control, not just an opener.
+                            if (manageSchool?.id === school.id) {
+                              setManageSchool(null);
+                            } else {
+                              setManageSchool(school);
+                            }
+                            setConfirmingPauseId(null);
+                          }}
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >Manage</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
 
       {/* Manage School Modal */}

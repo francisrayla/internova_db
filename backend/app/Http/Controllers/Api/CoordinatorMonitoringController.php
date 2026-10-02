@@ -12,7 +12,9 @@ use App\Models\EvaluationCriterion;
 use App\Models\EvaluationScore;
 use App\Models\InternProfile;
 use App\Models\InternshipDeployment;
+use App\Models\Portfolio;
 use App\Models\Role;
+use App\Models\School;
 use App\Models\Subtask;
 use App\Models\SupervisorProfile;
 use App\Models\Task;
@@ -22,6 +24,7 @@ use App\Models\TaskProof;
 use App\Models\User;
 use App\Services\ActivityLogService;
 use App\Services\DeploymentSummaryService;
+use App\Services\EmailDeliverability;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,6 +43,24 @@ use Illuminate\Validation\Rule;
  */
 class CoordinatorMonitoringController extends Controller
 {
+    /**
+     * Required OJT hours per program — the authoritative source (not the
+     * client) so a new intern's total can never drift from what their
+     * program actually requires. BSCRIM follows a shorter practicum; every
+     * other listed program (and any free-text "Other" course) runs the
+     * default until the school confirms its own per-program figures.
+     */
+    private const COURSE_HOURS = [
+        'BSIT' => 500,
+        'BSCRIM' => 250,
+    ];
+    private const DEFAULT_COURSE_HOURS = 500;
+
+    private static function hoursForCourse(?string $course): int
+    {
+        return self::COURSE_HOURS[$course] ?? self::DEFAULT_COURSE_HOURS;
+    }
+
     private function deploymentIdsForSchool(int $schoolId): array
     {
         return InternshipDeployment::where('school_id', $schoolId)->pluck('id')->all();
@@ -55,8 +76,64 @@ class CoordinatorMonitoringController extends Controller
         return InternshipDeployment::where('id', $deploymentId)->where('school_id', $schoolId)->first();
     }
 
-    // Local dev only — matches the pattern already used in CoordinatorSubscriptionController.
-    private const FRONTEND_URL = 'http://localhost:3000';
+    // ---------------------------------------------------------------
+    // School settings — editing the school's own operational details
+    // (name, address, contact info) is safe for the primary coordinator to
+    // self-service, same reasoning as a personal profile edit: none of these
+    // fields touch access/permissions or subscription state, which stay
+    // admin-controlled.
+    // ---------------------------------------------------------------
+
+    public function schoolSettings(Request $request): JsonResponse
+    {
+        $school = School::find($request->user()->school_id);
+        if (!$school) {
+            return response()->json(['success' => false, 'message' => 'School not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'school'  => [
+                'school_name'    => $school->school_name,
+                'address'        => $school->address,
+                'contact_email'  => $school->contact_email,
+                'contact_number' => $school->contact_number,
+                'status'         => $school->status,
+            ],
+        ]);
+    }
+
+    public function updateSchoolSettings(Request $request): JsonResponse
+    {
+        if (!$request->user()->coordinatorProfile?->is_primary_coordinator) {
+            return response()->json(['success' => false, 'message' => 'Only the primary coordinator can edit school settings.'], 403);
+        }
+
+        $school = School::find($request->user()->school_id);
+        if (!$school) {
+            return response()->json(['success' => false, 'message' => 'School not found.'], 404);
+        }
+
+        $data = $request->validate([
+            'school_name'    => 'required|string|max:255',
+            'address'        => 'required|string|max:500',
+            'contact_email'  => 'required|email|max:255',
+            'contact_number' => ['required', 'string', 'regex:/^[0-9]{11}$/'],
+        ]);
+
+        $school->update($data);
+
+        ActivityLogService::record(
+            module: 'Schools',
+            action: 'Updated school settings',
+            description: "{$request->user()->name} updated {$school->school_name}'s settings.",
+            schoolId: $school->id,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'School settings updated.', 'school' => $school->fresh()->only(['school_name', 'address', 'contact_email', 'contact_number', 'status'])]);
+    }
+
     private const INVITATION_EXPIRES_IN_DAYS = 7;
 
     /**
@@ -64,8 +141,18 @@ class CoordinatorMonitoringController extends Controller
      * coordinator choosing a password on the recipient's behalf — the
      * recipient proves they control the inbox by clicking it (see
      * InvitationController::accept(), which marks email_verified_at there).
+     *
+     * The email is still relayed through the system's own SMTP account —
+     * asking every coordinator to hand this app their personal Gmail
+     * password isn't something we can ask of them, and most mail providers
+     * reject a message whose From address the sending server doesn't
+     * actually control anyway (SPF/DKIM). What we CAN do, and what actually
+     * matters here, is make it look and behave like it came from the
+     * coordinator: their name in the From display name, and their real
+     * email as Reply-To — so the invited supervisor/intern sees who invited
+     * them, and a reply lands in the coordinator's own inbox, not ours.
      */
-    private function sendAccountInvitation(User $user, string $roleLabel, string $contextLabel): void
+    private function sendAccountInvitation(User $user, string $roleLabel, string $contextLabel, User $coordinator, ?int $delaySeconds = null): void
     {
         $plainToken = Str::random(64);
 
@@ -74,15 +161,110 @@ class CoordinatorMonitoringController extends Controller
             'invitation_expires_at' => now()->addDays(self::INVITATION_EXPIRES_IN_DAYS),
         ]);
 
-        $acceptUrl = self::FRONTEND_URL . '/accept-invite/' . $plainToken;
+        $acceptUrl = config('app.frontend_url') . '/accept-invite/' . $plainToken;
+        $coordinatorName = trim("{$coordinator->first_name} {$coordinator->last_name}") ?: $coordinator->name;
 
-        Mail::to($user->email, $user->name)->send(new AccountInvitation(
+        $mail = new AccountInvitation(
             recipientName: trim("{$user->first_name} {$user->last_name}") ?: $user->name,
             roleLabel: $roleLabel,
             contextLabel: $contextLabel,
             acceptUrl: $acceptUrl,
             expiresInDays: (string) self::INVITATION_EXPIRES_IN_DAYS,
-        ));
+            coordinatorName: $coordinatorName,
+            coordinatorEmail: $coordinator->email,
+        );
+
+        // A bulk import staggers its invitations (see importInterns()) so a
+        // batch doesn't hit the mail provider all in the same second.
+        $pending = Mail::to($user->email, $user->name);
+        $delaySeconds ? $pending->later(now()->addSeconds($delaySeconds), $mail) : $pending->queue($mail);
+    }
+
+    /**
+     * The recovery path a coordinator otherwise doesn't have: if an invite
+     * never arrives (spam, a mistyped inbox, or the original send simply
+     * failing) there was previously no way to get that supervisor/intern a
+     * fresh link short of deleting and recreating the account. Re-issues a
+     * brand-new token (invalidating any old one) and re-queues the email —
+     * works for either role, since both are invited the same way.
+     */
+    public function resendInvitation(Request $request, int $userId): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+        $user = User::where('id', $userId)->where('school_id', $schoolId)->first();
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Account not found for your school.'], 404);
+        }
+        if ($user->status !== 'pending_activation') {
+            return response()->json(['success' => false, 'message' => 'This account has already been activated.'], 422);
+        }
+
+        $roleName = $user->roles?->name;
+
+        if ($roleName === 'supervisor') {
+            $roleLabel = 'Supervisor';
+            $profile = SupervisorProfile::where('user_id', $user->id)->first();
+            $company = $profile ? Company::find($profile->company_id) : null;
+        } elseif ($roleName === 'intern') {
+            $roleLabel = 'Intern';
+            $company = InternshipDeployment::where('intern_id', $user->id)->latest('id')->first()?->company;
+        } else {
+            return response()->json(['success' => false, 'message' => 'This account type cannot be re-invited from here.'], 422);
+        }
+
+        $this->sendAccountInvitation($user, $roleLabel, $company ? "at {$company->company_name}" : '', $request->user());
+
+        ActivityLogService::record(
+            module: $roleName === 'supervisor' ? 'Companies' : 'Interns',
+            action: 'Resent invitation',
+            description: "{$user->name}'s invitation email was resent.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Invitation resent.']);
+    }
+
+    /**
+     * Fixes the email of an invited intern or supervisor who hasn't activated
+     * yet — typically after their invitation bounced — and sends the
+     * invitation again to the corrected address.
+     */
+    public function updatePendingEmail(Request $request, int $userId): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+        $user = User::where('id', $userId)->where('school_id', $schoolId)->first();
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Account not found for your school.'], 404);
+        }
+        if ($user->status !== 'pending_activation') {
+            return response()->json(['success' => false, 'message' => 'This account is already active — the owner can change their own email.'], 422);
+        }
+
+        $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:100', Rule::unique('users', 'email')->ignore($user->id)],
+        ]);
+        if ($problem = EmailDeliverability::problem($data['email'])) {
+            return response()->json(['success' => false, 'message' => $problem], 422);
+        }
+
+        $old = $user->email;
+        $user->update(['email' => $data['email'], 'email_bounced_at' => null, 'email_bounce_reason' => null]);
+
+        $response = $this->resendInvitation($request, $userId);
+
+        ActivityLogService::record(
+            module: $user->roles?->name === 'supervisor' ? 'Companies' : 'Interns',
+            action: 'Corrected invitation email',
+            description: "{$user->name}'s email changed from {$old} to {$data['email']} and the invitation was resent.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        return $response;
     }
 
     // ---------------------------------------------------------------
@@ -105,20 +287,34 @@ class CoordinatorMonitoringController extends Controller
         return response()->json(['interns' => $interns->values()]);
     }
 
+    /**
+     * Read-only, same as the supervisor's version — a coordinator never
+     * edits an intern's portfolio, only views what's already there.
+     */
+    public function internPortfolio(Request $request, int $deploymentId): JsonResponse
+    {
+        $deployment = $this->deploymentForSchool($deploymentId, $request->user()->school_id);
+        if (!$deployment) {
+            return response()->json(['success' => false, 'message' => 'Intern not found.'], 404);
+        }
+
+        $portfolio = Portfolio::with('items')->where('intern_id', $deployment->intern_id)->first();
+
+        return response()->json([
+            'intern_name' => trim("{$deployment->intern?->first_name} {$deployment->intern?->last_name}") ?: $deployment->intern?->name,
+            'portfolio' => $portfolio?->present(),
+        ]);
+    }
+
     // ---------------------------------------------------------------
     // Attendance — coordinators can only view. Logging/approving belongs to
     // the intern's supervisor (see SupervisorMonitoringController) — a
     // coordinator wasn't there to see whether the intern actually showed up.
     // ---------------------------------------------------------------
 
-    public function attendance(Request $request): JsonResponse
+    private function filteredAttendanceQuery(Request $request)
     {
-        $schoolId = $request->user()->school_id;
-        $deploymentIds = $this->deploymentIdsForSchool($schoolId);
-
-        $query = Attendance::with('deployment.intern')
-            ->whereIn('deployment_id', $deploymentIds)
-            ->orderByDesc('attendance_date');
+        $query = Attendance::whereIn('deployment_id', $this->deploymentIdsForSchool($request->user()->school_id));
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -126,14 +322,63 @@ class CoordinatorMonitoringController extends Controller
         if ($internId = $request->query('intern_id')) {
             $query->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
         }
+        if ($companyId = $request->query('company_id')) {
+            $query->whereHas('deployment', fn ($q) => $q->where('company_id', $companyId));
+        }
+        if ($search = trim((string) $request->query('search'))) {
+            $query->whereHas('deployment.intern', fn ($q) => $q->where(function ($w) use ($search) {
+                $w->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            }));
+        }
+        if ($from = $request->query('from')) {
+            $query->whereDate('attendance_date', '>=', $from);
+        }
+        if ($to = $request->query('to')) {
+            $query->whereDate('attendance_date', '<=', $to);
+        }
 
-        $records = $query->paginate(20);
+        return $query;
+    }
+
+    public function attendanceCompanies(Request $request): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+
+        $companies = Company::whereIn('id', InternshipDeployment::where('school_id', $schoolId)->pluck('company_id'))
+            ->orderBy('company_name')
+            ->get(['id', 'company_name'])
+            ->map(function ($c) use ($request) {
+                $scoped = $this->filteredAttendanceQuery($request)
+                    ->whereHas('deployment', fn ($q) => $q->where('company_id', $c->id));
+
+                return ['id' => $c->id, 'name' => $c->company_name, 'total' => $scoped->count()];
+            })
+            ->values();
+
+        return response()->json(['companies' => $companies]);
+    }
+
+    public function attendance(Request $request): JsonResponse
+    {
+        $records = $this->filteredAttendanceQuery($request)
+            ->with('deployment.intern', 'deployment.company')
+            ->orderByDesc('attendance_date')
+            ->paginate(10);
 
         return response()->json([
+            'last_page' => $records->lastPage(),
             'records' => collect($records->items())->map(fn (Attendance $a) => [
                 'id' => $a->id,
                 'deployment_id' => $a->deployment_id,
                 'intern_name' => trim("{$a->deployment?->intern?->first_name} {$a->deployment?->intern?->last_name}") ?: $a->deployment?->intern?->name,
+                'company_name' => $a->deployment?->company?->company_name,
+                'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
+                'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
+                'auto_clocked_out' => (bool) $a->auto_clocked_out,
+                'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
+                'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
                 'attendance_date' => $a->attendance_date?->format('M d, Y'),
                 'clock_in' => $a->clock_in?->format('h:i A'),
                 'clock_out' => $a->clock_out?->format('h:i A'),
@@ -516,6 +761,75 @@ class CoordinatorMonitoringController extends Controller
         ];
     }
 
+    /**
+     * The formal, printable internship report for one deployment — everything
+     * a coordinator needs to hand off as proof of completion (hours,
+     * task/attendance standing, and every evaluation on file). The frontend
+     * renders this with `window.print()`, so this only needs to return data,
+     * never a rendered document.
+     */
+    public function internReport(Request $request, int $deploymentId): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+        $deployment = InternshipDeployment::with(['intern', 'company', 'supervisor'])
+            ->where('id', $deploymentId)
+            ->where('school_id', $schoolId)
+            ->first();
+
+        if (!$deployment) {
+            return response()->json(['success' => false, 'message' => 'Intern not found.'], 404);
+        }
+
+        $profile = InternProfile::where('user_id', $deployment->intern_id)->where('school_id', $schoolId)->first();
+        $summary = DeploymentSummaryService::summarize($deployment, $profile);
+
+        $attendanceCounts = Attendance::where('deployment_id', $deployment->id)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $evaluations = Evaluation::with(['evaluator', 'scores.criterion'])
+            ->where('deployment_id', $deployment->id)
+            ->orderBy('evaluation_date')
+            ->get()
+            ->map(fn (Evaluation $e) => $this->mapEvaluation($e));
+
+        return response()->json([
+            'intern' => [
+                'name' => $summary['intern_name'],
+                'email' => $deployment->intern?->email,
+                'student_number' => $profile?->student_number,
+                'course' => $profile?->course,
+                'year_level' => $profile?->year_level,
+            ],
+            'school_name' => $request->user()->school?->school_name,
+            'company' => [
+                'name' => $deployment->company?->company_name,
+                'address' => $deployment->company?->address,
+            ],
+            'supervisor_name' => $summary['supervisor_name'],
+            'deployment' => [
+                'start_date' => $summary['start_date'],
+                'end_date' => $summary['end_date'],
+                'status' => $deployment->status,
+            ],
+            'summary' => [
+                'hours_completed' => $summary['hours_completed'],
+                'required_hours' => $summary['required_hours'],
+                'hours_progress_pct' => $summary['hours_progress_pct'],
+                'tasks_completed' => $summary['tasks_completed'],
+                'tasks_total' => $summary['tasks_total'],
+                'latest_evaluation_score' => $summary['latest_evaluation_score'],
+            ],
+            'attendance_summary' => [
+                'approved_days' => (int) ($attendanceCounts['approved'] ?? 0),
+                'pending_days' => (int) ($attendanceCounts['pending'] ?? 0),
+                'rejected_days' => (int) ($attendanceCounts['rejected'] ?? 0),
+            ],
+            'evaluations' => $evaluations,
+        ]);
+    }
+
     // ---------------------------------------------------------------
     // Companies
     // ---------------------------------------------------------------
@@ -550,7 +864,7 @@ class CoordinatorMonitoringController extends Controller
             'company_name' => 'required|string|max:255',
             'address' => 'nullable|string|max:500',
             'contact_email' => 'nullable|email|max:255',
-            'contact_number' => 'nullable|string|max:50',
+            'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
         ]);
 
         do {
@@ -582,7 +896,7 @@ class CoordinatorMonitoringController extends Controller
             'company_name' => 'sometimes|required|string|max:255',
             'address' => 'nullable|string|max:500',
             'contact_email' => 'nullable|email|max:255',
-            'contact_number' => 'nullable|string|max:50',
+            'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'status' => 'sometimes|required|string|in:active,inactive',
         ]);
 
@@ -610,6 +924,8 @@ class CoordinatorMonitoringController extends Controller
                 'name' => trim("{$s->user?->first_name} {$s->user?->last_name}") ?: $s->user?->name,
                 'email' => $s->user?->email,
                 'position' => $s->position,
+                'account_status' => $s->user?->status,
+                'email_bounced' => (bool) $s->user?->email_bounced_at,
             ]);
 
         $profiles = InternProfile::where('school_id', $schoolId)->get()->keyBy('user_id');
@@ -704,12 +1020,26 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Select a company that belongs to your school.'], 422);
         }
 
+        // Every company keeps 1-2 supervisors — enough for coverage without
+        // spreading oversight so thin the role loses meaning.
+        $existingCount = SupervisorProfile::where('company_id', $data['company_id'])->count();
+        if ($existingCount >= 2) {
+            return response()->json(['success' => false, 'message' => "{$company->company_name} already has the maximum of 2 supervisors."], 422);
+        }
+
         $supervisorRole = Role::where('name', 'supervisor')->first();
         if (!$supervisorRole) {
             return response()->json(['success' => false, 'message' => 'supervisor role is not configured.'], 500);
         }
 
-        $user = DB::transaction(function () use ($data, $schoolId, $supervisorRole) {
+        // Unlike an intern, a supervisor account is created already-active: the
+        // coordinator hands the supervisor this password directly (in person,
+        // by phone, etc.) instead of relying on the supervisor to receive and
+        // act on an invitation email themselves. Fixed to a known default
+        // rather than randomly generated, per product decision.
+        $plainPassword = 'password';
+
+        $user = DB::transaction(function () use ($data, $schoolId, $supervisorRole, $plainPassword) {
             $user = User::create([
                 'role_id' => $supervisorRole->id,
                 'school_id' => $schoolId,
@@ -717,8 +1047,9 @@ class CoordinatorMonitoringController extends Controller
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
                 'email' => $data['email'],
-                'password' => null,
-                'status' => 'pending_activation',
+                'password' => $plainPassword,
+                'status' => 'active',
+                'email_verified_at' => now(),
             ]);
 
             SupervisorProfile::create([
@@ -731,17 +1062,20 @@ class CoordinatorMonitoringController extends Controller
             return $user;
         });
 
-        $this->sendAccountInvitation($user, 'Supervisor', "at {$company->company_name}");
-
         ActivityLogService::record(
             module: 'Companies',
-            action: 'Invited supervisor',
-            description: "{$data['first_name']} {$data['last_name']} invited as a supervisor at {$company->company_name}.",
+            action: 'Added supervisor',
+            description: "{$data['first_name']} {$data['last_name']} added as a supervisor at {$company->company_name}.",
             schoolId: $schoolId,
             request: $request
         );
 
-        return response()->json(['success' => true, 'message' => 'Invitation sent.']);
+        return response()->json([
+            'success' => true,
+            'message' => 'Supervisor account created.',
+            'email' => $user->email,
+            'temporary_password' => $plainPassword,
+        ]);
     }
 
     /**
@@ -799,6 +1133,17 @@ class CoordinatorMonitoringController extends Controller
             ], 422);
         }
 
+        // Every company keeps at least 1 supervisor — deleting the last one
+        // would leave it with no one to oversee interns deployed there.
+        $remainingCount = SupervisorProfile::where('company_id', $profile->company_id)->where('user_id', '!=', $userId)->count();
+        if ($remainingCount === 0) {
+            $company = Company::find($profile->company_id);
+            return response()->json([
+                'success' => false,
+                'message' => "Can't delete — {$company?->company_name} needs at least 1 supervisor. Add a replacement first.",
+            ], 422);
+        }
+
         $name = trim("{$profile->user->first_name} {$profile->user->last_name}") ?: $profile->user->name;
 
         DB::transaction(function () use ($profile) {
@@ -826,15 +1171,21 @@ class CoordinatorMonitoringController extends Controller
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
-            'student_number' => 'nullable|string|max:100',
             'course' => 'nullable|string|max:150',
             'year_level' => 'nullable|string|max:50',
             'company_id' => 'required|integer',
             'supervisor_id' => 'nullable|integer',
             'start_date' => 'required|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
-            'required_hours' => 'required|integer|min:1|max:2000',
         ]);
+
+        if ($problem = EmailDeliverability::problem($data['email'])) {
+            return response()->json(['success' => false, 'message' => $problem], 422);
+        }
+
+        // Not client-supplied — required hours are a fixed function of the
+        // intern's course (see COURSE_HOURS above), never a free input.
+        $requiredHours = self::hoursForCourse($data['course'] ?? null);
 
         $company = Company::where('id', $data['company_id'])->where('school_id', $schoolId)->first();
         if (!$company) {
@@ -856,7 +1207,7 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'intern role is not configured.'], 500);
         }
 
-        [$user, $deployment] = DB::transaction(function () use ($data, $schoolId, $internRole, $request) {
+        [$user, $deployment] = DB::transaction(function () use ($data, $schoolId, $internRole, $requiredHours, $request) {
             $user = User::create([
                 'role_id' => $internRole->id,
                 'school_id' => $schoolId,
@@ -871,10 +1222,11 @@ class CoordinatorMonitoringController extends Controller
             InternProfile::create([
                 'user_id' => $user->id,
                 'school_id' => $schoolId,
-                'student_number' => $data['student_number'] ?? null,
+                // Filled in by the intern when they activate their account.
+                'student_number' => null,
                 'course' => $data['course'] ?? null,
                 'year_level' => $data['year_level'] ?? null,
-                'required_hours' => $data['required_hours'],
+                'required_hours' => $requiredHours,
             ]);
 
             $deployment = InternshipDeployment::create([
@@ -885,14 +1237,14 @@ class CoordinatorMonitoringController extends Controller
                 'coordinator_id' => $request->user()->id,
                 'start_date' => $data['start_date'],
                 'end_date' => $data['end_date'] ?? null,
-                'required_hours' => $data['required_hours'],
+                'required_hours' => $requiredHours,
                 'status' => 'active',
             ]);
 
             return [$user, $deployment];
         });
 
-        $this->sendAccountInvitation($user, 'Intern', "at {$company->company_name}");
+        $this->sendAccountInvitation($user, 'Intern', "at {$company->company_name}", $request->user());
 
         ActivityLogService::record(
             module: 'Interns',
@@ -903,6 +1255,240 @@ class CoordinatorMonitoringController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'Invitation sent.', 'deployment_id' => $deployment->id]);
+    }
+
+    /** Most rows one import may carry — keeps a single request (and the
+     *  burst of invitation emails behind it) to a size that finishes fast. */
+    private const IMPORT_MAX_ROWS = 200;
+    private const IMPORT_YEAR_LEVELS = ['4th Year', '5th Year'];
+
+    /**
+     * Checks an import batch row by row without saving anything, so the
+     * coordinator sees every problem — bad formats, duplicates inside the
+     * file, emails that already have an account — before a single
+     * account is created. Same checks importInterns() runs again for real.
+     */
+    public function previewInternImport(Request $request): JsonResponse
+    {
+        $request->validate(['rows' => 'required|array|min:1|max:' . self::IMPORT_MAX_ROWS]);
+
+        ['errors' => $errors, 'existing' => $existing] = $this->analyzeInternImport($request->input('rows'), $request->user()->school_id);
+
+        return response()->json([
+            'success' => true,
+            'errors' => (object) $errors,
+            // Row positions of interns already in this school — shown as
+            // "Already added" and skipped, so the same masterlist can be
+            // re-uploaded with new names added at the bottom.
+            'existing' => $existing,
+            'valid_count' => count($request->input('rows')) - count($errors) - count($existing),
+        ]);
+    }
+
+    /**
+     * Creates every intern in the batch with one shared deployment (company,
+     * supervisor, start date) — all of it or none of it, so a failure half
+     * way can't leave a partial batch behind. Invitations go out afterwards,
+     * one queued email per intern spaced a second apart to stay under the
+     * mail provider's per-second sending limit.
+     */
+    public function importInterns(Request $request): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+
+        $data = $request->validate([
+            'rows' => 'required|array|min:1|max:' . self::IMPORT_MAX_ROWS,
+            'company_id' => 'required|integer',
+            'supervisor_id' => 'nullable|integer',
+            'start_date' => 'required|date',
+        ]);
+
+        $company = Company::where('id', $data['company_id'])->where('school_id', $schoolId)->first();
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Select a company that belongs to your school.'], 422);
+        }
+
+        if (!empty($data['supervisor_id'])) {
+            $validSupervisor = SupervisorProfile::where('user_id', $data['supervisor_id'])
+                ->where('company_id', $company->id)
+                ->where('school_id', $schoolId)
+                ->exists();
+            if (!$validSupervisor) {
+                return response()->json(['success' => false, 'message' => 'Select a supervisor that belongs to this company.'], 422);
+            }
+        }
+
+        ['errors' => $errors, 'existing' => $existing] = $this->analyzeInternImport($data['rows'], $schoolId);
+        if ($errors) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Some rows need fixing before they can be imported.',
+                'errors' => (object) $errors,
+            ], 422);
+        }
+
+        $internRole = Role::where('name', 'intern')->first();
+        if (!$internRole) {
+            return response()->json(['success' => false, 'message' => 'intern role is not configured.'], 500);
+        }
+
+        $existingPositions = array_flip($existing);
+        $rows = [];
+        foreach ($data['rows'] as $i => $row) {
+            if (!isset($existingPositions[$i])) {
+                $rows[] = $this->normalizeImportRow($row);
+            }
+        }
+        if (!$rows) {
+            return response()->json(['success' => false, 'message' => 'Everyone in this file is already in Internova — there was no one new to add.'], 422);
+        }
+
+        $users = DB::transaction(function () use ($rows, $schoolId, $internRole, $company, $data, $request) {
+            $created = [];
+            foreach ($rows as $row) {
+                $requiredHours = self::hoursForCourse($row['course']);
+
+                $user = User::create([
+                    'role_id' => $internRole->id,
+                    'school_id' => $schoolId,
+                    'name' => "{$row['first_name']} {$row['last_name']}",
+                    'first_name' => $row['first_name'],
+                    'last_name' => $row['last_name'],
+                    'email' => $row['email'],
+                    'password' => null,
+                    'status' => 'pending_activation',
+                ]);
+
+                InternProfile::create([
+                    'user_id' => $user->id,
+                    'school_id' => $schoolId,
+                    'student_number' => null, // the intern enters it on activation
+                    'course' => $row['course'],
+                    'year_level' => $row['year_level'],
+                    'required_hours' => $requiredHours,
+                ]);
+
+                InternshipDeployment::create([
+                    'school_id' => $schoolId,
+                    'intern_id' => $user->id,
+                    'company_id' => $company->id,
+                    'supervisor_id' => $data['supervisor_id'] ?? null,
+                    'coordinator_id' => $request->user()->id,
+                    'start_date' => $data['start_date'],
+                    'required_hours' => $requiredHours,
+                    'status' => 'active',
+                ]);
+
+                $created[] = $user;
+            }
+            return $created;
+        });
+
+        foreach ($users as $i => $user) {
+            $this->sendAccountInvitation($user, 'Intern', "at {$company->company_name}", $request->user(), delaySeconds: $i);
+        }
+
+        ActivityLogService::record(
+            module: 'Interns',
+            action: 'Imported interns',
+            description: count($users) . " interns imported and deployed to {$company->company_name}.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => count($users) . ' interns added. Invitations are on their way.',
+            'created' => count($users),
+            'skipped_existing' => count($existing),
+        ]);
+    }
+
+    /** Trims and canonicalizes one uploaded row the same way for both the
+     *  check and the save, so what was checked is exactly what gets stored. */
+    private function normalizeImportRow($row): array
+    {
+        $row = is_array($row) ? $row : [];
+        $text = fn ($key) => trim(preg_replace('/\s+/u', ' ', (string) ($row[$key] ?? '')));
+
+        $yearLevel = $text('year_level');
+
+        return [
+            'first_name' => $text('first_name'),
+            'last_name' => $text('last_name'),
+            'email' => strtolower(str_replace(' ', '', $text('email'))),
+            'course' => $text('course'),
+            'year_level' => $yearLevel !== '' ? $yearLevel : '4th Year',
+        ];
+    }
+
+    /**
+     * Sorts an import batch into three kinds of rows, keyed by position in
+     * the upload:
+     * - errors:   ["3" => ["email" => "…"]] — must be fixed or removed;
+     * - existing: [5, 9] — interns already in this school, skipped quietly;
+     * - every other row is ready to create.
+     */
+    private function analyzeInternImport(array $rawRows, int $schoolId): array
+    {
+        $rows = array_map(fn ($row) => $this->normalizeImportRow($row), $rawRows);
+        $namePattern = "/^[\\p{L}\\p{M}][\\p{L}\\p{M} .'-]*$/u";
+        $errors = [];
+        $existing = [];
+
+        $emails = array_filter(array_column($rows, 'email'));
+        $internRoleId = Role::where('name', 'intern')->value('id');
+        $accounts = User::whereIn('email', $emails)->get(['email', 'school_id', 'role_id'])
+            ->keyBy(fn ($u) => strtolower($u->email));
+
+        $emailCounts = array_count_values($emails);
+
+        foreach ($rows as $i => $row) {
+            $rowErrors = [];
+
+            foreach (['first_name' => 'First name', 'last_name' => 'Last name'] as $field => $label) {
+                if ($row[$field] === '') {
+                    $rowErrors[$field] = "{$label} is required.";
+                } elseif (mb_strlen($row[$field]) > 50) {
+                    $rowErrors[$field] = "{$label} can be at most 50 characters.";
+                } elseif (!preg_match($namePattern, $row[$field])) {
+                    $rowErrors[$field] = "{$label} can only have letters, spaces, periods, apostrophes and hyphens.";
+                }
+            }
+
+            if ($row['email'] === '') {
+                $rowErrors['email'] = 'Email is required.';
+            } elseif (mb_strlen($row['email']) > 100 || !filter_var($row['email'], FILTER_VALIDATE_EMAIL)) {
+                $rowErrors['email'] = 'Enter a valid email address.';
+            } elseif (($emailCounts[$row['email']] ?? 0) > 1) {
+                $rowErrors['email'] = 'This email appears more than once in the file.';
+            } elseif (isset($accounts[$row['email']])) {
+                $account = $accounts[$row['email']];
+                if ((int) $account->school_id === $schoolId && (int) $account->role_id === (int) $internRoleId) {
+                    $existing[] = $i;
+                    continue;
+                }
+                $rowErrors['email'] = 'This email already belongs to another Internova account.';
+            } elseif ($problem = EmailDeliverability::problem($row['email'])) {
+                $rowErrors['email'] = $problem;
+            }
+
+            if ($row['course'] === '') {
+                $rowErrors['course'] = 'Course is required.';
+            } elseif (mb_strlen($row['course']) > 100) {
+                $rowErrors['course'] = 'Course can be at most 100 characters.';
+            }
+
+            if (!in_array($row['year_level'], self::IMPORT_YEAR_LEVELS, true)) {
+                $rowErrors['year_level'] = 'Year level must be 4th Year or 5th Year.';
+            }
+
+            if ($rowErrors) {
+                $errors[(string) $i] = $rowErrors;
+            }
+        }
+
+        return ['errors' => $errors, 'existing' => $existing];
     }
 
     /**
@@ -953,6 +1539,40 @@ class CoordinatorMonitoringController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'Intern deleted.']);
+    }
+
+    /**
+     * The non-destructive alternative to destroyIntern() — flips a
+     * deployment between active and inactive without touching any history
+     * (attendance/tasks/evaluations/documents stay exactly as they are).
+     * Mirrors the same active/inactive toggle Companies already has, for an
+     * intern the coordinator wants to pause or archive rather than delete
+     * outright (e.g. one whose deployment already has recorded history, so
+     * destroyIntern() would refuse to remove them anyway).
+     */
+    public function updateInternStatus(Request $request, int $deploymentId): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+        $deployment = $this->deploymentForSchool($deploymentId, $schoolId);
+        if (!$deployment) {
+            return response()->json(['success' => false, 'message' => 'Intern not found for your school.'], 404);
+        }
+
+        $data = $request->validate([
+            'status' => 'required|string|in:active,inactive',
+        ]);
+
+        $deployment->update(['status' => $data['status']]);
+
+        ActivityLogService::record(
+            module: 'Interns',
+            action: $data['status'] === 'inactive' ? 'Marked intern inactive' : 'Marked intern active',
+            description: "{$deployment->intern?->name} marked {$data['status']}.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Status updated.']);
     }
 
     /**

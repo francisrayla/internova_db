@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
+import PasswordInput from "@/components/PasswordInput";
 
 /**
  * Password change, same shared /api/auth/change-password endpoint for every
@@ -78,31 +79,31 @@ export default function AccountSettings() {
         <form onSubmit={handleSubmit} className="mt-5 space-y-5">
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Current Password</span>
-            <input
-              type="password"
+            <PasswordInput
               value={form.current_password}
               onChange={(e) => handleChange("current_password", e.target.value)}
               placeholder="••••••••"
+              maxLength={72}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
             />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">New Password</span>
-            <input
-              type="password"
+            <PasswordInput
               value={form.new_password}
               onChange={(e) => handleChange("new_password", e.target.value)}
               placeholder="At least 8 characters"
+              maxLength={72}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
             />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Confirm New Password</span>
-            <input
-              type="password"
+            <PasswordInput
               value={form.new_password_confirmation}
               onChange={(e) => handleChange("new_password_confirmation", e.target.value)}
               placeholder="••••••••"
+              maxLength={72}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
             />
           </label>

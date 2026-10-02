@@ -1,5 +1,7 @@
 "use client";
 
+import { clearOfflineCaches } from "@/lib/offlineCache";
+
 const TOKEN_KEY = "internova_token";
 const USER_KEY = "internova_user";
 
@@ -38,8 +40,21 @@ export async function apiFetch(url, options = {}) {
     } catch {
       // ignore
     }
+    clearOfflineCaches();
     if (window.location.pathname !== "/login") {
       window.location.href = "/login";
+    }
+  }
+
+  // A 503 from EnforceMaintenanceMode means every other screen's own fetch
+  // would otherwise show its own generic error banner — sending everyone to
+  // one dedicated page instead is what actually makes maintenance mode read
+  // as "the platform is down for a reason," not "the app is broken."
+  if (response.status === 503 && typeof window !== "undefined" && window.location.pathname !== "/maintenance") {
+    const clone = response.clone();
+    const body = await clone.json().catch(() => null);
+    if (body?.maintenance) {
+      window.location.href = "/maintenance";
     }
   }
 

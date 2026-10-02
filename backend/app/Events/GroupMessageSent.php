@@ -35,12 +35,23 @@ class GroupMessageSent implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
+        $replyTo = $this->message->replyTo;
+
         return [
             'id' => $this->message->id,
             'group_id' => $this->message->group_conversation_id,
             'sender_id' => $this->message->sender_id,
             'sender_name' => trim("{$this->message->sender?->first_name} {$this->message->sender?->last_name}") ?: $this->message->sender?->name,
             'message' => $this->message->message,
+            'attachment_url' => $this->message->attachment_url,
+            'attachment_name' => $this->message->attachment_name,
+            'attachment_type' => $this->message->attachment_type,
+            'attachment_size' => $this->message->attachment_size,
+            'reply_to' => $replyTo ? [
+                'id' => $replyTo->id,
+                'sender_name' => trim("{$replyTo->sender?->first_name} {$replyTo->sender?->last_name}") ?: $replyTo->sender?->name,
+                'preview' => $replyTo->message !== '' ? $replyTo->message : ($replyTo->attachment_path ? (str_starts_with((string) $replyTo->attachment_type, 'image/') ? '📷 Photo' : '📎 ' . ($replyTo->attachment_name ?? 'File')) : null),
+            ] : null,
             'created_at' => $this->message->created_at->format('g:i A'),
         ];
     }

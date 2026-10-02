@@ -3,26 +3,10 @@
 import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
+import { clean, inputProps } from "@/lib/inputRules";
+import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse } from "@/lib/internOptions";
 
-// The programs this school actually offers — kept as a fixed list (with an
-// "Other" escape hatch) instead of free text so course names stay consistent
-// across every intern record instead of drifting into typos/variants.
-const COURSE_OPTIONS = ["BSIT", "BSTM", "BSBA", "BSHM", "BSAIS", "BTELED", "BSCRIM"];
-
-// OJT timing isn't standardized across schools/programs — some place interns
-// in 3rd year, others only in 4th, and 5-year programs (e.g. some engineering
-// tracks) exist too. Rather than assume this school's own pattern, the full
-// range is offered and left for the coordinator to pick per intern.
-const YEAR_LEVEL_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "5th Year"];
-
-// Required OJT hours by program — BSCRIM follows a shorter practicum, every
-// other program (including "Other") runs the standard 500 hours for now.
-const HOURS_BY_COURSE = { BSIT: 500, BSCRIM: 250 };
-function defaultHoursForCourse(course) {
-  return HOURS_BY_COURSE[course] ?? 500;
-}
-
-const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", student_number: "", course: "", course_other: "", year_level: "" };
+const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", course: "", course_other: "", year_level: "4th Year" };
 
 /**
  * Reused from two entry points — the Interns screen (coordinator picks the
@@ -32,7 +16,7 @@ const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", student_number
 export default function AddInternModal({ companies, lockedCompanyId, lockedCompanyName, onClose, onSaved }) {
   const [step, setStep] = useState(1);
   const [account, setAccount] = useState(EMPTY_ACCOUNT);
-  const [deployment, setDeployment] = useState({ company_id: lockedCompanyId ?? "", supervisor_id: "", start_date: "", required_hours: "" });
+  const [deployment, setDeployment] = useState({ company_id: lockedCompanyId ?? "", supervisor_id: "", start_date: "" });
   const [supervisors, setSupervisors] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -65,8 +49,8 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!deployment.company_id || !deployment.start_date || !deployment.required_hours) {
-      setError("Select a company, start date, and required hours.");
+    if (!deployment.company_id || !deployment.start_date) {
+      setError("Select a company and a start date.");
       return;
     }
     if (account.course === "Other" && !account.course_other.trim()) {
@@ -95,8 +79,8 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
 
   if (invited) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-        <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+      <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+        <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
           <h3 className="text-lg font-semibold text-slate-900">Invitation sent</h3>
           <p className="mt-1 text-sm text-slate-600">
             We emailed <span className="font-medium text-slate-900">{account.email}</span> a link to set their own password and activate their account.
@@ -110,8 +94,8 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900">Add an intern</h3>
           <span className="text-xs font-medium text-slate-400">Step {step} of 2</span>
@@ -120,54 +104,45 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
 
         {step === 1 ? (
           <div className="mt-4 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="mb-1.5 block font-semibold text-slate-700">First name</span>
-                <input value={account.first_name} onChange={(e) => setAccount((f) => ({ ...f, first_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                <input {...inputProps("personName")} value={account.first_name} onChange={(e) => setAccount((f) => ({ ...f, first_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
               </label>
               <label className="block text-sm">
                 <span className="mb-1.5 block font-semibold text-slate-700">Last name</span>
-                <input value={account.last_name} onChange={(e) => setAccount((f) => ({ ...f, last_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                <input {...inputProps("personName")} value={account.last_name} onChange={(e) => setAccount((f) => ({ ...f, last_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
               </label>
             </div>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-              <input type="email" value={account.email} onChange={(e) => setAccount((f) => ({ ...f, email: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="intern@example.com" />
-              <span className="mt-1 block text-xs text-slate-400">They&apos;ll get an email here to set their own password and activate the account.</span>
+              <input {...inputProps("email")} type="email" value={account.email} onChange={(e) => setAccount((f) => ({ ...f, email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="intern@example.com" />
+              <span className="mt-1 block text-xs text-slate-400">They&apos;ll get an email here to set their password and enter their own student number.</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
-                <span className="mb-1.5 block font-semibold text-slate-700">Student number</span>
-                <input value={account.student_number} onChange={(e) => setAccount((f) => ({ ...f, student_number: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                <span className="mb-1.5 block font-semibold text-slate-700">Course</span>
+                <select
+                  value={account.course}
+                  onChange={(e) => setAccount((f) => ({ ...f, course: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="">Select course…</option>
+                  {COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="Other">Other</option>
+                </select>
               </label>
               <label className="block text-sm">
                 <span className="mb-1.5 block font-semibold text-slate-700">Year level</span>
                 <select value={account.year_level} onChange={(e) => setAccount((f) => ({ ...f, year_level: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
-                  <option value="">Select year level…</option>
                   {YEAR_LEVEL_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
                 </select>
               </label>
             </div>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Course</span>
-              <select
-                value={account.course}
-                onChange={(e) => {
-                  const course = e.target.value;
-                  setAccount((f) => ({ ...f, course }));
-                  setDeployment((f) => ({ ...f, required_hours: defaultHoursForCourse(course) }));
-                }}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              >
-                <option value="">Select course…</option>
-                {COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                <option value="Other">Other</option>
-              </select>
-            </label>
             {account.course === "Other" && (
               <label className="block text-sm">
                 <span className="mb-1.5 block font-semibold text-slate-700">Program name</span>
-                <input value={account.course_other} onChange={(e) => setAccount((f) => ({ ...f, course_other: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. BS Marine Transportation" />
+                <input {...inputProps("shortText")} value={account.course_other} onChange={(e) => setAccount((f) => ({ ...f, course_other: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. BS Marine Transportation" />
               </label>
             )}
 
@@ -208,11 +183,15 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
                   <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
                   <input type="date" value={deployment.start_date} onChange={(e) => setDeployment((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
                 </label>
-                <label className="block text-sm">
+                <div className="block text-sm">
                   <span className="mb-1.5 block font-semibold text-slate-700">Required hours</span>
-                  <input type="number" min="1" value={deployment.required_hours} onChange={(e) => setDeployment((f) => ({ ...f, required_hours: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. 500" />
-                  <span className="mt-1 block text-xs text-slate-400">Prefilled from the intern&apos;s course — adjust if this intern needs a different total.</span>
-                </label>
+                  <p className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700">
+                    {hoursForCourse(account.course === "Other" ? undefined : account.course)} hours
+                  </p>
+                  <span className="mt-1 block text-xs text-slate-400">
+                    Fixed by {account.course === "Other" ? (account.course_other.trim() || "the intern's program") : account.course || "the intern's course"} — set on the Course step, not editable here.
+                  </span>
+                </div>
               </>
             )}
 

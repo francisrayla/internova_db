@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/apiFetch";
+import { clearOfflineCaches } from "@/lib/offlineCache";
 
 const navItems = [
   { label: "Dashboard", href: "/intern/dashboard", icon: "▣" },
@@ -13,6 +14,20 @@ const navItems = [
   { label: "Evaluations", href: "/intern/evaluations", icon: "⭐" },
   { label: "Documents", href: "/intern/documents", icon: "📄" },
   { label: "Portfolio", href: "/intern/portfolio", icon: "🧰" },
+];
+
+// Data the intern screens load, fetched ahead so every screen — attendance
+// above all — still shows its last data offline (see AppShell warm-up).
+const WARM_API = [
+  "/api/intern/profile-summary",
+  "/api/intern/tasks",
+  "/api/intern/attendance/today",
+  "/api/intern/attendance",
+  "/api/intern/activities",
+  "/api/intern/activities/suggestions",
+  "/api/intern/evaluations",
+  "/api/intern/documents",
+  "/api/intern/portfolio",
 ];
 
 const PROFILE_LINKS = [
@@ -29,6 +44,7 @@ export default function InternLayout({ children }) {
     apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     localStorage.removeItem("internova_user");
     localStorage.removeItem("internova_token");
+    clearOfflineCaches();
     router.push("/login");
   }
 
@@ -74,8 +90,6 @@ export default function InternLayout({ children }) {
 
   return (
     <AppShell
-      title="Intern workspace"
-      subtitle="Track your work, submissions, and growth."
       section="Internship"
       navItems={navItems}
       user={user}
@@ -84,6 +98,8 @@ export default function InternLayout({ children }) {
       messengerCurrentUser={user}
       onUserUpdated={handleUserUpdated}
       profileLinks={PROFILE_LINKS}
+      fallbackName="Intern"
+      warmApi={WARM_API}
     >
       {children}
     </AppShell>

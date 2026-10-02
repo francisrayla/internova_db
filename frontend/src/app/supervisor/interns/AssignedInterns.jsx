@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 
+import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
   active: "bg-emerald-100 text-emerald-700",
   pending: "bg-amber-100 text-amber-700",
@@ -42,7 +44,7 @@ export default function AssignedInterns() {
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input
+        <input {...inputProps("search")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name…"
@@ -60,60 +62,107 @@ export default function AssignedInterns() {
             {interns.length === 0 ? "No interns are assigned to you yet." : "No interns match this search."}
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-5 py-3">Intern</th>
-                  <th className="px-5 py-3">Company</th>
-                  <th className="px-5 py-3">Hours</th>
-                  <th className="px-5 py-3">Tasks</th>
-                  <th className="px-5 py-3">Latest evaluation</th>
-                  <th className="px-5 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((i) => (
-                  <tr key={i.deployment_id} className="align-top">
-                    <td className="px-5 py-4">
+          <>
+            <div className="divide-y divide-slate-100 sm:hidden">
+              {filtered.map((i) => (
+                <div key={i.deployment_id} className="px-5 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
                       <p className="font-semibold text-slate-900">{i.intern_name}</p>
-                      <p className="text-xs text-slate-500">{i.student_number} · {i.course}</p>
-                      {i.pending_attendance > 0 && (
-                        <p className="mt-1 text-xs font-medium text-amber-600">{i.pending_attendance} attendance record{i.pending_attendance === 1 ? "" : "s"} pending review</p>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-slate-700">{i.company_name ?? "—"}</td>
-                    <td className="px-5 py-4">
-                      <div className="w-32">
-                        <div className="mb-1 flex justify-between text-xs text-slate-500">
-                          <span>{i.hours_completed}h</span>
-                          <span>{i.required_hours}h</span>
-                        </div>
-                        <ProgressBar pct={i.hours_progress_pct} />
+                      <p className="text-xs text-slate-500">{[i.student_number, i.course].filter(Boolean).join(" · ") || "—"}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[i.status] ?? "bg-slate-100 text-slate-700"}`}>
+                      {i.status}
+                    </span>
+                  </div>
+                  {i.pending_attendance > 0 && (
+                    <p className="mt-1 text-xs font-medium text-amber-600">{i.pending_attendance} attendance record{i.pending_attendance === 1 ? "" : "s"} pending review</p>
+                  )}
+                  <p className="mt-2 text-sm text-slate-700">{i.company_name ?? "—"}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs text-slate-500">
+                        <span>{i.hours_completed}h</span>
+                        <span>{i.required_hours}h</span>
                       </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="w-32">
-                        <div className="mb-1 flex justify-between text-xs text-slate-500">
-                          <span>{i.tasks_completed}/{i.tasks_total}</span>
-                          <span>{i.task_progress_pct}%</span>
-                        </div>
-                        <ProgressBar pct={i.task_progress_pct} tone="emerald" />
+                      <ProgressBar pct={i.hours_progress_pct} />
+                    </div>
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs text-slate-500">
+                        <span>{i.tasks_completed}/{i.tasks_total}</span>
+                        <span>{i.task_progress_pct}%</span>
                       </div>
-                    </td>
-                    <td className="px-5 py-4 text-slate-700">
-                      {i.latest_evaluation_score != null ? `${i.latest_evaluation_score}%` : <span className="text-slate-400">No evaluations yet</span>}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[i.status] ?? "bg-slate-100 text-slate-700"}`}>
-                        {i.status}
-                      </span>
-                    </td>
+                      <ProgressBar pct={i.task_progress_pct} tone="emerald" />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Latest evaluation: {i.latest_evaluation_score != null ? `${i.latest_evaluation_score}%` : "No evaluations yet"}
+                  </p>
+                  <Link href={`/supervisor/interns/${i.deployment_id}/portfolio`} className="mt-1 inline-block text-xs font-semibold text-blue-600 hover:underline">
+                    View portfolio →
+                  </Link>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full min-w-[800px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3">Intern</th>
+                    <th className="px-5 py-3">Company</th>
+                    <th className="px-5 py-3">Hours</th>
+                    <th className="px-5 py-3">Tasks</th>
+                    <th className="px-5 py-3">Latest evaluation</th>
+                    <th className="px-5 py-3">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filtered.map((i) => (
+                    <tr key={i.deployment_id} className="align-top">
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-slate-900">{i.intern_name}</p>
+                        <p className="text-xs text-slate-500">{[i.student_number, i.course].filter(Boolean).join(" · ") || "—"}</p>
+                        {i.pending_attendance > 0 && (
+                          <p className="mt-1 text-xs font-medium text-amber-600">{i.pending_attendance} attendance record{i.pending_attendance === 1 ? "" : "s"} pending review</p>
+                        )}
+                        <Link href={`/supervisor/interns/${i.deployment_id}/portfolio`} className="mt-1 inline-block text-xs font-semibold text-blue-600 hover:underline">
+                          View portfolio →
+                        </Link>
+                      </td>
+                      <td className="px-5 py-4 text-slate-700">{i.company_name ?? "—"}</td>
+                      <td className="px-5 py-4">
+                        <div className="w-32">
+                          <div className="mb-1 flex justify-between text-xs text-slate-500">
+                            <span>{i.hours_completed}h</span>
+                            <span>{i.required_hours}h</span>
+                          </div>
+                          <ProgressBar pct={i.hours_progress_pct} />
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="w-32">
+                          <div className="mb-1 flex justify-between text-xs text-slate-500">
+                            <span>{i.tasks_completed}/{i.tasks_total}</span>
+                            <span>{i.task_progress_pct}%</span>
+                          </div>
+                          <ProgressBar pct={i.task_progress_pct} tone="emerald" />
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-slate-700">
+                        {i.latest_evaluation_score != null ? `${i.latest_evaluation_score}%` : <span className="text-slate-400">No evaluations yet</span>}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[i.status] ?? "bg-slate-100 text-slate-700"}`}>
+                          {i.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
