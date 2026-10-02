@@ -25,8 +25,8 @@ export default function PendingApprovalPage() {
         </p>
         <h1 className="mt-4 text-2xl font-bold text-slate-900">Your school registration is under review</h1>
         <p className="mt-3 text-slate-600">
-          Thanks for registering, <strong>{user.name}</strong>! Our team is reviewing your school's registration.
-          You'll get access to your dashboard as soon as it's approved and your payment is confirmed.
+          Thanks for registering, <strong>{user.name}</strong>! Our team is reviewing your school&apos;s registration.
+          You&apos;ll get access to your dashboard as soon as it&apos;s approved and your payment is confirmed.
         </p>
         <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-left text-sm text-slate-600">
           <div className="flex justify-between py-1"><span className="text-slate-500">Email</span><span className="font-medium text-slate-900">{user.email}</span></div>

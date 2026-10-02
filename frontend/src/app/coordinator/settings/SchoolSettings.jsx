@@ -36,7 +36,7 @@ export default function SchoolSettingsPage() {
     return (
       <div className="sm:p-2 lg:p-6">
         <h1 className="text-2xl font-semibold">School Settings</h1>
-        <p className="mt-2 text-slate-600">Only the school's primary coordinator can view or edit school settings.</p>
+        <p className="mt-2 text-slate-600">Only the school&apos;s primary coordinator can view or edit school settings.</p>
       </div>
     );
   }
@@ -93,7 +93,7 @@ export default function SchoolSettingsPage() {
       {loading ? (
         <p className="mt-6 text-sm text-slate-400">Loading…</p>
       ) : !school ? (
-        <p className="mt-6 text-sm text-red-600">Could not load your school's settings.</p>
+        <p className="mt-6 text-sm text-red-600">Could not load your school&apos;s settings.</p>
       ) : editing ? (
         <form onSubmit={handleSubmit} className="mt-6 max-w-lg space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
           <label className="block text-sm">

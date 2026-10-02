@@ -49,7 +49,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Same live-refresh signal every other Super Admin screen listens to —
@@ -69,7 +68,6 @@ export default function DashboardPage() {
       echo.channel("superadmin-notifications").stopListening(".notification.created", handlePush);
       echoChannelRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeSchools = schools.filter((s) => s.subscription_status === "active" && !s.is_suspended);

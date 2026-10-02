@@ -3,19 +3,6 @@
 import { useState } from "react";
 import Icon from "./Icon";
 
-export function ActionButton({ onClick, icon, children, variant }) {
-  return (
-    <button
-      type={onClick ? "button" : "submit"}
-      onClick={onClick}
-      className={`action-button${variant === "secondary" ? " secondary" : ""}`}
-    >
-      {icon && <Icon name={icon} size={14} />}
-      {children}
-    </button>
-  );
-}
-
 export function Stat({ label, value, note, tone }) {
   return (
     <div className="stat-card">
@@ -174,23 +161,6 @@ export function EvaluationCard({ canEdit }) {
       <div className="evaluation-footer">
         <span>Mia Santos · Aug 7</span>
         <span>Formal evaluation</span>
-      </div>
-    </div>
-  );
-}
-
-export function EmptyModal({ title, description, onClose, children }) {
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-title">
-          <div>
-            <h2>{title}</h2>
-            {description && <p>{description}</p>}
-          </div>
-          <button className="close-button" onClick={onClose} aria-label="Close">×</button>
-        </div>
-        {children}
       </div>
     </div>
   );

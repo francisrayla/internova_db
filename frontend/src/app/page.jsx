@@ -124,7 +124,7 @@ export default function Home() {
             🎓 Internship Management Platform
           </div>
           <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
-            Run your school's OJT program without the paperwork
+            Run your school&apos;s OJT program without the paperwork
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
             Internova helps schools track intern attendance, tasks, and evaluations in one place —

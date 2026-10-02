@@ -12,7 +12,7 @@ use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -52,7 +52,7 @@ class CoordinatorSubscriptionController extends Controller
         // No PayMongo key on this server means online checkout simply isn't
         // available — report it as such instead of crashing the request.
         if (!config('services.paymongo.secret_key')) {
-            \Log::warning('PayMongo checkout attempted but PAYMONGO_SECRET_KEY is not set.');
+            Log::warning('PayMongo checkout attempted but PAYMONGO_SECRET_KEY is not set.');
             return null;
         }
 

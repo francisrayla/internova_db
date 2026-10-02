@@ -227,7 +227,7 @@ export default function InquiryPage() {
           </div>
           <h1 className="text-3xl font-bold text-slate-900">School Registration</h1>
           <p className="mt-2 text-slate-600 max-w-lg mx-auto">
-            Register your school and tell us about your internship program. You'll be able to log in right away to
+            Register your school and tell us about your internship program. You&apos;ll be able to log in right away to
             check your status — full access opens once our team approves your school and payment is confirmed.
           </p>
         </div>

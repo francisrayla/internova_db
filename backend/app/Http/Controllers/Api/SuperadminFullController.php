@@ -8,9 +8,7 @@ use App\Mail\InquiryReply;
 use App\Mail\SupportTicketNotification;
 use App\Models\ActivityLog;
 use App\Models\AiUsageLog;
-use App\Models\Company;
 use App\Models\CoordinatorProfile;
-use App\Models\InternshipDeployment;
 use App\Models\PaymentTransaction;
 use App\Models\PlanChangeRequest;
 use App\Models\PlanInquiry;
@@ -37,122 +35,6 @@ use Illuminate\Validation\Rule;
 
 class SuperadminFullController extends Controller
 {
-    public function users(): JsonResponse
-    {
-        $users = User::query()
-            ->select(['id', 'name', 'email', 'status', 'created_at'])
-            ->with('roles')
-            ->orderBy('created_at', 'desc')
-            ->get()
-            ->map(function ($user) {
-                return [
-                    'id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'role' => $user->roles?->name ?? 'Intern',
-                    'status' => ucfirst($user->status),
-                    'team' => 'Platform Team',
-                ];
-            });
-
-        return response()->json(['users' => $users]);
-    }
-
-    public function companies(): JsonResponse
-    {
-        $companies = Company::query()
-            ->select(['id', 'company_name', 'status', 'created_at'])
-            ->orderBy('company_name')
-            ->get()
-            ->map(function ($company) {
-                $tiers = ['Starter', 'Growth', 'Enterprise'];
-                $tier = $tiers[($company->id - 1) % count($tiers)];
-                return [
-                    'id' => $company->id,
-                    'name' => $company->company_name,
-                    'tier' => $tier,
-                    'status' => ucfirst($company->status),
-                ];
-            });
-
-        return response()->json(['companies' => $companies]);
-    }
-
-    public function reports(): JsonResponse
-    {
-        $totalDeployments = InternshipDeployment::count();
-        $completedDeployments = InternshipDeployment::where('status', 'completed')->count();
-        $activeDeployments = InternshipDeployment::where('status', 'active')->count();
-
-        return response()->json([
-            'platformPerformance' => [
-                'title' => 'Platform Performance',
-                'uptime' => '98.3%',
-                'deployments' => $totalDeployments,
-                'activeInterns' => $activeDeployments,
-            ],
-            'userAdoption' => [
-                'title' => 'User Adoption',
-                'activeAccounts' => User::count(),
-                'newUsers' => User::where('created_at', '>', now()->subMonth())->count(),
-            ],
-            'revenueSnapshot' => [
-                'title' => 'Revenue Snapshot',
-                'monthly' => '₱142K',
-                'annual' => '₱1.7M',
-            ],
-            'reports' => [
-                [
-                    'name' => 'Attendance Summary',
-                    'description' => 'GPS and selfie verification metrics',
-                    'dataPoints' => 2547,
-                ],
-                [
-                    'name' => 'Task Completion',
-                    'description' => 'Task status and assignment trends',
-                    'dataPoints' => 1203,
-                ],
-                [
-                    'name' => 'Evaluation Scores',
-                    'description' => 'Performance ratings by criteria',
-                    'dataPoints' => 891,
-                ],
-            ],
-        ]);
-    }
-
-    public function aiControls(): JsonResponse
-    {
-        return response()->json([
-            'aiFeatures' => [
-                [
-                    'name' => 'Auto Report Generation',
-                    'description' => 'Generate attendance and task reports automatically',
-                    'enabled' => true,
-                    'frequency' => 'Daily',
-                ],
-                [
-                    'name' => 'Portfolio Generation',
-                    'description' => 'Create intern portfolios from task data',
-                    'enabled' => true,
-                    'frequency' => 'Weekly',
-                ],
-                [
-                    'name' => 'Attendance Verification',
-                    'description' => 'Verify attendance with GPS and selfie validation',
-                    'enabled' => true,
-                    'confidence' => '98%',
-                ],
-                [
-                    'name' => 'Performance Insights',
-                    'description' => 'AI-powered performance analytics',
-                    'enabled' => true,
-                    'lastRun' => 'Today',
-                ],
-            ],
-        ]);
-    }
-
     public function schools(): JsonResponse
     {
         $schools = School::with(['users.roles', 'coordinatorProfiles.user', 'subscriptions.plan'])

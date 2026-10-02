@@ -229,7 +229,6 @@ export default function BillingPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
   // Live updates: any billing-relevant event (payment confirmed/verified, plan

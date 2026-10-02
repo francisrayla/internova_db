@@ -654,7 +654,6 @@ export default function InquiriesPage() {
             </div>
           ) : (
             filtered.map((inq) => {
-              const m = statusMeta(inq.status);
               const isActive = selected?.id === inq.id;
               return (
                 <button

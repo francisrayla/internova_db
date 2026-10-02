@@ -60,3 +60,21 @@ export async function apiFetch(url, options = {}) {
 
   return response;
 }
+
+/**
+ * GET a JSON resource from one of the per-role proxies (/api/<prefix>/<path>),
+ * throwing with the backend's message when the request fails. The
+ * fetch<Role>Data helpers are thin aliases of this.
+ */
+export async function fetchApiData(prefix, path) {
+  const response = await apiFetch(`/api/${prefix}/${path}`, {
+    headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Unable to load ${path} data: ${errorText || response.statusText}`);
+  }
+
+  return response.json();
+}

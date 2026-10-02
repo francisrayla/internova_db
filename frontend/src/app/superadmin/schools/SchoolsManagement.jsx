@@ -75,7 +75,6 @@ export default function SchoolsPage() {
   const [toast, setToast] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [confirmingPauseId, setConfirmingPauseId] = useState(null); // holds the school id being confirmed, never a stale boolean
-  const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const hasAutoOpenedHighlight = useRef(false);
   const echoChannelRef = useRef(null);
 
@@ -114,7 +113,6 @@ export default function SchoolsPage() {
     if (!echo) return;
 
     function handlePush() {
-      setLastLiveUpdate(new Date());
       load();
     }
 

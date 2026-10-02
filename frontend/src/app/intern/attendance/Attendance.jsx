@@ -105,7 +105,6 @@ function ClockCamera({ mode, onClose, onDone }) {
   const [selfie, setSelfie] = useState(null);
   // The moment the photo was taken — what an offline entry reports as its
   // time, since that's when the intern actually clocked in/out.
-  const [capturedAt, setCapturedAt] = useState(null);
   // Server-anchored, so the live stamp can't be moved by changing the phone's date/time.
   const [now, setNow] = useState(() => trustedNow().date);
   const [captureMeta, setCaptureMeta] = useState(null);
@@ -260,7 +259,6 @@ function ClockCamera({ mode, onClose, onDone }) {
         setReady(false);
         setPreview(URL.createObjectURL(blob));
         setSelfie(blob);
-        setCapturedAt(stampAt);
         setCaptureMeta(meta);
       },
       "image/jpeg",
@@ -271,7 +269,6 @@ function ClockCamera({ mode, onClose, onDone }) {
   function retake() {
     setPreview(null);
     setSelfie(null);
-    setCapturedAt(null);
     setCaptureMeta(null);
     startCamera();
   }
@@ -490,7 +487,6 @@ export default function Attendance() {
       window.removeEventListener("online", updateOnline);
       window.removeEventListener("offline", updateOnline);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const view = loading ? null : resolveTodayView(today, pending, online);

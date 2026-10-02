@@ -5,7 +5,6 @@ use App\Http\Controllers\Api\CoordinatorMonitoringController;
 use App\Http\Controllers\Api\CoordinatorSubscriptionController;
 use App\Http\Controllers\Api\CoordinatorSupportController;
 use App\Http\Controllers\Api\InternMonitoringController;
-use App\Http\Controllers\Api\InternovaController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\MessageController;
@@ -26,10 +25,6 @@ Route::get('/health', function () {
 });
 
 Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
-    Route::get('/users', [SuperadminFullController::class, 'users']);
-    Route::get('/companies', [SuperadminFullController::class, 'companies']);
-    Route::get('/reports', [SuperadminFullController::class, 'reports']);
-    Route::get('/ai-controls', [SuperadminFullController::class, 'aiControls']);
 
     Route::get('/schools', [SuperadminFullController::class, 'schools']);
     Route::get('/plan-inquiries', [SuperadminFullController::class, 'planInquiries']);
@@ -264,8 +259,3 @@ Route::post('/webhooks/resend', [\App\Http\Controllers\Api\ResendWebhookControll
 Route::get('/invitations/{token}', [InvitationController::class, 'show']);
 Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept']);
 
-Route::prefix('internova')->group(function () {
-    Route::get('/schools', [InternovaController::class, 'schools']);
-    Route::get('/companies', [InternovaController::class, 'companies']);
-    Route::get('/deployments', [InternovaController::class, 'deployments']);
-});
