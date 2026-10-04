@@ -13,10 +13,12 @@ export default function VerifyEmail() {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
+  const [notice, setNotice] = useState("");
 
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
+    setNotice("");
 
     if (!/\S+@\S+\.\S+/.test(email)) {
       setError("Please enter a valid email address.");
@@ -50,14 +52,19 @@ export default function VerifyEmail() {
       return;
     }
     setError("");
+    setNotice("");
     setSending(true);
     try {
-      await fetch("/api/auth/resend-verification", {
+      const res = await fetch("/api/auth/resend-verification", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
+      if (!res.ok) throw new Error();
       setCode("");
+      setNotice(`A new code is on its way to ${email}. Only the newest code works.`);
+    } catch {
+      setError("Couldn't send a new code. Check your connection and try again.");
     } finally {
       setSending(false);
     }
@@ -82,6 +89,11 @@ export default function VerifyEmail() {
               <h1 className="mt-2 text-2xl font-semibold text-slate-900">Enter your code</h1>
               <p className="mt-2 text-sm text-slate-600">
                 We sent a 6-digit code to your email when you registered. It expires in 15 minutes.
+              </p>
+              <p className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                Can&apos;t find it? Check your <strong>Spam</strong> or <strong>Promotions</strong> folder for
+                &ldquo;Verify your email for Internova&rdquo;. If it&apos;s there, mark it as <strong>Not spam</strong> so
+                our next emails reach your inbox.
               </p>
             </div>
             <form className="space-y-4" onSubmit={handleSubmit}>
@@ -118,6 +130,12 @@ export default function VerifyEmail() {
             </button>
           </>
         )}
+
+        {notice && !error ? (
+          <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700" role="status">
+            {notice} Give it a minute, and check Spam or Promotions too.
+          </p>
+        ) : null}
 
         {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p> : null}
 
