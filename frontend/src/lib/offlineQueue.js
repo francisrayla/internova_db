@@ -46,10 +46,22 @@ function currentUserId() {
   }
 }
 
-/** True when a fetch failed because there's no connection at all, as opposed
- * to the server answering with an error. */
+/** How long a clock-in/out upload may go unanswered before it's treated as
+ * no connection. A weak signal (or Wi-Fi with no internet) leaves requests
+ * hanging instead of failing them, which would otherwise keep the button on
+ * "Saving…" — or the sync stuck — indefinitely. */
+export const SUBMIT_TIMEOUT_MS = 20000;
+
+/** True when a fetch failed because there's no connection at all (or it
+ * timed out waiting for one), as opposed to the server answering with an
+ * error. */
 export function isNetworkError(err) {
-  return (typeof navigator !== "undefined" && !navigator.onLine) || err instanceof TypeError;
+  return (
+    (typeof navigator !== "undefined" && !navigator.onLine) ||
+    err instanceof TypeError ||
+    err?.name === "TimeoutError" ||
+    err?.name === "AbortError"
+  );
 }
 
 /** deviceTime: the phone's own clock at capture. anchoredTime: the
@@ -102,6 +114,7 @@ export async function syncPendingAttendance() {
         res = await apiFetch(`/api/intern/attendance/${entry.mode === "clock_in" ? "clock-in" : "clock-out"}`, {
           method: "POST",
           body: formData,
+          signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
         });
       } catch {
         break;

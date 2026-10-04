@@ -22,15 +22,38 @@
 // needs, so going offline works on screens never opened on this device —
 // and right after an app update, which starts with fresh caches.
 //
+// Network-first here always has a time limit (PAGE_TIMEOUT_MS / API_TIMEOUT_MS):
+// a connection that is up but not answering — the usual "offline" on a phone
+// with one bar of signal — is treated like no connection, so menu taps and
+// screens fall back to the saved copy instead of hanging.
+//
 // Writes (POST/PATCH/DELETE) are never cached or replayed here — the only
 // offline write the app supports is clock-in/out, and that has its own
 // explicit queue (lib/offlineQueue.js) so it can carry the device time.
-const VERSION = "v3";
+const VERSION = "v4";
 const STATIC_CACHE = `internova-static-${VERSION}`;
 const PAGE_CACHE = `internova-pages-${VERSION}`;
 const API_CACHE = `internova-api-${VERSION}`;
 const MEDIA_CACHE = `internova-media-${VERSION}`;
 const MEDIA_LIMIT = 200;
+// How long a request may go unanswered before the saved copy is served. A
+// phone with a weak signal, or Wi-Fi with no internet behind it, doesn't fail
+// requests — it leaves them hanging, so without a limit a tap in the menu
+// (or a screen's data) would wait until the browser gives up minutes later.
+const PAGE_TIMEOUT_MS = 3500;
+const API_TIMEOUT_MS = 5000;
+const TIMED_OUT = Symbol("timed out");
+// Once a request has gone unanswered the connection is treated as dead for a
+// while: later requests are answered from the saved copy straight away
+// instead of each waiting out its own time limit (which made every menu tap
+// take several seconds). The network is still tried in the background, and
+// the first response that comes back ends this early.
+const STALLED_FOR_MS = 30000;
+let stalledUntil = 0;
+// A request still unanswered after this long is given up on, so hung
+// requests can't pile up and hold the browser's connections once the signal
+// comes back.
+const GIVE_UP_MS = 30000;
 const SHELL_ASSETS = ["/", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
@@ -67,17 +90,40 @@ function pageCacheKey(url, isRsc) {
   return key.toString();
 }
 
-async function networkFirst(request, cacheName, cacheKey, { store = true, fallback } = {}) {
+// Network-first with a time limit: when the network hasn't answered within
+// timeoutMs (or the connection is known to be stalled), the cached copy is
+// served and the network response, if it ever arrives, still refreshes the
+// cache for next time. With nothing cached, onTimeoutMiss decides — return a
+// Response to answer now, or nothing to keep waiting on the network.
+async function networkFirst(event, cacheName, cacheKey, { store = true, timeoutMs, onTimeoutMiss, fallback }) {
+  const { request } = event;
   const cache = await caches.open(cacheName);
-  try {
-    const response = await fetch(request);
+  const network = fetch(request, { signal: AbortSignal.timeout(GIVE_UP_MS) }).then((response) => {
+    stalledUntil = 0;
     if (store && response.ok) cache.put(cacheKey, response.clone()).catch(() => {});
     return response;
-  } catch {
-    const cached = await cache.match(cacheKey, { ignoreVary: true });
-    if (cached) return cached;
-    return fallback ? fallback() : Response.error();
+  });
+  event.waitUntil(network.catch(() => {}));
+  const offline = () =>
+    cache.match(cacheKey, { ignoreVary: true }).then((cached) => cached || (fallback ? fallback() : Response.error()));
+
+  let first = TIMED_OUT;
+  if (Date.now() >= stalledUntil) {
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+    });
+    first = await Promise.race([network, deadline]).catch(() => null);
+    clearTimeout(timer);
+    if (first === TIMED_OUT) stalledUntil = Date.now() + STALLED_FOR_MS;
   }
+  if (first === null) return offline(); // the network failed outright
+  if (first !== TIMED_OUT) return first;
+
+  const cached = await cache.match(cacheKey, { ignoreVary: true });
+  if (cached) return cached;
+  const answer = onTimeoutMiss ? await onTimeoutMiss() : null;
+  return answer || network.catch(offline);
 }
 
 async function cacheFirst(request, cacheName) {
@@ -161,7 +207,7 @@ self.addEventListener("fetch", (event) => {
     if (url.pathname === "/api/health") return;
     // Same for the server clock the attendance camera times entries with.
     if (url.pathname === "/api/server-time") return;
-    event.respondWith(networkFirst(request, API_CACHE, request.url, { fallback: offlineJson }));
+    event.respondWith(networkFirst(event, API_CACHE, request.url, { timeoutMs: API_TIMEOUT_MS, fallback: offlineJson }));
     return;
   }
 
@@ -170,8 +216,17 @@ self.addEventListener("fetch", (event) => {
     // Prefetches return partial payloads — fine to serve from, never to store.
     const isPrefetch = request.headers.get("Next-Router-Prefetch") === "1";
     event.respondWith(
-      networkFirst(request, PAGE_CACHE, pageCacheKey(request.url, isRsc), {
+      networkFirst(event, PAGE_CACHE, pageCacheKey(request.url, isRsc), {
         store: !isPrefetch,
+        timeoutMs: PAGE_TIMEOUT_MS,
+        // An in-app navigation whose data was never saved, on a connection
+        // that isn't answering: if the screen's HTML was saved by the warm-up,
+        // fail fast so Next.js falls back to a full page load — which is
+        // then answered from that saved HTML instead of hanging here.
+        onTimeoutMiss: async () =>
+          isRsc && !isPrefetch && (await caches.match(pageCacheKey(request.url, false), { ignoreVary: true }))
+            ? Response.error()
+            : null,
         // A page never visited on this device: fall back to the app's root,
         // which redirects a signed-in user to their dashboard anyway.
         fallback: async () => (request.mode === "navigate" && (await caches.match("/", { ignoreVary: true }))) || Response.error(),
@@ -181,6 +236,6 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (SHELL_ASSETS.includes(url.pathname)) {
-    event.respondWith(networkFirst(request, PAGE_CACHE, request.url));
+    event.respondWith(networkFirst(event, PAGE_CACHE, request.url, { timeoutMs: PAGE_TIMEOUT_MS }));
   }
 });

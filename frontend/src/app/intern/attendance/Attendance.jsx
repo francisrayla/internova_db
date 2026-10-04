@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import Icon from "@/components/Icon";
 import { ATTENDANCE_SYNCED_EVENT } from "@/components/OfflineStatus";
-import { enqueueAttendance, getPendingAttendance, isNetworkError, QUEUE_CHANGED_EVENT } from "@/lib/offlineQueue";
+import { enqueueAttendance, getPendingAttendance, isNetworkError, QUEUE_CHANGED_EVENT, SUBMIT_TIMEOUT_MS } from "@/lib/offlineQueue";
 import { DISPLAY_TIME_ZONE, syncTrustedClock, trustedNow } from "@/lib/trustedClock";
 import AttendanceCard, { STATUS_STYLES } from "./AttendanceCard";
 
@@ -300,7 +300,11 @@ function ClockCamera({ mode, onClose, onDone }) {
       formData.append("selfie", selfie, "selfie.jpg");
       formData.append("latitude", String(location.lat));
       formData.append("longitude", String(location.lng));
-      const res = await apiFetch(`/api/intern/attendance/${isIn ? "clock-in" : "clock-out"}`, { method: "POST", body: formData });
+      const res = await apiFetch(`/api/intern/attendance/${isIn ? "clock-in" : "clock-out"}`, {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
+      });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not save this.");
       onDone();
