@@ -19,6 +19,7 @@ export default function PortfolioReport() {
   const [portfolio, setPortfolio] = useState(null);
   const [summary, setSummary] = useState(null);
   const [activities, setActivities] = useState([]);
+  const [awaitingReview, setAwaitingReview] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,7 +27,12 @@ export default function PortfolioReport() {
       .then(([p, s, a]) => {
         setPortfolio(p.portfolio);
         setSummary(s);
-        setActivities((a.activities ?? []).slice().reverse());
+        // Only entries the supervisor approved, plus the summaries recorded
+        // from attendance, belong in the report — pending and rejected ones
+        // haven't been signed off.
+        const all = a.activities ?? [];
+        setActivities(all.filter((entry) => entry.in_report).reverse());
+        setAwaitingReview(all.filter((entry) => entry.status === "pending").length);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -79,6 +85,13 @@ export default function PortfolioReport() {
 
         <section className="border-t border-slate-200 py-6">
           <h2 className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Daily Narrative Report</h2>
+          {awaitingReview > 0 && (
+            <p className="mb-4 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700 print:hidden">
+              {awaitingReview === 1
+                ? "1 entry is still waiting for your supervisor's approval and isn't included yet."
+                : `${awaitingReview} entries are still waiting for your supervisor's approval and aren't included yet.`}
+            </p>
+          )}
           {activities.length === 0 ? (
             <p className="text-sm text-slate-400">No daily entries logged yet.</p>
           ) : (

@@ -195,6 +195,7 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::patch('/attendance/{id}', [SupervisorMonitoringController::class, 'reviewAttendance']);
 
     Route::get('/activities', [SupervisorMonitoringController::class, 'activities']);
+    Route::post('/activities/approve', [SupervisorMonitoringController::class, 'approveActivities']);
     Route::patch('/activities/{id}', [SupervisorMonitoringController::class, 'reviewActivity']);
 
     // Supervisor assigns work (individual or group) to the interns they

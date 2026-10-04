@@ -89,7 +89,7 @@ class GenerateNarrativeForAttendance implements ShouldQueue
             'activity_date' => $date,
             'title' => 'Daily Activity Summary',
             'description' => $narrative,
-            'status' => 'pending',
+            'status' => DailyActivity::RECORDED,
             'is_auto_generated' => true,
         ]);
     }

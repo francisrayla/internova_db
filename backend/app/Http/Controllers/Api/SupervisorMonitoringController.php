@@ -832,6 +832,7 @@ class SupervisorMonitoringController extends Controller
             'description' => $a->description,
             'photo_url' => $a->photo_path ? Storage::disk('public')->url($a->photo_path) : null,
             'status' => $a->status,
+            'is_auto_generated' => $a->is_auto_generated,
             'review_remarks' => $a->review_remarks,
         ]);
 
@@ -849,6 +850,11 @@ class SupervisorMonitoringController extends Controller
         $activity = DailyActivity::whereIn('deployment_id', $this->deploymentIdsForSupervisor($supervisorId))->find($id);
         if (!$activity) {
             return response()->json(['success' => false, 'message' => 'Activity entry not found.'], 404);
+        }
+        // Only an entry waiting for review can be decided — a recorded
+        // summary needs no sign-off, and a decision already made is final.
+        if ($activity->status !== DailyActivity::PENDING) {
+            return response()->json(['success' => false, 'message' => 'This entry is not waiting for review.'], 422);
         }
 
         $activity->update([
@@ -879,5 +885,69 @@ class SupervisorMonitoringController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'Activity reviewed.']);
+    }
+
+    /**
+     * "Approve all" — approves the pending entries the supervisor was looking
+     * at (the ids come from their current list, so nothing they haven't seen
+     * gets signed off). Entries that aren't theirs or aren't pending are
+     * skipped. Each intern gets one notification for the batch rather than
+     * one per entry.
+     */
+    public function approveActivities(Request $request): JsonResponse
+    {
+        $supervisorId = $request->user()->id;
+        $data = $request->validate([
+            'ids' => 'required|array|min:1|max:500',
+            'ids.*' => 'integer',
+        ]);
+
+        $activities = DailyActivity::with('deployment.intern')
+            ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($supervisorId))
+            ->whereIn('id', $data['ids'])
+            ->where('status', DailyActivity::PENDING)
+            ->get();
+
+        if ($activities->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'There are no pending entries to approve.'], 422);
+        }
+
+        DailyActivity::whereIn('id', $activities->pluck('id'))->update([
+            'status' => DailyActivity::APPROVED,
+            'reviewed_by' => $supervisorId,
+            'updated_at' => now(),
+        ]);
+
+        foreach ($activities->groupBy('deployment_id') as $entries) {
+            $deployment = $entries->first()->deployment;
+            if (!$deployment) {
+                continue;
+            }
+            $count = $entries->count();
+            NotificationService::toUser(
+                'intern',
+                $deployment->intern_id,
+                $deployment->school_id,
+                'activity_reviewed',
+                $count === 1 ? 'Activity log approved' : 'Activity logs approved',
+                $count === 1 ? "\"{$entries->first()->title}\" was approved." : "{$count} of your activity entries were approved.",
+                '/intern/activities'
+            );
+        }
+
+        $total = $activities->count();
+        ActivityLogService::record(
+            module: 'Activities',
+            action: 'Approved activity entries',
+            description: "Approved {$total} " . ($total === 1 ? 'entry' : 'entries') . ' at once.',
+            schoolId: $activities->first()->deployment?->school_id,
+            request: $request
+        );
+
+        return response()->json([
+            'success' => true,
+            'approved' => $total,
+            'message' => $total === 1 ? '1 entry approved.' : "{$total} entries approved.",
+        ]);
     }
 }

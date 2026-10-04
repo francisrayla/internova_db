@@ -744,7 +744,8 @@ class InternMonitoringController extends Controller
             'photo_url' => $a->photo_path ? Storage::disk('public')->url($a->photo_path) : null,
             'status' => $a->status,
             'is_auto_generated' => $a->is_auto_generated,
-            'editable' => $a->status === 'pending',
+            'editable' => in_array($a->status, DailyActivity::EDITABLE, true),
+            'in_report' => in_array($a->status, DailyActivity::IN_REPORT, true),
             'review_remarks' => $a->review_remarks,
             'source_title' => $a->sourceSubtask?->title ?? $a->sourceTask?->title,
         ];
@@ -915,7 +916,7 @@ class InternMonitoringController extends Controller
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
             'photo_path' => $photoPath,
-            'status' => 'pending',
+            'status' => DailyActivity::PENDING,
         ]);
 
         return response()->json(['success' => true, 'activity' => $this->mapActivity($activity)]);
@@ -924,10 +925,14 @@ class InternMonitoringController extends Controller
     /**
      * Lets the intern amend their own entry — most importantly, add their
      * own context to an auto-generated narrative (see
-     * GenerateNarrativeForAttendance). Only while it's still "pending": once
-     * a supervisor has reviewed it, the record stands as what was actually
-     * reviewed, and a correction from there should go through the
-     * supervisor rather than silently rewriting history underneath them.
+     * GenerateNarrativeForAttendance). Only while it's still "pending" or an
+     * untouched "recorded" summary: once a supervisor has reviewed it, the
+     * record stands as what was actually reviewed, and a correction from
+     * there should go through the supervisor rather than silently rewriting
+     * history underneath them.
+     *
+     * Editing a recorded summary makes it the intern's own words, so it
+     * loses its auto-generated mark and goes to the supervisor for review.
      */
     public function updateActivity(Request $request, int $id): JsonResponse
     {
@@ -938,7 +943,7 @@ class InternMonitoringController extends Controller
         if (!$activity) {
             return response()->json(['success' => false, 'message' => 'Entry not found.'], 404);
         }
-        if ($activity->status !== 'pending') {
+        if (!in_array($activity->status, DailyActivity::EDITABLE, true)) {
             return response()->json(['success' => false, 'message' => 'This entry has already been reviewed and can no longer be edited.'], 422);
         }
 
@@ -947,10 +952,14 @@ class InternMonitoringController extends Controller
             'description' => 'nullable|string|max:4000',
         ]);
 
+        $changed = $data['title'] !== $activity->title || ($data['description'] ?? null) !== $activity->description;
+
         $activity->update([
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
-        ]);
+        ] + ($changed && $activity->status === DailyActivity::RECORDED
+            ? ['status' => DailyActivity::PENDING, 'is_auto_generated' => false]
+            : []));
 
         return response()->json(['success' => true, 'activity' => $this->mapActivity($activity)]);
     }

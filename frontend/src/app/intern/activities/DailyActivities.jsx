@@ -16,6 +16,7 @@ const STATUS_STYLES = {
   pending: "bg-amber-100 text-amber-700",
   approved: "bg-green-100 text-green-700",
   rejected: "bg-red-100 text-red-700",
+  recorded: "bg-slate-100 text-slate-600",
 };
 
 const LIVE_TYPES = ["activity_reviewed"];
@@ -457,8 +458,14 @@ export default function DailyActivities() {
                       </div>
                       {a.source_title && <p className="mt-1 text-xs text-slate-400">Based on: {a.source_title}</p>}
                       {a.description && <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{a.description}</p>}
-                      {a.is_auto_generated && a.editable && (
-                        <p className="mt-1.5 text-xs text-slate-400">Drafted from your attendance and completed tasks that day — add your own context if you&apos;d like.</p>
+                      {a.status === "recorded" && (
+                        <p className="mt-1.5 text-xs text-slate-400">
+                          Recorded from your attendance and completed tasks that day — it already counts in your narrative report.
+                          If you edit it to add your own context, it goes to your supervisor for approval.
+                        </p>
+                      )}
+                      {a.status === "pending" && (
+                        <p className="mt-1.5 text-xs text-slate-400">Waiting for your supervisor — it goes into your narrative report once approved.</p>
                       )}
                       {a.review_remarks && (
                         <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">

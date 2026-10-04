@@ -8,6 +8,7 @@ const STATUS_STYLES = {
   approved: "bg-emerald-100 text-emerald-700",
   pending: "bg-amber-100 text-amber-700",
   rejected: "bg-red-100 text-red-700",
+  recorded: "bg-slate-100 text-slate-600",
 };
 
 export default function InternActivities() {
@@ -16,6 +17,8 @@ export default function InternActivities() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
+  const [approvingAll, setApprovingAll] = useState(false);
+  const [notice, setNotice] = useState("");
 
   function load() {
     const params = statusFilter ? `?status=${statusFilter}` : "";
@@ -27,7 +30,33 @@ export default function InternActivities() {
 
   useEffect(load, [statusFilter]);
 
+  const pendingIds = activities.filter((a) => a.status === "pending").map((a) => a.id);
+
+  async function approveAll() {
+    const count = pendingIds.length;
+    if (!window.confirm(`Approve all ${count} pending ${count === 1 ? "entry" : "entries"}? Approved entries go into the interns' narrative reports.`)) return;
+    setApprovingAll(true);
+    setError("");
+    setNotice("");
+    try {
+      const res = await apiFetch("/api/supervisor/activities/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: pendingIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Couldn't approve these entries.");
+      setNotice(data.message);
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setApprovingAll(false);
+    }
+  }
+
   async function review(id, status) {
+    setNotice("");
     setBusyId(id);
     try {
       const res = await apiFetch(`/api/supervisor/activities/${id}`, {
@@ -49,18 +78,37 @@ export default function InternActivities() {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Daily Activities</h2>
-        <p className="mt-1 text-sm text-slate-600">Review the narrative reports logged by interns assigned to you.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Review the narrative entries your interns write. Only approved entries go into their narrative report. Daily
+          summaries the system records from attendance don&apos;t need your approval.
+        </p>
       </div>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
+          <option value="recorded">Recorded (auto)</option>
         </select>
+        {!loading && pendingIds.length > 0 && (
+          <button
+            type="button"
+            onClick={approveAll}
+            disabled={approvingAll || busyId !== null}
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {approvingAll ? "Approving…" : `Approve all pending (${pendingIds.length})`}
+          </button>
+        )}
       </section>
 
+      {notice && (
+        <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700" role="status">
+          {notice}
+        </p>
+      )}
       {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -88,14 +136,17 @@ export default function InternActivities() {
                     {a.intern_name} · {a.activity_date}
                   </p>
                   {a.description && <p className="mt-1.5 whitespace-pre-line text-sm text-slate-600">{a.description}</p>}
+                  {a.status === "recorded" && (
+                    <p className="mt-1.5 text-xs text-slate-400">Recorded automatically from attendance — no approval needed.</p>
+                  )}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[a.status] ?? "bg-slate-100 text-slate-700"}`}>{a.status}</span>
                 {a.status === "pending" && (
                   <>
-                    <button onClick={() => review(a.id, "approved")} disabled={busyId === a.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">Approve</button>
-                    <button onClick={() => review(a.id, "rejected")} disabled={busyId === a.id} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Reject</button>
+                    <button onClick={() => review(a.id, "approved")} disabled={busyId === a.id || approvingAll} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">Approve</button>
+                    <button onClick={() => review(a.id, "rejected")} disabled={busyId === a.id || approvingAll} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Reject</button>
                   </>
                 )}
               </div>
