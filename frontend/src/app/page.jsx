@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import InstallAppButton from "@/components/InstallAppButton";
-import { readStoredUser, resolveDashboardPath } from "@/lib/roleDashboard";
+import { readStoredUser, resolveLandingPath } from "@/lib/roleDashboard";
 
 const FEATURES = [
   {
@@ -99,16 +99,21 @@ export default function Home() {
   // lands here, at the PWA's start_url — without this check, someone still
   // logged in would see the public marketing page instead of picking up
   // where they left off, which reads as "I got logged out" even though
-  // their session in localStorage is still perfectly valid.
+  // their session in localStorage is still perfectly valid. An intern who
+  // opens it with no connection lands on Attendance instead, so they can
+  // clock in right away (see resolveLandingPath).
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    const dashboardPath = resolveDashboardPath(readStoredUser());
-    if (dashboardPath) {
-      router.replace(dashboardPath);
-      return;
-    }
-    setCheckingSession(false);
+    let cancelled = false;
+    resolveLandingPath(readStoredUser()).then((landingPath) => {
+      if (cancelled) return;
+      if (landingPath) router.replace(landingPath);
+      else setCheckingSession(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   if (checkingSession) return null;

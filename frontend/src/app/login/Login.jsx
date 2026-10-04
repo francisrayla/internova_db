@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import PasswordInput from "@/components/PasswordInput";
-import { readStoredUser, resolveDashboardPath } from "@/lib/roleDashboard";
+import { readStoredUser, resolveDashboardPath, resolveLandingPath } from "@/lib/roleDashboard";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 
 import { clean, inputProps } from "@/lib/inputRules";
@@ -21,12 +21,15 @@ export default function Login() {
   // back here) — skip straight to the dashboard instead of making them look
   // at a login form for an account they're already in.
   useEffect(() => {
-    const dashboardPath = resolveDashboardPath(readStoredUser());
-    if (dashboardPath) {
-      router.replace(dashboardPath);
-      return;
-    }
-    setCheckingSession(false);
+    let cancelled = false;
+    resolveLandingPath(readStoredUser()).then((landingPath) => {
+      if (cancelled) return;
+      if (landingPath) router.replace(landingPath);
+      else setCheckingSession(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   function handleSubmit(event) {

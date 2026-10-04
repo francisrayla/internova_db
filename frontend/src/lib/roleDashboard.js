@@ -34,3 +34,27 @@ export function readStoredUser() {
     return null;
   }
 }
+
+/** True when this device can't reach the app right now. navigator.onLine
+ * only knows about the radio — on one bar of signal, or Wi-Fi with no
+ * internet behind it, it still says "online" — so this also asks the server
+ * for the time (never cached by the service worker) and gives up quickly. */
+async function cannotReachServer() {
+  if (!navigator.onLine) return true;
+  try {
+    const res = await fetch("/api/server-time", { cache: "no-store", signal: AbortSignal.timeout(2500) });
+    return !res.ok;
+  } catch {
+    return true;
+  }
+}
+
+/** Where a signed-in user lands when they open the app. An intern who opens
+ * it with no connection goes straight to Attendance — clocking in/out is the
+ * one thing that has to work offline (it's saved on the device and synced
+ * later) — instead of a dashboard of last-known numbers. */
+export async function resolveLandingPath(user) {
+  const path = resolveDashboardPath(user);
+  if (user?.role !== "intern") return path;
+  return (await cannotReachServer()) ? "/intern/attendance" : path;
+}
