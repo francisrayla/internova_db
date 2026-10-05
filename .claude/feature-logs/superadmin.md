@@ -1,0 +1,23 @@
+# Superadmin area (dashboard, schools, settings, AI usage, logs, inquiries, support, maintenance)
+last_commit: cef02dc
+updated: 2026-10-05
+
+## Map (where the code lives)
+- backend/app/Http/Controllers/Api/SuperadminFullController.php (1062 L); routes/api.php L27-51 (`auth:sanctum` + `role:super_admin`, prefix superadmin): schools L38; planInquiries L87; storeInquiry L120 (PUBLIC POST /api/inquiries, route L55); convertInquiryToSchool L201; updateInquiry L625; sendReply L639 (Mail InquiryReply); plansFeatures L673 / updatePlan L699; aiUsage L758; support: mapSupportTicket L801, supportMessages L833, supportMessageShow L843, supportMessageReply L856, supportMessageUpdateStatus L909; activityLogs L934, activityLogSchools L983; systemSettings L1011, updateSystemSetting L1031. Payment/plan-change methods L314-624: see subscription-billing.md.
+- backend/app/Services/ActivityLogService.php (33 L): static record(module, action, description, schoolId, userId, request) -> ActivityLog row (captures ip).
+- backend/app/Http/Middleware/EnforceMaintenanceMode.php: appended to `api` group (bootstrap/app.php L25); returns 503 JSON {maintenance:true} when Setting maintenance_mode='1', except role_id 1 and ALWAYS_ALLOWED (api/health, api/auth/login). routes/api.php L17-25 /health returns {status, maintenance}. AuthController::login does a matching non-admin block.
+- backend/app/Http/Controllers/Api/CoordinatorSupportController.php (190 L): index L79, store L89, show L126, reply L158 (routes L181-184 /coordinator/support-tickets); notifySuperadmins L61; storeAttachment L141.
+- Models: ActivityLog, AiUsageLog, PlanInquiry, Setting, SupportTicket, SupportTicketMessage. Mail: SupportTicketNotification, InquiryReply.
+- Frontend superadmin/: dashboard/SuperadminDashboard.jsx (286), schools/SchoolsManagement.jsx (509), system-settings/SystemSettings.jsx (110), ai-usage/AIUsage.jsx (140), activity-logs/ActivityLogs.jsx (282), inquiries/PlanInquiries.jsx (880), support/SupportMessages.jsx (251), plans/, billing/, account|profile|notifications, layout.jsx. Each page.jsx is a 5-line wrapper.
+- frontend/src/app/inquiry/page.jsx (363): public inquiry/registration form -> app/api/inquiries/route.js proxy. coordinator/support/CoordinatorSupport.jsx (316). app/api/messages/[[...path]]/route.js proxies DIRECT messages (MessageController, coordinator/supervisor/intern), not superadmin support tickets.
+- Maintenance: frontend/src/app/maintenance/Maintenance.jsx (60; polls api/health), lib/apiFetch.js L49-57 redirects to /maintenance on 503 with body.maintenance; app/api/health/route.js. No Next middleware file references maintenance.
+- DB: users/roles, schools, plan_inquiries, settings (key,name,description,type,value), activity_logs, ai_usage_logs, support_tickets, support_ticket_messages.
+
+## How it works (max ~10 lines)
+UI page -> Next /api/superadmin/* proxy -> SuperadminFullController. Public inquiry creates account + PlanInquiry in a transaction (email verification); superadmin replies or converts to school. Support is ticket-based: coordinator creates/replies via CoordinatorSupportController, superadmins are notified (notifySuperadmins + mail), superadmin replies and changes status. Activity logs: other controllers call ActivityLogService::record at action points; the screen filters by school/module. System settings are key/value rows (toggle returns bool); maintenance_mode is enforced by the middleware, and the admin can still log in to turn it off. AI usage: per-school counts from ai_usage_logs plus ai_entitled via PlanFeatures.
+
+## How to test
+Existing: backend/tests/Feature/SuperadminApiTest.php (2 tests) hits GET /api/superadmin/dashboard and /users unauthenticated; no such routes appear in routes/api.php, so they are likely stale/failing (not run). Run: `cd backend && php artisan test --filter=SuperadminApiTest`. Manual: log in as super_admin; toggle Maintenance Mode in System Settings, a non-admin request should land on /maintenance and recover when off; submit /inquiry and reply from Inquiries; coordinator creates a ticket at /coordinator/support and superadmin replies at /superadmin/support.
+
+## History (newest first, keep only the last 5)
+- 2026-10-05 cef02dc — first log created (read-only mapping, no code changes; tests not run) — result: n/a. Open question: no /superadmin/dashboard route in routes/api.php though SuperadminDashboard.jsx exists; verify its data source.
