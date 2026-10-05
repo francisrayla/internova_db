@@ -3,7 +3,7 @@
 One line per feature: `- <slug> — <summary> — last: <commit> (<date>)`
 
 - attendance — Intern clock in/out (selfie+GPS), offline queue/weak-connection sync, offline landing on Attendance, supervisor log/review, coordinator view — last: cef02dc (2026-10-05)
-- activities — Intern narrative entries, supervisor review and approve-all, approved/recorded-only narrative report — last: cef02dc (2026-10-05)
+- activities — Intern narrative entries, supervisor review and approve-all, approved/recorded-only narrative report — last: d4b17ed (2026-10-05)
 - tasks — Tasks across intern/supervisor/coordinator: group tasks, subtasks, comments, proofs, supervisor 1-10 ratings (TaskRatingAverage) — last: cef02dc (2026-10-05)
 - evaluations — Formal OJT evaluations: school criteria (DefaultEvaluationCriteria), supervisor scoring with task-rating suggested scores, manual evaluation, intern/coordinator views — last: cef02dc (2026-10-05)
 - auth — Login, signup email verification (Spam hint/resend), password reset, invitations, bounce webhook, EmailDeliverability, role middleware — last: cef02dc (2026-10-05)

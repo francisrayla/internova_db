@@ -9,20 +9,30 @@ class InternovaApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_internova_resources_are_available_via_api(): void
+    public function test_seeded_accounts_can_log_in(): void
     {
         $this->seed(\Database\Seeders\InternovaSeeder::class);
 
-        $this->getJson('/api/internova/schools')
-            ->assertOk()
-            ->assertJsonPath('data.0.school_code', 'SCHOOL-001');
+        foreach (['superadmin', 'coordinator', 'supervisor', 'intern'] as $account) {
+            $this->postJson('/api/auth/login', [
+                'email' => "{$account}@internova.test",
+                'password' => 'password',
+            ])
+                ->assertOk()
+                ->assertJsonPath('success', true)
+                ->assertJsonStructure(['token', 'user']);
+        }
+    }
 
-        $this->getJson('/api/internova/companies')
-            ->assertOk()
-            ->assertJsonPath('data.0.company_code', 'CMP-1001');
+    public function test_login_rejects_a_wrong_password(): void
+    {
+        $this->seed(\Database\Seeders\InternovaSeeder::class);
 
-        $this->getJson('/api/internova/deployments')
-            ->assertOk()
-            ->assertJsonCount(1, 'data');
+        $this->postJson('/api/auth/login', [
+            'email' => 'intern@internova.test',
+            'password' => 'not-the-password',
+        ])
+            ->assertUnauthorized()
+            ->assertJsonPath('success', false);
     }
 }

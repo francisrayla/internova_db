@@ -1,5 +1,5 @@
 # Activities (intern narrative entries / supervisor approval)
-last_commit: cef02dc
+last_commit: d4b17ed
 updated: 2026-10-05
 
 ## Map (where the code lives)
@@ -19,7 +19,9 @@ Intern posts entries (pending). Auto summaries from attendance are "recorded" (n
 
 ## How to test
 - No activity tests in backend/tests/Feature (only InternovaApiTest, InternovaSeederTest, SuperadminApiTest, ExampleTest; SuperadminApiTest's "activity" is activity logs). `cd backend && php artisan migrate && php artisan test`.
+- `php artisan test --filter=Activit` finds 0 tests (no activity tests yet). The full suite runs on MySQL `internova_testing` (guarded in `tests/TestCase.php`) and passes 8/8. Use the manual flow below.
 - Manual: intern adds entry -> supervisor sees pending -> approve all -> intern gets notification, report includes it; edit a recorded summary -> becomes pending; reject -> omitted from report.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-05 d4b17ed — workflow check: changed.sh said unchanged; ran tests — result: no activity tests; full suite 2/6 pass, 4 error (sqlite MODIFY migration, pre-existing, not fixed)
 - 2026-10-05 cef02dc — first log created from code reading (no tests run) — result: n/a

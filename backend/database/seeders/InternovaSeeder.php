@@ -13,6 +13,7 @@ use App\Models\SchoolSubscription;
 use App\Models\SubscriptionPlan;
 use App\Models\SupervisorProfile;
 use App\Models\Task;
+use App\Models\TaskAssignee;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -77,6 +78,7 @@ class InternovaSeeder extends Seeder
                 'last_name' => 'Admin',
                 'password' => bcrypt('password'),
                 'status' => 'active',
+                'email_verified_at' => now(),
             ]
         );
 
@@ -90,6 +92,7 @@ class InternovaSeeder extends Seeder
                 'last_name' => 'Lopez',
                 'password' => bcrypt('password'),
                 'status' => 'active',
+                'email_verified_at' => now(),
             ]
         );
 
@@ -123,6 +126,7 @@ class InternovaSeeder extends Seeder
                 'last_name' => 'Dela Cruz',
                 'password' => bcrypt('password'),
                 'status' => 'active',
+                'email_verified_at' => now(),
             ]
         );
 
@@ -141,6 +145,7 @@ class InternovaSeeder extends Seeder
                 'last_name' => 'Santos',
                 'password' => bcrypt('password'),
                 'status' => 'active',
+                'email_verified_at' => now(),
             ]
         );
 
@@ -162,15 +167,19 @@ class InternovaSeeder extends Seeder
             ]
         );
 
-        Task::firstOrCreate(
-            ['deployment_id' => $deployment->id, 'title' => 'Prepare onboarding checklist'],
+        $task = Task::firstOrCreate(
+            ['company_id' => $company->id, 'title' => 'Prepare onboarding checklist'],
             [
                 'assigned_by' => $supervisor->id,
-                'assigned_to' => $intern->id,
                 'description' => 'Complete the onboarding checklist for the trainee.',
                 'priority' => 'high',
                 'status' => 'pending',
             ]
+        );
+
+        TaskAssignee::firstOrCreate(
+            ['task_id' => $task->id, 'deployment_id' => $deployment->id],
+            ['user_id' => $intern->id]
         );
 
         EvaluationCriterion::firstOrCreate(

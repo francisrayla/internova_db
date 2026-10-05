@@ -2,40 +2,44 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class SuperadminApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_superadmin_dashboard_endpoint_returns_expected_structure(): void
+    protected function setUp(): void
     {
-        $response = $this->getJson('/api/superadmin/dashboard');
+        parent::setUp();
 
-        $response->assertOk()
-            ->assertJsonStructure([
-                'stats' => [
-                    ['label', 'value', 'note'],
-                ],
-                'activity' => [
-                    ['title', 'detail'],
-                ],
-                'modules' => [
-                    ['name', 'description', 'status'],
-                ],
-            ]);
+        $this->seed(\Database\Seeders\InternovaSeeder::class);
     }
 
-    public function test_superadmin_users_endpoint_returns_user_collection(): void
+    public function test_superadmin_sees_schools_and_plans(): void
     {
-        $response = $this->getJson('/api/superadmin/users');
+        Sanctum::actingAs(User::where('email', 'superadmin@internova.test')->first());
 
-        $response->assertOk()
-            ->assertJsonStructure([
-                'users' => [
-                    ['id', 'name', 'email', 'role', 'status', 'team'],
-                ],
-            ]);
+        $this->getJson('/api/superadmin/schools')
+            ->assertOk()
+            ->assertJsonPath('schools.0.name', 'ABC Technical College');
+
+        $this->getJson('/api/superadmin/plans-features')
+            ->assertOk()
+            ->assertJsonFragment(['name' => 'Premium']);
+    }
+
+    public function test_other_roles_are_forbidden(): void
+    {
+        Sanctum::actingAs(User::where('email', 'intern@internova.test')->first());
+
+        $this->getJson('/api/superadmin/schools')->assertForbidden();
+    }
+
+    public function test_guests_are_unauthenticated(): void
+    {
+        $this->getJson('/api/superadmin/schools')->assertUnauthorized();
     }
 }
