@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Storage;
 
 class Portfolio extends Model
 {
-    protected $fillable = ['intern_id', 'school_id', 'title', 'bio'];
+    protected $fillable = ['intern_id', 'school_id', 'title', 'bio', 'report_texts'];
+
+    protected $casts = ['report_texts' => 'array'];
 
     public function intern()
     {
@@ -30,6 +32,7 @@ class Portfolio extends Model
             'id' => $this->id,
             'title' => $this->title,
             'bio' => $this->bio,
+            'report_texts' => $this->report_texts ?? (object) [],
             'items' => $this->items->map(fn (PortfolioItem $i) => [
                 'id' => $i->id,
                 'title' => $i->title,

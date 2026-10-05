@@ -1,5 +1,5 @@
 # Documents, portfolio, reports, downloads, AI narrative
-last_commit: cef02dc
+last_commit: 43bc039 (+ uncommitted)
 updated: 2026-10-05
 
 ## Map (where the code lives)
@@ -15,7 +15,19 @@ updated: 2026-10-05
 - frontend/src/app/supervisor/interns/[deploymentId]/portfolio/SupervisorInternPortfolio.jsx; supervisor/files/TaskFiles.jsx is only a ComingSoon placeholder
 - frontend/src/app/api/download/route.js — same-origin proxy adding Content-Disposition: attachment; accepts only path matching ^storage/[\w./-]+$ without ".."; fetches BACKEND_URL/<path>
 - frontend/src/app/api/{intern,coordinator,supervisor}/[...path]/route.js — generic proxies; helpers in lib/{internApi,coordinatorApi,supervisorApi}.js
-- DB: documents (deployment_id, uploaded_by, document_type, file_name, file_path, status, remarks); portfolios (intern_id, school_id, title, bio; is_public dropped by 2026_08_22 migration); portfolio_items (portfolio_id, title, description, image_path, project_url); ai_usage_logs
+- NARRATIVE REPORT (school pattern, Phase 1; template = letterhead + cover + ordered sections each with a source):
+  - backend/app/Models/NarrativeTemplate.php; Services/NarrativeTemplateService.php — defaultSections() (16 sections, sources intern_text/document/auto_*/fixed_text/blank), defaults(School), deriveSchoolYear, resolve(School,start,vars) merges stored row over defaults and fills {placeholders}; no row = default
+  - backend/app/Services/NarrativeReportService.php — build(deployment): template + student/company/coordinator, ledger, attendance/task photos, duties, journal (approved attendance + approved/recorded activities; AM=time in, PM=time out), work samples, latest evaluation, documents matched per document section (case-insensitive type, approved else latest)
+  - backend/app/Http/Controllers/Api/NarrativeReportController.php — showTemplate/updateTemplate (letterhead+cover only)/uploadLogo/destroyLogo, internReport, coordinatorReport (school scoped, 404 otherwise)
+  - routes/api.php: coordinator narrative-template (GET/PATCH, POST/DELETE /logo), coordinator interns/{id}/narrative-report; intern GET portfolio/narrative-report. InternMonitoringController::updatePortfolio also accepts report_texts.{acknowledgement,personal_observation,suggestion}
+  - migrations 2026_10_05_000000 (narrative_templates, school_id unique) and 2026_10_05_000100 (portfolios.report_texts JSON); Portfolio::present() returns report_texts
+  - frontend/src/components/narrative-report/NarrativeReport.jsx (shared renderer; each sheet is a table whose thead = letterhead so it repeats per printed page; @page 8.5x13in), intern/portfolio/report/PortfolioReport.jsx, coordinator/interns/[deploymentId]/narrative-report/, intern/portfolio/MyPortfolio.jsx (Narrative Report card: texts, Polish with AI, missing checklist), coordinator/settings/NarrativeReportCard.jsx (logo + letterhead + cover + preview), components/DocumentTypeField.jsx (type dropdown + Other, used by MyDocuments and DocumentMonitoring), public/ched-logo.png
+  - WORD EXPORT: backend/app/Services/NarrativeDocxService.php (535 lines; PhpWord, ^1.4) build(array $data) returns a temp .docx path from NarrativeReportService::build() data: make L39, letterhead (section header, logo + text table + rule) L87, cover L114, titlePage L135, toc L174 (right dot-leader tab), sectionBody dispatch L185, ledger L273, imageGrid L292 (3 cols, 1.9in), journal L353, evaluation L396, fixedText L431, pathFromUrl L467 (public storage URL back to disk path, no paths in JSON), prepareImage L491 (GD downsize, skip missing), fit L529. Seal: backend/resources/narrative/ched-logo.png
+  - NarrativeReportController internDocx L134 / coordinatorDocx L148 / docxResponse L161 (download, deleteFileAfterSend); routes GET /api/intern/portfolio/narrative-report/docx and /api/coordinator/interns/{id}/narrative-report/docx
+  - frontend/src/components/narrative-report/ReportToolbar.jsx (Download Word via apiFetch->blob->a[download], Print, tip); used by PortfolioReport.jsx and coordinator narrative-report/NarrativeReportPage.jsx; lib/serverProxy.js createApiProxy now passes non-JSON responses (arrayBuffer + Content-Type/Disposition)
+- DB: narrative_templates; documents (deployment_id, uploaded_by, document_type, file_name, file_path, status, remarks); portfolios (intern_id, school_id, title, bio; is_public dropped by 2026_08_22 migration); portfolio_items (portfolio_id, title, description, image_path, project_url); ai_usage_logs
+
+- frontend/src/components/narrative-report/NarrativeChecklist.jsx — requirements checklist (x of N complete) built from the narrative-report payload in template order; used on intern MyPortfolio, coordinator interns/[id]/portfolio and interns/[id]/report (print:hidden)
 
 ## How it works (max ~10 lines)
 - Documents: intern (needs current deployment, else 422) or coordinator uploads; jpg/jpeg/png/pdf/doc/docx, max 5 MB, public disk at documents/{schoolId}; status starts pending. Coordinator approves/rejects (+remarks); intern notified, ActivityLogService records.
@@ -25,9 +37,16 @@ updated: 2026-10-05
 - Narrative AI: intern polishNarrative returns 503 if no Gemini key configured, error if generation returns null; generateFromTasking is used for activity narratives (see activities log).
 - Downloads: file_url is the Storage public URL; UI routes through /api/download?path=storage/...&name=...
 
+- Word export mirrors the screen (same payload): header repeats letterhead, each section pageBreakBefore, table header rows repeat, empty-source notes are screen-only so omitted. Needs ext-zip + gd (JPEG support makes images get downsized; without it originals are embedded). Print button still uses window.print.
+- Narrative report: PDF/DOC documents cannot be embedded, so the page shows "Attached separately: file". Missing items show a grey screen-only note. No deployment office/department exists, so the title page uses the company name only. Logo comes from the coordinator upload (public disk narrative/{schoolId}); CHED seal is a static asset.
+
 ## How to test
-- Existing backend tests: backend/tests/Feature/InternovaApiTest.php only checks seeded schools/companies/deployments; nothing covers documents, portfolio, reports or AI. Run: cd backend && php artisan test
+- backend/tests/Feature/NarrativeReportTest.php (8 tests incl. 2 docx: zip/document.xml/header1.xml/pgSz/media, PDF box, missing file, other-school 404; default template, school year, cover/logo update, other-school isolation, intern texts, full report payload + document matching); full suite 16/16. Print layout check: headless Chrome print-to-pdf of a static copy of the CSS kept letterhead on all pages (fixed header lost the last page, hence the table thead). Older note: backend/tests/Feature/InternovaApiTest.php only checks seeded schools/companies/deployments; nothing covers documents, portfolio, reports or AI. Run: cd backend && php artisan test
 - Manual: intern uploads a PDF at /intern/documents -> coordinator sees it at /coordinator/documents, approves -> intern notified. Add a portfolio item with image; view it from supervisor and coordinator portfolio pages (unassigned intern -> 404 for supervisor). Open the coordinator intern report and print. Request /api/download with a bad path (expect 400).
 
 ## History (newest first, keep only the last 5)
-- 2026-10-05 cef02dc — initial log created from code read, no tests run — result: n/a
+- 2026-10-05 43bc039 + uncommitted — removed duplicate docx routes; DocumentTypeField restores Memorandum of Agreement, Medical Certificate, Insurance; sw.js skips caching report photos and the docx download (see attendance log) — result: pass
+- 2026-10-05 43bc039 + uncommitted — NarrativeChecklist added for coordinator (intern portfolio + report pages) and replaces the intern's 'Still missing' list; checked in headless Chrome (dep 13: 2/15, dep 1: 15/15) — result: pass
+- 2026-10-05 43bc039 + uncommitted — Word (.docx) export + Print toolbar (phpoffice/phpword added), binary proxy passthrough; tests 16/16, lint no new issues, build ok; real deployment 1 docx 3.1MB in ~1.8s, 135 media, 18 page breaks, 8.5x13 — result: pass (not opened in real Word/LibreOffice here)
+- 2026-10-05 43bc039 + uncommitted — Apprenticeship in Action now shows task proof photos (selfies only as fallback, they already fill Proof of Attendance); checked in headless Chrome with a full 480h demo OJT for intern@internova.test (34 pages). Settings card now opens as a read-only summary with an Edit button at the top; logo upload + fields only in edit mode. Dev note: public/sw.js caches /_next/static cache-first, and dev chunk names are unhashed, so a browser that already ran the app on localhost:3000 can keep old JS — bypass/unregister the service worker in DevTools when testing in dev — result: pass
+- 2026-10-05 43bc039 + uncommitted — Phase 1 narrative report built (backend, tests, frontend, settings card) — result: pass (tests 14/14, lint no new issues, build ok; pre-existing set-state-in-effect error in DocumentMonitoring)

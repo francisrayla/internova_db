@@ -1095,6 +1095,11 @@ class InternMonitoringController extends Controller
         $data = $request->validate([
             'title' => 'nullable|string|max:150',
             'bio' => 'nullable|string|max:2000',
+            // Narrative report sections the intern writes themselves.
+            'report_texts' => 'sometimes|array',
+            'report_texts.acknowledgement' => 'nullable|string|max:5000',
+            'report_texts.personal_observation' => 'nullable|string|max:5000',
+            'report_texts.suggestion' => 'nullable|string|max:5000',
         ]);
 
         $portfolio = $this->portfolioForRequest($request);
@@ -1105,6 +1110,15 @@ class InternMonitoringController extends Controller
         }
         if ($request->has('bio')) {
             $updates['bio'] = $data['bio'] ?? null;
+        }
+        if ($request->has('report_texts')) {
+            $texts = $portfolio->report_texts ?? [];
+            foreach (['acknowledgement', 'personal_observation', 'suggestion'] as $key) {
+                if (array_key_exists($key, $data['report_texts'] ?? [])) {
+                    $texts[$key] = $data['report_texts'][$key];
+                }
+            }
+            $updates['report_texts'] = $texts;
         }
         $portfolio->update($updates);
 

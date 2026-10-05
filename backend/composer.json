@@ -12,6 +12,7 @@
         "laravel/reverb": "^1.11",
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^3.0",
+        "phpoffice/phpword": "^1.4",
         "resend/resend-php": "^1.16"
     },
     "require-dev": {

@@ -29,4 +29,5 @@ Intern clocks in/out with selfie + GPS -> POST /api/intern/attendance/clock-in|o
 - Manual: intern login, clock in with camera/GPS; DevTools Network -> Offline, clock in again, confirm queued badge, go online and confirm sync + offline flag; reload while offline confirms landing on /intern/attendance; supervisor page shows/approves; coordinator page lists.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-05 43bc039 + uncommitted — sw.js: /storage photos requested from the narrative report pages (/intern/portfolio/report, */narrative-report) and /api/**/narrative-report/docx are no longer handled by the service worker (keeps the 200-photo MEDIA cache and the stall timer intact); offline queue, other caches and attendance untouched. Verified by running the fetch handler in Node vs the original (headless Chrome + dev + SW fails on navigation even with the original sw.js) — result: pass
 - 2026-10-05 cef02dc — first log created from code reading (no tests run) — result: n/a

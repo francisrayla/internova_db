@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
+import NarrativeReportCard from "./NarrativeReportCard";
 
 import { clean, inputProps } from "@/lib/inputRules";
 const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
@@ -166,6 +167,8 @@ export default function SchoolSettingsPage() {
           </div>
         </div>
       )}
+
+      <NarrativeReportCard />
     </div>
   );
 }

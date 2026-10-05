@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
+import DocumentTypeField from "@/components/DocumentTypeField";
 
 const STATUS_STYLES = {
   approved: "bg-emerald-100 text-emerald-700",
@@ -10,10 +11,9 @@ const STATUS_STYLES = {
   rejected: "bg-red-100 text-red-700",
 };
 
-const DOCUMENT_TYPES = ["Endorsement Letter", "Memorandum of Agreement", "Medical Certificate", "Insurance", "Waiver", "Other"];
 
 function UploadModal({ interns, onClose, onSaved }) {
-  const [form, setForm] = useState({ deployment_id: interns[0]?.deployment_id ?? "", document_type: DOCUMENT_TYPES[0] });
+  const [form, setForm] = useState({ deployment_id: interns[0]?.deployment_id ?? "", document_type: "Endorsement Letter" });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -22,6 +22,10 @@ function UploadModal({ interns, onClose, onSaved }) {
     e.preventDefault();
     if (!form.deployment_id || !file) {
       setError("Select an intern and choose a file.");
+      return;
+    }
+    if (!form.document_type.trim()) {
+      setError("Choose or type a document type.");
       return;
     }
     setSaving(true);
@@ -55,9 +59,7 @@ function UploadModal({ interns, onClose, onSaved }) {
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Document type</span>
-            <select value={form.document_type} onChange={(e) => setForm((f) => ({ ...f, document_type: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
-              {DOCUMENT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <DocumentTypeField value={form.document_type} onChange={(v) => setForm((f) => ({ ...f, document_type: v }))} />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">File</span>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
 
 function StatBlock({ label, value }) {
   return (
@@ -17,6 +18,7 @@ function StatBlock({ label, value }) {
 export default function InternshipReport() {
   const { deploymentId } = useParams();
   const [report, setReport] = useState(null);
+  const [narrative, setNarrative] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -25,6 +27,9 @@ export default function InternshipReport() {
       .then((r) => setReport(r))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    fetchCoordinatorData(`interns/${deploymentId}/narrative-report`)
+      .then(setNarrative)
+      .catch(() => setNarrative(null));
   }, [deploymentId]);
 
   const generatedOn = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
@@ -54,6 +59,15 @@ export default function InternshipReport() {
           Print / Save as PDF
         </button>
       </div>
+
+      {narrative && (
+        <div className="mb-5 space-y-2 print:hidden">
+          <NarrativeChecklist report={narrative} />
+          <Link href={`/coordinator/interns/${deploymentId}/narrative-report`} className="inline-block text-sm font-semibold text-blue-600 hover:underline">
+            Open narrative report →
+          </Link>
+        </div>
+      )}
 
       <article className="rounded-3xl border border-slate-200 bg-white p-10 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
         <header className="border-b-2 border-slate-900 pb-6">

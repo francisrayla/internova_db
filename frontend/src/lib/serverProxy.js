@@ -36,6 +36,17 @@ export function createApiProxy(prefix) {
     }
 
     const response = await fetch(upstream, init);
+
+    // File downloads (e.g. the Word narrative report) pass through untouched.
+    const upstreamType = response.headers.get("content-type") || "";
+    if (response.ok && upstreamType && !upstreamType.includes("json")) {
+      const headers = new Headers();
+      headers.set("Content-Type", upstreamType);
+      const disposition = response.headers.get("content-disposition");
+      if (disposition) headers.set("Content-Disposition", disposition);
+      return new NextResponse(await response.arrayBuffer(), { status: response.status, headers });
+    }
+
     const data = await response.json().catch(() => ({}));
     return NextResponse.json(data, { status: response.status });
   }

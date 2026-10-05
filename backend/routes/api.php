@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CoordinatorMonitoringController;
 use App\Http\Controllers\Api\CoordinatorSubscriptionController;
 use App\Http\Controllers\Api\CoordinatorSupportController;
 use App\Http\Controllers\Api\InternMonitoringController;
+use App\Http\Controllers\Api\NarrativeReportController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\MessageController;
@@ -122,6 +123,8 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     Route::get('/interns', [CoordinatorMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}/portfolio', [CoordinatorMonitoringController::class, 'internPortfolio']);
     Route::get('/interns/{deploymentId}/report', [CoordinatorMonitoringController::class, 'internReport']);
+    Route::get('/interns/{deploymentId}/narrative-report', [NarrativeReportController::class, 'coordinatorReport']);
+    Route::get('/interns/{deploymentId}/narrative-report/docx', [NarrativeReportController::class, 'coordinatorDocx']);
     Route::post('/interns', [CoordinatorMonitoringController::class, 'storeIntern']);
     // Bulk add from a masterlist: check first (saves nothing), then import.
     Route::post('/intern-imports/preview', [CoordinatorMonitoringController::class, 'previewInternImport']);
@@ -146,6 +149,12 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     // see CoordinatorMonitoringController::resendInvitation.
     Route::post('/users/{userId}/resend-invitation', [CoordinatorMonitoringController::class, 'resendInvitation']);
     Route::patch('/users/{userId}/email', [CoordinatorMonitoringController::class, 'updatePendingEmail']);
+
+    // School's narrative report template (letterhead + cover + logo; sections are Phase 2).
+    Route::get('/narrative-template', [NarrativeReportController::class, 'showTemplate']);
+    Route::patch('/narrative-template', [NarrativeReportController::class, 'updateTemplate']);
+    Route::post('/narrative-template/logo', [NarrativeReportController::class, 'uploadLogo']);
+    Route::delete('/narrative-template/logo', [NarrativeReportController::class, 'destroyLogo']);
 
     Route::get('/school-settings', [CoordinatorMonitoringController::class, 'schoolSettings']);
     Route::patch('/school-settings', [CoordinatorMonitoringController::class, 'updateSchoolSettings']);
@@ -249,6 +258,8 @@ Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(func
     Route::post('/documents', [InternMonitoringController::class, 'storeDocument']);
     Route::get('/portfolio', [InternMonitoringController::class, 'portfolio']);
     Route::patch('/portfolio', [InternMonitoringController::class, 'updatePortfolio']);
+    Route::get('/portfolio/narrative-report', [NarrativeReportController::class, 'internReport']);
+    Route::get('/portfolio/narrative-report/docx', [NarrativeReportController::class, 'internDocx']);
     Route::post('/portfolio/items', [InternMonitoringController::class, 'storePortfolioItem']);
     Route::delete('/portfolio/items/{id}', [InternMonitoringController::class, 'destroyPortfolioItem']);
 });

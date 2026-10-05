@@ -197,6 +197,11 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (url.pathname.startsWith("/storage/")) {
+    // The printable narrative report loads every photo of an internship at
+    // once — caching those would push the photos the app needs offline out
+    // of the MEDIA_LIMIT cache, so they're left to the browser.
+    const from = request.referrer ? new URL(request.referrer).pathname : "";
+    if (from.endsWith("/narrative-report") || from === "/intern/portfolio/report") return;
     event.respondWith(cacheMedia(request));
     return;
   }
@@ -207,6 +212,9 @@ self.addEventListener("fetch", (event) => {
     if (url.pathname === "/api/health") return;
     // Same for the server clock the attendance camera times entries with.
     if (url.pathname === "/api/server-time") return;
+    // The Word narrative report is a large one-off download: storing it would
+    // fill the API cache, and its generation time could trip the stall timer.
+    if (url.pathname.endsWith("/narrative-report/docx")) return;
     event.respondWith(networkFirst(event, API_CACHE, request.url, { timeoutMs: API_TIMEOUT_MS, fallback: offlineJson }));
     return;
   }
