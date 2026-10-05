@@ -7,7 +7,7 @@ updated: 2026-10-05
 - frontend/src/app/intern/attendance/AttendanceCard.jsx — row card + STATUS_STYLES; history/AttendanceHistory.jsx + history/page.jsx — full history.
 - frontend/src/lib/offlineQueue.js (144) — enqueueAttendance L69, getPendingAttendance L79, syncPendingAttendance L93, isNetworkError L58, SUBMIT_TIMEOUT_MS=20000 L53, QUEUE_CHANGED_EVENT. Pending entries saved on device (selfie, lat/lng, deviceTime, anchoredTime).
 - frontend/src/lib/trustedClock.js — syncTrustedClock/trustedNow/DISPLAY_TIME_ZONE (Asia/Manila); frontend/src/app/api/server-time/route.js feeds it.
-- frontend/src/lib/offlineCache.js — clearOfflineCaches; frontend/public/sw.js — service worker (weak-connection handling, commit ada7bcb).
+- frontend/src/lib/offlineCache.js — clearOfflineCaches; frontend/public/sw.js — service worker (weak-connection handling, commit ada7bcb); frontend/src/components/PwaRegister.jsx — registers it in production only.
 - frontend/src/components/OfflineStatus.jsx — runs syncPendingAttendance, fires ATTENDANCE_SYNCED_EVENT.
 - frontend/src/lib/roleDashboard.js — resolveLandingPath (L56): intern offline lands on /intern/attendance (commit 2ff640e); used by app/login/Login.jsx and app/page.jsx.
 - frontend/src/app/intern/layout.jsx — nav + warm-up prefetch list (/api/intern/attendance, /today) L19-25.
@@ -29,5 +29,6 @@ Intern clocks in/out with selfie + GPS -> POST /api/intern/attendance/clock-in|o
 - Manual: intern login, clock in with camera/GPS; DevTools Network -> Offline, clock in again, confirm queued badge, go online and confirm sync + offline flag; reload while offline confirms landing on /intern/attendance; supervisor page shows/approves; coordinator page lists.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-05 2489d09 + uncommitted — PwaRegister: service worker registers in production only; in `next dev` it unregisters any old worker and clears internova-* Cache Storage (offline clock-in queue is IndexedDB, untouched). Offline mode must be tested with build + start — result: tests 16/16, build ok
 - 2026-10-05 43bc039 + uncommitted — sw.js: /storage photos requested from the narrative report pages (/intern/portfolio/report, */narrative-report) and /api/**/narrative-report/docx are no longer handled by the service worker (keeps the 200-photo MEDIA cache and the stall timer intact); offline queue, other caches and attendance untouched. Verified by running the fetch handler in Node vs the original (headless Chrome + dev + SW fails on navigation even with the original sw.js) — result: pass
 - 2026-10-05 cef02dc — first log created from code reading (no tests run) — result: n/a
