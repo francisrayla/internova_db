@@ -6,7 +6,7 @@ import Link from "next/link";
 import PasswordInput from "@/components/PasswordInput";
 import { clean, inputProps } from "@/lib/inputRules";
 
-const ROLE_LABELS = { coordinator: "coordinator", supervisor: "supervisor", intern: "intern" };
+const ROLE_LABELS = { dean: "Dean", coordinator: "coordinator", supervisor: "supervisor", intern: "intern" };
 
 export default function AcceptInvitePage() {
   const { token } = useParams();

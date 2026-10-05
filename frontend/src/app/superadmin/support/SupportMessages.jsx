@@ -185,7 +185,7 @@ export default function SupportPage() {
       <div>
         <h2 className="text-lg font-semibold text-slate-900">Support</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Requests school coordinators send in for help with billing, accounts, or the platform.
+          Requests school deans and coordinators send in for help with billing, accounts, or the platform.
         </p>
       </div>
 

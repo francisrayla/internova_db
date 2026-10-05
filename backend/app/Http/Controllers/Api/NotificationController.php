@@ -38,7 +38,7 @@ class NotificationController extends Controller
     public function index(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'audience_role' => 'required|string|in:superadmin,coordinator,supervisor,intern',
+            'audience_role' => 'required|string|in:superadmin,dean,coordinator,supervisor,intern',
             'school_id'     => 'nullable|integer',
             'user_id'       => 'nullable|integer',
         ]);
@@ -68,7 +68,7 @@ class NotificationController extends Controller
     public function history(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'audience_role' => 'required|string|in:superadmin,coordinator,supervisor,intern',
+            'audience_role' => 'required|string|in:superadmin,dean,coordinator,supervisor,intern',
             'school_id'     => 'nullable|integer',
             'user_id'       => 'nullable|integer',
             'page'          => 'nullable|integer|min:1',
@@ -109,7 +109,7 @@ class NotificationController extends Controller
     public function markAllRead(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'audience_role' => 'required|string|in:superadmin,coordinator,supervisor,intern',
+            'audience_role' => 'required|string|in:superadmin,dean,coordinator,supervisor,intern',
             'school_id'     => 'nullable|integer',
             'user_id'       => 'nullable|integer',
         ]);

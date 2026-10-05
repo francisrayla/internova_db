@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InternshipDeployment;
 use App\Models\NarrativeTemplate;
 use App\Models\School;
+use App\Services\ActivityLogService;
 use App\Services\NarrativeDocxService;
 use App\Services\NarrativeReportService;
 use App\Services\NarrativeTemplateService;
@@ -32,6 +33,11 @@ class NarrativeReportController extends Controller
             'letterhead' => $resolved['letterhead'],
             'cover' => $resolved['cover'],
         ];
+    }
+
+    private function logTemplateChange(Request $request, string $action, string $description): void
+    {
+        ActivityLogService::record(module: 'Reports', action: $action, description: $description, schoolId: $request->user()->school_id, request: $request);
     }
 
     public function showTemplate(Request $request): JsonResponse
@@ -72,6 +78,8 @@ class NarrativeReportController extends Controller
         }
         $row->save();
 
+        $this->logTemplateChange($request, 'Updated narrative report template', 'The letterhead or cover details of the narrative report were updated.');
+
         return response()->json(['success' => true, 'template' => $this->templatePayload($request)]);
     }
 
@@ -88,6 +96,8 @@ class NarrativeReportController extends Controller
             Storage::disk('public')->delete($old);
         }
 
+        $this->logTemplateChange($request, 'Changed report logo', 'A new school logo was uploaded for the narrative report.');
+
         return response()->json(['success' => true, 'template' => $this->templatePayload($request)]);
     }
 
@@ -97,6 +107,7 @@ class NarrativeReportController extends Controller
         if ($row?->logo_path) {
             Storage::disk('public')->delete($row->logo_path);
             $row->update(['logo_path' => null]);
+            $this->logTemplateChange($request, 'Removed report logo', 'The school logo was removed from the narrative report.');
         }
 
         return response()->json(['success' => true, 'template' => $this->templatePayload($request)]);
@@ -158,7 +169,7 @@ class NarrativeReportController extends Controller
         return $this->docxResponse($deployment);
     }
 
-    private function docxResponse(InternshipDeployment $deployment): BinaryFileResponse
+    public function docxResponse(InternshipDeployment $deployment): BinaryFileResponse
     {
         // Many embedded photos: give image resizing and zipping room to work.
         @set_time_limit(180);

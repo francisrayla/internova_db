@@ -35,6 +35,11 @@
           <strong>{{ $coordinatorName }}</strong> has added you as a <strong>{{ $roleLabel }}</strong> {{ $contextLabel }} on Internova.
           To activate your account, please set your own password using the button below.
         </p>
+        @if ($roleLabel === 'Dean')
+        <p>As Dean you will manage your school's Internova subscription and billing, keep your school's details up to date, and invite your school's coordinator.</p>
+        @elseif ($roleLabel === 'Coordinator')
+        <p>As Coordinator you will add your school's partner companies, supervisors and interns and monitor their internship progress.</p>
+        @endif
         <div class="cta">
           <a href="{{ $acceptUrl }}">Set Up My Account</a>
         </div>

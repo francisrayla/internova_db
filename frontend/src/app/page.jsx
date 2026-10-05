@@ -42,8 +42,8 @@ const FEATURES = [
 
 const STEPS = [
   { step: "1", title: "Tell us about your school", description: "Submit a quick inquiry with your school's internship program details." },
-  { step: "2", title: "We set up your account", description: "Our team confirms your plan and creates your school's coordinator account." },
-  { step: "3", title: "Invite your team", description: "Add supervisors and interns, and start tracking attendance and tasks on day one." },
+  { step: "2", title: "We set up your account", description: "Our team confirms your plan and sets up your school. You activate it as the school's Dean or Principal." },
+  { step: "3", title: "Invite your team", description: "Invite your coordinator, who adds supervisors and interns, and start tracking attendance and tasks on day one." },
 ];
 
 const PLANS = [

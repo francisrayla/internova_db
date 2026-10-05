@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => EnsureRole::class,
+            'dean.school' => \App\Http\Middleware\EnsureDeanOfSchool::class,
         ]);
 
         $middleware->appendToGroup('api', \App\Http\Middleware\AutoCloseStaleAttendance::class);

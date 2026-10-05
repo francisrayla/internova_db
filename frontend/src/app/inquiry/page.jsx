@@ -10,6 +10,8 @@ import { INPUT_RULES } from "@/lib/inputRules";
 // education (elementary/high school) doesn't, so it's excluded here rather
 // than accepted and rejected later during review.
 const SCHOOL_TYPES = ["Public College/University", "Private College/University", "Technical/Vocational Institution", "Other"];
+// The person filling this in becomes the school's Dean: the account owner who accepts the plan, pays and invites the coordinator.
+const POSITIONS = ["Dean", "Principal", "School Head"];
 const HEARD_FROM = ["Social Media (Facebook, LinkedIn)", "Google Search", "Referral from another school", "Conference / CHED Event", "Colleague / Friend", "Other"];
 const PLANS = ["Basic Plan", "Premium Plan", "Not sure — I need more info", "I'd like a free demo first"];
 const INTERN_RANGES = ["Less than 50", "50 – 100", "101 – 200", "201 – 500", "More than 500"];
@@ -227,8 +229,9 @@ export default function InquiryPage() {
           </div>
           <h1 className="text-3xl font-bold text-slate-900">School Registration</h1>
           <p className="mt-2 text-slate-600 max-w-lg mx-auto">
-            Register your school and tell us about your internship program. You&apos;ll be able to log in right away to
-            check your status — full access opens once our team approves your school and payment is confirmed.
+            Register your school and tell us about your internship program. The person registering becomes the school&apos;s
+            Dean (or Principal): you&apos;ll be able to log in right away to check your status, and you accept the plan and pay once
+            our team approves your school. You then invite your school&apos;s coordinator.
           </p>
         </div>
 
@@ -274,10 +277,10 @@ export default function InquiryPage() {
 
           {/* Contact person */}
           <div className="rounded-3xl bg-white border border-slate-200 p-6 shadow-sm space-y-4">
-            <h3 className="font-semibold text-slate-900">Contact Person</h3>
+            <h3 className="font-semibold text-slate-900">Dean / Principal (account owner)</h3>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Full Name" name="contact_person" value={form.contact_person} onChange={handleChange} placeholder="Juan Dela Cruz" required invalid={isInvalid("contact_person")} />
-              <Field label="Position / Title" name="position" value={form.position} onChange={handleChange} placeholder="OJT Coordinator" required invalid={isInvalid("position")} />
+              <Select label="Position" name="position" value={form.position} onChange={handleChange} options={POSITIONS} required invalid={isInvalid("position")} />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Email Address" name="email" value={form.email} onChange={handleChange} type="email" placeholder="your@email.edu.ph" required invalid={isInvalid("email")} />
@@ -314,7 +317,6 @@ export default function InquiryPage() {
             <h3 className="font-semibold text-slate-900">Program Details</h3>
             <div className="grid gap-4 md:grid-cols-2">
               <Select label="Expected Number of Interns (per semester)" name="intern_range" value={form.intern_range} onChange={handleChange} options={INTERN_RANGES} required invalid={isInvalid("intern_range")} />
-              <Field label="Number of OJT Coordinators" name="expected_coordinators" value={form.expected_coordinators} onChange={handleChange} inputMode="numeric" placeholder="e.g. 3" />
             </div>
             <Select label="Which plan are you interested in?" name="interested_plan" value={form.interested_plan} onChange={handleChange} options={PLANS} required invalid={isInvalid("interested_plan")} />
             <Select label="How did you hear about Internova?" name="heard_from" value={form.heard_from} onChange={handleChange} options={HEARD_FROM} />

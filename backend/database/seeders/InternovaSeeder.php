@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Company;
 use App\Models\CoordinatorProfile;
+use App\Models\DeanProfile;
 use App\Models\EvaluationCriterion;
 use App\Models\InternProfile;
 use App\Models\InternshipDeployment;
@@ -23,9 +24,10 @@ class InternovaSeeder extends Seeder
     {
         $roles = [
             ['name' => 'super_admin', 'description' => 'System super administrator'],
-            ['name' => 'coordinator', 'description' => 'School coordinator — the primary coordinator registers the school, accepts the subscription offer, pays, and manages billing; additional coordinators handle internship operations only'],
+            ['name' => 'coordinator', 'description' => 'School coordinator — runs the day-to-day internship operations (companies, supervisors, interns); invited by the school Dean'],
             ['name' => 'supervisor', 'description' => 'Company supervisor'],
             ['name' => 'intern', 'description' => 'Student intern'],
+            ['name' => 'dean', 'description' => 'School dean / principal — owns the subscription and billing, edits school settings and invites the school coordinator'],
         ];
 
         foreach ($roles as $role) {
@@ -64,6 +66,7 @@ class InternovaSeeder extends Seeder
         );
 
         $superAdminRole = Role::where('name', 'super_admin')->first();
+        $deanRole = Role::where('name', 'dean')->first();
         $coordinatorRole = Role::where('name', 'coordinator')->first();
         $supervisorRole = Role::where('name', 'supervisor')->first();
         $internRole = Role::where('name', 'intern')->first();
@@ -80,6 +83,25 @@ class InternovaSeeder extends Seeder
                 'status' => 'active',
                 'email_verified_at' => now(),
             ]
+        );
+
+        $dean = User::firstOrCreate(
+            ['email' => 'dean@internova.test'],
+            [
+                'name' => 'Elena Reyes',
+                'role_id' => $deanRole?->id,
+                'school_id' => $school->id,
+                'first_name' => 'Elena',
+                'last_name' => 'Reyes',
+                'password' => bcrypt('password'),
+                'status' => 'active',
+                'email_verified_at' => now(),
+            ]
+        );
+
+        DeanProfile::updateOrCreate(
+            ['user_id' => $dean->id],
+            ['school_id' => $school->id, 'position' => 'Dean']
         );
 
         $coordinator = User::firstOrCreate(

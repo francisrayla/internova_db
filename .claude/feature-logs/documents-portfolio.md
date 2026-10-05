@@ -45,6 +45,7 @@ updated: 2026-10-05
 - Manual: intern uploads a PDF at /intern/documents -> coordinator sees it at /coordinator/documents, approves -> intern notified. Add a portfolio item with image; view it from supervisor and coordinator portfolio pages (unassigned intern -> 404 for supervisor). Open the coordinator intern report and print. Request /api/download with a bad path (expect 400).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-05 1b9390d + uncommitted — NarrativeReportController::docxResponse now public (reused by DeanMonitoringController); ReportToolbar download logic extracted to components/narrative-report/DownloadDocxButton.jsx; added logging of template/logo changes (module Reports); NarrativeProgressService (batched checklist) added — result: tests 33/33
 - 2026-10-05 43bc039 + uncommitted — removed duplicate docx routes; DocumentTypeField restores Memorandum of Agreement, Medical Certificate, Insurance; sw.js skips caching report photos and the docx download (see attendance log) — result: pass
 - 2026-10-05 43bc039 + uncommitted — NarrativeChecklist added for coordinator (intern portfolio + report pages) and replaces the intern's 'Still missing' list; checked in headless Chrome (dep 13: 2/15, dep 1: 15/15) — result: pass
 - 2026-10-05 43bc039 + uncommitted — Word (.docx) export + Print toolbar (phpoffice/phpword added), binary proxy passthrough; tests 16/16, lint no new issues, build ok; real deployment 1 docx 3.1MB in ~1.8s, 135 media, 18 page breaks, 8.5x13 — result: pass (not opened in real Word/LibreOffice here)

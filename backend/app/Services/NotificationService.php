@@ -67,6 +67,25 @@ class NotificationService
     }
 
     /**
+     * Billing notices go to the school's Dean. A school without a Dean yet
+     * (legacy school, invite still pending) simply has nobody to notify —
+     * the Dean's bell only loads once they exist — so this skips and logs
+     * instead of failing the caller.
+     */
+    public static function toSchoolDean(int $schoolId, string $type, string $title, ?string $body = null, ?string $link = null, bool $important = true): ?Notification
+    {
+        $dean = SchoolStaff::dean($schoolId);
+
+        if (!$dean) {
+            Log::info('No dean to notify for school, skipping.', ['school_id' => $schoolId, 'type' => $type]);
+
+            return null;
+        }
+
+        return self::send('dean', $type, $title, $body, $schoolId, $dean->id, $link, $important);
+    }
+
+    /**
      * Targets one specific person rather than a whole role/school audience —
      * still broadcasts on that role's school-wide channel too (harmless, no
      * one has to be listening there), but critically also hits

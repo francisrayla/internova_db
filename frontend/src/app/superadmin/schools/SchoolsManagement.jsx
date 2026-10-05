@@ -63,6 +63,71 @@ function overallStatusMeta(status) {
   return map[status] ?? { label: status, color: "bg-slate-100 text-slate-600" };
 }
 
+// The Dean owns billing. A legacy school (registered before the Dean role) has
+// none yet: invite one here, or resend / correct the invitation while pending.
+function DeanInvite({ school, onDone }) {
+  const [form, setForm] = useState({ name: "", email: "" });
+  const [email, setEmail] = useState(school.dean_email ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function send(path, body) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/superadmin/schools/${school.id}/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.message || data.errors?.email?.[0] || data.errors?.name?.[0] || "Something went wrong.");
+      onDone(data.message);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
+  if (!school.dean_email) {
+    return (
+      <form
+        onSubmit={(e) => { e.preventDefault(); send("invite-dean", form); }}
+        className="space-y-2 rounded-2xl border border-slate-200 p-4"
+      >
+        <p className="text-sm font-semibold text-slate-800">No dean yet</p>
+        <p className="text-xs text-slate-500">The Dean accepts the plan, pays and invites the coordinator. They get an email link to set their own password.</p>
+        <input {...inputProps("fullName")} required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Full name of the Dean" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+        <input {...inputProps("email")} required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value.trim() }))} placeholder="Email of the Dean" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <button type="submit" disabled={busy} className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+          {busy ? "Sending…" : "Invite Dean"}
+        </button>
+      </form>
+    );
+  }
+
+  if (school.dean_setup === "pending") {
+    return (
+      <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs font-semibold text-amber-800">Waiting for the Dean ({school.dean_email}) to accept the invitation and set a password.</p>
+        <input {...inputProps("email")} type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500" />
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => send("resend-dean-invitation", email !== school.dean_email ? { email } : {})}
+          className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          {busy ? "Sending…" : email !== school.dean_email ? "Change Email & Resend" : "↻ Resend Invitation"}
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function SchoolsPage() {
   const searchParams = useSearchParams();
   const highlightId = searchParams.get("highlight");
@@ -221,7 +286,7 @@ export default function SchoolsPage() {
               i
             </span>
             <div className="pointer-events-none absolute right-0 top-8 z-10 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-600 opacity-0 shadow-lg transition group-hover:opacity-100">
-              Schools are created from approved Plan Inquiries. A school becomes fully active once its primary coordinator accepts the subscription offer and payment is confirmed.
+              Schools are created from approved Plan Inquiries. A school becomes fully active once its Dean accepts the subscription offer and payment is confirmed.
             </div>
           </div>
           <Link
@@ -262,7 +327,7 @@ export default function SchoolsPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-slate-900">{school.name}</p>
-                      <p className="truncate text-xs text-slate-500">{school.admin_name}{school.admin_email ? ` · ${school.admin_email}` : ""}</p>
+                      <p className="truncate text-xs text-slate-500">{school.dean_email ? `Dean: ${school.dean_name} · ${school.dean_email}` : "No dean yet"}</p>
                     </div>
                     <span className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700">Manage</span>
                   </div>
@@ -273,7 +338,7 @@ export default function SchoolsPage() {
                     {school.is_suspended && (
                       <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">⏸ Paused</span>
                     )}
-                    <Pill ok={school.account_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
+                    {school.dean_email ? <Pill ok={school.dean_setup === "active"} okLabel="Dean active" badLabel="Dean invited" /> : <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">No dean</span>}
                     <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
@@ -288,7 +353,7 @@ export default function SchoolsPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
-                    {["School", "Plan", "Account Setup", "Payment", "Subscription", "Action"].map((h) => (
+                    {["School", "Plan", "Dean", "Payment", "Subscription", "Action"].map((h) => (
                       <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -301,7 +366,7 @@ export default function SchoolsPage() {
                     >
                       <td className="px-6 py-4">
                         <p className="font-medium text-slate-900">{school.name}</p>
-                        <p className="text-xs text-slate-500">{school.admin_name}{school.admin_email ? ` · ${school.admin_email}` : ""}</p>
+                        <p className="text-xs text-slate-500">{school.admin_email ? `Coordinator: ${school.admin_name}` : "No coordinator yet"}</p>
                       </td>
                       <td className="px-6 py-4 text-slate-600">
                         {school.plan}
@@ -312,7 +377,15 @@ export default function SchoolsPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <Pill ok={school.account_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
+                        {school.dean_email ? (
+                          <>
+                            <p className="text-xs font-medium text-slate-900">{school.dean_name}</p>
+                            <p className="mb-1 text-xs text-slate-500">{school.dean_email}</p>
+                            <Pill ok={school.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
+                          </>
+                        ) : (
+                          <span className="text-xs text-slate-400">No dean yet</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
@@ -355,7 +428,7 @@ export default function SchoolsPage() {
       {manageSchool && (
         <Modal
           title={manageSchool.name}
-          subtitle={manageSchool.admin_name ? `Coordinator: ${manageSchool.admin_name}` : undefined}
+          subtitle={manageSchool.dean_name ? `Dean: ${manageSchool.dean_name}` : "No dean yet"}
           onClose={() => { setManageSchool(null); setConfirmingPauseId(null); }}
         >
           <div className="space-y-3">
@@ -373,8 +446,11 @@ export default function SchoolsPage() {
               {manageSchool.amount != null && (
                 <div className="flex justify-between"><span className="text-slate-500">Amount</span><span className="font-semibold text-slate-900">₱{Number(manageSchool.amount).toLocaleString()} / {manageSchool.billing_period === "monthly" ? "mo" : "yr"}</span></div>
               )}
-              <div className="flex justify-between"><span className="text-slate-500">Coordinator</span><span className="font-semibold text-slate-900">{manageSchool.admin_name}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Account Setup</span><Pill ok={manageSchool.account_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /></div>
+              <div className="flex justify-between"><span className="text-slate-500">Dean</span><span className="font-semibold text-slate-900">{manageSchool.dean_name ?? "None yet"}</span></div>
+              {manageSchool.dean_email && (
+                <div className="flex justify-between"><span className="text-slate-500">Dean Setup</span><Pill ok={manageSchool.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /></div>
+              )}
+              <div className="flex justify-between"><span className="text-slate-500">Coordinator</span><span className="font-semibold text-slate-900">{manageSchool.admin_name || "None yet"}</span></div>
               <div className="flex justify-between"><span className="text-slate-500">Payment</span><Pill ok={manageSchool.payment === "paid"} okLabel="Paid" badLabel="Unpaid" /></div>
               <div className="flex justify-between"><span className="text-slate-500">Expiry</span><span className="font-semibold text-slate-900">{manageSchool.expiry}</span></div>
             </div>
@@ -385,7 +461,7 @@ export default function SchoolsPage() {
               // automatically once access is restored.
               <>
                 <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-xs text-red-800">
-                  Access is paused — the coordinator sees a read-only notice and can&apos;t use the dashboard until you restore access. Nothing was deleted.
+                  Access is paused — the school&apos;s coordinator sees a read-only notice and can&apos;t use the dashboard until you restore access. Nothing was deleted.
                 </div>
                 <button
                   onClick={() => handleToggleSuspend(manageSchool)}
@@ -396,15 +472,15 @@ export default function SchoolsPage() {
               </>
             ) : (
               <>
-                {manageSchool.account_setup !== "active" && (
-                  <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800">
-                    Waiting for the school admin ({manageSchool.admin_email}) to log in and set up their account.
-                  </div>
-                )}
+                <DeanInvite
+                  key={manageSchool.id}
+                  school={manageSchool}
+                  onDone={(message) => { showToast(message); setManageSchool(null); load(); }}
+                />
 
                 {manageSchool.status === "awaiting_acceptance" && (
                   <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-                    Subscription offer sent to {manageSchool.admin_email}. Waiting for them to review and accept it.
+                    Subscription offer sent to {manageSchool.dean_email ?? manageSchool.admin_email}. Waiting for the Dean to review and accept it.
                     {manageSchool.offer_expires_at && <> Expires {manageSchool.offer_expires_at} if unanswered.</>}
                   </div>
                 )}
@@ -412,7 +488,7 @@ export default function SchoolsPage() {
                 {manageSchool.status === "offer_expired" && (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 space-y-3">
                     <p className="text-xs font-semibold text-rose-800">
-                      This offer expired before {manageSchool.admin_email} accepted or paid.
+                      This offer expired before {manageSchool.dean_email ?? manageSchool.admin_email} accepted or paid.
                     </p>
                     <button
                       onClick={() => handleResendOffer(manageSchool)}
@@ -426,7 +502,7 @@ export default function SchoolsPage() {
 
                 {manageSchool.status === "accepted" && (
                   <div className="rounded-xl bg-cyan-50 border border-cyan-200 px-4 py-3 text-xs text-cyan-800">
-                    {manageSchool.admin_email} accepted the offer and is choosing a payment method.
+                    {manageSchool.dean_email ?? manageSchool.admin_email} accepted the offer and is choosing a payment method.
                   </div>
                 )}
 

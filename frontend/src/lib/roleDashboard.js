@@ -1,9 +1,11 @@
 // Shared by the landing page and login page — both need to know where a
-// logged-in user actually belongs. A coordinator is a special case: their
-// own dashboard is gated behind admin approval and an active subscription,
-// so they land on whichever step they're actually blocked at instead.
+// logged-in user actually belongs. The Dean and the coordinator are special
+// cases: their dashboards are gated behind admin approval and an active
+// subscription, so they land on whichever step they're actually blocked at
+// instead. Only the Dean can pay; a coordinator just waits for them.
 const ROLE_DASHBOARD = {
   super_admin: "/superadmin/dashboard",
+  dean: "/dean/dashboard",
   coordinator: "/coordinator/dashboard",
   supervisor: "/supervisor/dashboard",
   intern: "/intern/dashboard",
@@ -14,8 +16,14 @@ export function resolveDashboardPath(user) {
 
   if (user.role === "coordinator") {
     if (user.status === "pending_approval") return "/coordinator/pending";
-    if (user.subscription_status !== "active") return "/coordinator/subscription";
+    if (user.subscription_status !== "active") return "/coordinator/subscription-status";
     return "/coordinator/dashboard";
+  }
+
+  if (user.role === "dean") {
+    if (user.status === "pending_approval") return "/dean/pending";
+    if (user.subscription_status !== "active") return "/dean/billing";
+    return "/dean/dashboard";
   }
 
   return ROLE_DASHBOARD[user.role] ?? null;

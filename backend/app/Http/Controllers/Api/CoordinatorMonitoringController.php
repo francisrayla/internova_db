@@ -22,6 +22,7 @@ use App\Models\TaskAssignee;
 use App\Models\TaskComment;
 use App\Models\TaskProof;
 use App\Models\User;
+use App\Services\AccountInvitationService;
 use App\Services\ActivityLogService;
 use App\Services\DeploymentSummaryService;
 use App\Services\EmailDeliverability;
@@ -77,11 +78,8 @@ class CoordinatorMonitoringController extends Controller
     }
 
     // ---------------------------------------------------------------
-    // School settings — editing the school's own operational details
-    // (name, address, contact info) is safe for the primary coordinator to
-    // self-service, same reasoning as a personal profile edit: none of these
-    // fields touch access/permissions or subscription state, which stay
-    // admin-controlled.
+    // School settings — read-only here. Editing the school's details belongs
+    // to the school's Dean (see DeanController::updateSchoolSettings).
     // ---------------------------------------------------------------
 
     public function schoolSettings(Request $request): JsonResponse
@@ -103,81 +101,21 @@ class CoordinatorMonitoringController extends Controller
         ]);
     }
 
-    public function updateSchoolSettings(Request $request): JsonResponse
-    {
-        if (!$request->user()->coordinatorProfile?->is_primary_coordinator) {
-            return response()->json(['success' => false, 'message' => 'Only the primary coordinator can edit school settings.'], 403);
-        }
-
-        $school = School::find($request->user()->school_id);
-        if (!$school) {
-            return response()->json(['success' => false, 'message' => 'School not found.'], 404);
-        }
-
-        $data = $request->validate([
-            'school_name'    => 'required|string|max:255',
-            'address'        => 'required|string|max:500',
-            'contact_email'  => 'required|email|max:255',
-            'contact_number' => ['required', 'string', 'regex:/^[0-9]{11}$/'],
-        ]);
-
-        $school->update($data);
-
-        ActivityLogService::record(
-            module: 'Schools',
-            action: 'Updated school settings',
-            description: "{$request->user()->name} updated {$school->school_name}'s settings.",
-            schoolId: $school->id,
-            request: $request
-        );
-
-        return response()->json(['success' => true, 'message' => 'School settings updated.', 'school' => $school->fresh()->only(['school_name', 'address', 'contact_email', 'contact_number', 'status'])]);
-    }
-
-    private const INVITATION_EXPIRES_IN_DAYS = 7;
-
     /**
      * Sends a real "set your own password" invitation instead of the
-     * coordinator choosing a password on the recipient's behalf — the
-     * recipient proves they control the inbox by clicking it (see
-     * InvitationController::accept(), which marks email_verified_at there).
-     *
-     * The email is still relayed through the system's own SMTP account —
-     * asking every coordinator to hand this app their personal Gmail
-     * password isn't something we can ask of them, and most mail providers
-     * reject a message whose From address the sending server doesn't
-     * actually control anyway (SPF/DKIM). What we CAN do, and what actually
-     * matters here, is make it look and behave like it came from the
-     * coordinator: their name in the From display name, and their real
-     * email as Reply-To — so the invited supervisor/intern sees who invited
-     * them, and a reply lands in the coordinator's own inbox, not ours.
+     * coordinator choosing a password on the recipient's behalf — see
+     * AccountInvitationService (shared with the Dean's coordinator invite).
      */
     private function sendAccountInvitation(User $user, string $roleLabel, string $contextLabel, User $coordinator, ?int $delaySeconds = null): void
     {
-        $plainToken = Str::random(64);
-
-        $user->update([
-            'invitation_token' => hash('sha256', $plainToken),
-            'invitation_expires_at' => now()->addDays(self::INVITATION_EXPIRES_IN_DAYS),
-        ]);
-
-        $acceptUrl = config('app.frontend_url') . '/accept-invite/' . $plainToken;
-        $coordinatorName = trim("{$coordinator->first_name} {$coordinator->last_name}") ?: $coordinator->name;
-
-        $mail = new AccountInvitation(
-            recipientName: trim("{$user->first_name} {$user->last_name}") ?: $user->name,
-            roleLabel: $roleLabel,
-            contextLabel: $contextLabel,
-            acceptUrl: $acceptUrl,
-            expiresInDays: (string) self::INVITATION_EXPIRES_IN_DAYS,
-            coordinatorName: $coordinatorName,
-            coordinatorEmail: $coordinator->email,
+        AccountInvitationService::send(
+            $user,
+            $roleLabel,
+            $contextLabel,
+            trim("{$coordinator->first_name} {$coordinator->last_name}") ?: $coordinator->name,
+            $coordinator->email,
+            $delaySeconds
         );
-
-        // A bulk import staggers its invitations (see importInterns()) so a
-        // batch doesn't hit the mail provider all in the same second.
-        $pending = Mail::to($user->email, $user->name);
-        $delaySeconds ? $pending->later(now()->addSeconds($delaySeconds), $mail) : $pending->queue($mail);
     }
 
     /**
@@ -241,6 +179,9 @@ class CoordinatorMonitoringController extends Controller
         }
         if ($user->status !== 'pending_activation') {
             return response()->json(['success' => false, 'message' => 'This account is already active — the owner can change their own email.'], 422);
+        }
+        if (!in_array($user->roles?->name, ['supervisor', 'intern'], true)) {
+            return response()->json(['success' => false, 'message' => 'This account type cannot be edited from here.'], 422);
         }
 
         $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
@@ -552,6 +493,14 @@ class CoordinatorMonitoringController extends Controller
         ]);
         $comment->load('user');
 
+        ActivityLogService::record(
+            module: 'Tasks',
+            action: 'Commented on a task',
+            description: "Commented on the task \"{$task->title}\".",
+            schoolId: $schoolId,
+            request: $request
+        );
+
         return response()->json(['success' => true, 'comment' => $this->mapComment($comment)]);
     }
 
@@ -571,6 +520,14 @@ class CoordinatorMonitoringController extends Controller
             'comment' => $data['comment'],
         ]);
         $comment->load('user');
+
+        ActivityLogService::record(
+            module: 'Tasks',
+            action: 'Commented on a subtask',
+            description: "Commented on the subtask \"{$subtask->title}\".",
+            schoolId: $schoolId,
+            request: $request
+        );
 
         return response()->json(['success' => true, 'comment' => $this->mapComment($comment)]);
     }
@@ -715,6 +672,14 @@ class CoordinatorMonitoringController extends Controller
         ]);
 
         $criterion = EvaluationCriterion::create([...$data, 'school_id' => $schoolId, 'status' => 'active']);
+
+        ActivityLogService::record(
+            module: 'Evaluations',
+            action: 'Added evaluation criterion',
+            description: "Added the criterion \"{$criterion->name}\" to the evaluation rubric.",
+            schoolId: $schoolId,
+            request: $request
+        );
 
         return response()->json(['success' => true, 'message' => 'Criterion added.', 'criterion' => $criterion]);
     }
@@ -901,6 +866,14 @@ class CoordinatorMonitoringController extends Controller
         ]);
 
         $company->update($data);
+
+        ActivityLogService::record(
+            module: 'Companies',
+            action: 'Updated partner company',
+            description: "Details of {$company->company_name} were updated.",
+            schoolId: $schoolId,
+            request: $request
+        );
 
         return response()->json(['success' => true, 'message' => 'Company updated.', 'company' => $company]);
     }
@@ -1106,6 +1079,14 @@ class CoordinatorMonitoringController extends Controller
             'email' => $data['email'],
         ]);
         $profile->update(['position' => $data['position'] ?? null]);
+
+        ActivityLogService::record(
+            module: 'Companies',
+            action: 'Updated supervisor',
+            description: "Details of supervisor {$data['first_name']} {$data['last_name']} were updated.",
+            schoolId: $schoolId,
+            request: $request
+        );
 
         return response()->json(['success' => true, 'message' => 'Supervisor updated.']);
     }

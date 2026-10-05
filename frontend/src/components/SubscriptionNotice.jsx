@@ -22,7 +22,7 @@ export default function SubscriptionNotice() {
 
   return (
     <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-      Your school subscription is inactive. Please contact your school&apos;s Coordinator or the Super Admin.
+      Your school subscription is inactive. Please contact your school&apos;s Dean or the Super Admin.
     </div>
   );
 }

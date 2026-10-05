@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fetchCoordinatorData } from "@/lib/coordinatorApi";
-import { apiFetch } from "@/lib/apiFetch";
+import { apiFetch, fetchApiData } from "@/lib/apiFetch";
 import { validateAttachmentFile } from "@/lib/imageValidation";
 import TicketAttachment from "@/components/TicketAttachment";
 import AttachButton, { AttachIconButton, FileChip } from "@/components/TicketAttachButton";
@@ -16,7 +15,7 @@ const STATUS_STYLES = {
   Resolved: "bg-slate-100 text-slate-600",
 };
 
-function NewTicketForm({ onClose, onCreated }) {
+function NewTicketForm({ role, onClose, onCreated }) {
   const [form, setForm] = useState({ subject: "", category: "General", message: "" });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -46,7 +45,7 @@ function NewTicketForm({ onClose, onCreated }) {
       body.append("category", form.category);
       body.append("message", form.message);
       if (file) body.append("attachment", file);
-      const res = await apiFetch("/api/coordinator/support-tickets", { method: "POST", body });
+      const res = await apiFetch(`/api/${role}/support-tickets`, { method: "POST", body });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not send your request.");
       onCreated();
@@ -113,7 +112,7 @@ function NewTicketForm({ onClose, onCreated }) {
   );
 }
 
-function TicketThread({ ticketId, onBack, onUpdated }) {
+function TicketThread({ role, ticketId, onBack, onUpdated }) {
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState("");
@@ -124,13 +123,13 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
 
   function load() {
     setLoading(true);
-    fetchCoordinatorData(`support-tickets/${ticketId}`)
+    fetchApiData(role, `support-tickets/${ticketId}`)
       .then((r) => setTicket(r.ticket))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, [ticketId]);
+  useEffect(load, [ticketId, role]);
 
   // Same auto-scroll-to-latest as the Messenger widget's own message list.
   useEffect(() => {
@@ -156,7 +155,7 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
       const body = new FormData();
       if (reply.trim()) body.append("message", reply.trim());
       if (file) body.append("attachment", file);
-      const res = await apiFetch(`/api/coordinator/support-tickets/${ticketId}/reply`, { method: "POST", body });
+      const res = await apiFetch(`/api/${role}/support-tickets/${ticketId}/reply`, { method: "POST", body });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not send your reply.");
       setReply("");
@@ -246,7 +245,8 @@ function TicketThread({ ticketId, onBack, onUpdated }) {
   );
 }
 
-export default function CoordinatorSupport() {
+/** Shared by the coordinator and the dean — role picks the /api/<role>/support-tickets area. */
+export default function CoordinatorSupport({ role = "coordinator" }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -255,16 +255,16 @@ export default function CoordinatorSupport() {
 
   function load() {
     setLoading(true);
-    fetchCoordinatorData("support-tickets")
+    fetchApiData(role, "support-tickets")
       .then((r) => setTickets(r.tickets ?? []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, []);
+  useEffect(load, [role]);
 
   if (openTicketId) {
-    return <TicketThread ticketId={openTicketId} onBack={() => { setOpenTicketId(null); load(); }} onUpdated={load} />;
+    return <TicketThread role={role} ticketId={openTicketId} onBack={() => { setOpenTicketId(null); load(); }} onUpdated={load} />;
   }
 
   return (
@@ -309,7 +309,7 @@ export default function CoordinatorSupport() {
       </section>
 
       {showNewForm && (
-        <NewTicketForm onClose={() => setShowNewForm(false)} onCreated={() => { setShowNewForm(false); load(); }} />
+        <NewTicketForm role={role} onClose={() => setShowNewForm(false)} onCreated={() => { setShowNewForm(false); load(); }} />
       )}
     </div>
   );

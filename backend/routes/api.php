@@ -2,8 +2,11 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CoordinatorMonitoringController;
-use App\Http\Controllers\Api\CoordinatorSubscriptionController;
+use App\Http\Controllers\Api\DeanSubscriptionController;
 use App\Http\Controllers\Api\CoordinatorSupportController;
+use App\Http\Controllers\Api\DeanController;
+use App\Http\Controllers\Api\DeanMonitoringController;
+use App\Http\Controllers\Api\CoordinatorFeedbackController;
 use App\Http\Controllers\Api\InternMonitoringController;
 use App\Http\Controllers\Api\NarrativeReportController;
 use App\Http\Controllers\Api\InvitationController;
@@ -36,6 +39,8 @@ Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->g
     Route::post('/schools/{id}/verify-payment', [SuperadminFullController::class, 'verifySchoolPayment']);
     Route::post('/schools/{id}/toggle-suspend', [SuperadminFullController::class, 'toggleSchoolSuspension']);
     Route::post('/schools/{id}/resend-offer', [SuperadminFullController::class, 'resendSchoolOffer']);
+    Route::post('/schools/{id}/invite-dean', [SuperadminFullController::class, 'inviteDean']);
+    Route::post('/schools/{id}/resend-dean-invitation', [SuperadminFullController::class, 'resendDeanInvitation']);
     Route::get('/plans-features', [SuperadminFullController::class, 'plansFeatures']);
     Route::patch('/plans/{id}', [SuperadminFullController::class, 'updatePlan']);
     Route::get('/ai-usage', [SuperadminFullController::class, 'aiUsage']);
@@ -107,17 +112,6 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->group(function () {
-    // Primary coordinator self-service: review/accept the subscription offer and pay
-    Route::post('/schools/{id}/accept-offer', [CoordinatorSubscriptionController::class, 'acceptOffer']);
-    Route::post('/schools/{id}/checkout', [CoordinatorSubscriptionController::class, 'checkout']);
-    Route::post('/schools/{id}/verify-checkout', [CoordinatorSubscriptionController::class, 'verifyCheckout']);
-    Route::post('/schools/{id}/upload-proof', [CoordinatorSubscriptionController::class, 'uploadProof']);
-    Route::post('/schools/{id}/switch-plan', [CoordinatorSubscriptionController::class, 'switchPlan']);
-    Route::post('/schools/{id}/upgrade-plan', [CoordinatorSubscriptionController::class, 'requestUpgrade']);
-    Route::post('/schools/{id}/cancel-pending-upgrade', [CoordinatorSubscriptionController::class, 'cancelPendingUpgrade']);
-    Route::get('/schools/{id}/upgrade-quote', [CoordinatorSubscriptionController::class, 'upgradeQuote']);
-    Route::post('/schools/{id}/request-plan-change', [CoordinatorSubscriptionController::class, 'requestPlanChange']);
-
     // Day-to-day internship monitoring — always scoped server-side to the
     // authenticated coordinator's own school (see CoordinatorMonitoringController).
     Route::get('/interns', [CoordinatorMonitoringController::class, 'interns']);
@@ -156,8 +150,8 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     Route::post('/narrative-template/logo', [NarrativeReportController::class, 'uploadLogo']);
     Route::delete('/narrative-template/logo', [NarrativeReportController::class, 'destroyLogo']);
 
+    // Read-only for the coordinator — the Dean edits (see the dean group).
     Route::get('/school-settings', [CoordinatorMonitoringController::class, 'schoolSettings']);
-    Route::patch('/school-settings', [CoordinatorMonitoringController::class, 'updateSchoolSettings']);
 
     // View-only — logging/approving attendance is the supervisor's job (see the
     // supervisor route group below), not the coordinator's.
@@ -187,6 +181,58 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     // A coordinator's direct line to the platform owner (billing, account,
     // bug reports) — deliberately separate from the peer messaging system
     // above; Super Admin is never a contact there (see MessageController).
+    Route::get('/support-tickets', [CoordinatorSupportController::class, 'index']);
+    Route::post('/support-tickets', [CoordinatorSupportController::class, 'store']);
+    Route::get('/support-tickets/{id}', [CoordinatorSupportController::class, 'show']);
+    Route::post('/support-tickets/{id}/reply', [CoordinatorSupportController::class, 'reply']);
+
+    // Feedback the Dean sends (read-only for the coordinator).
+    Route::get('/feedback', [CoordinatorFeedbackController::class, 'index']);
+    Route::get('/feedback/unread-count', [CoordinatorFeedbackController::class, 'unreadCount']);
+    Route::post('/feedback/read-all', [CoordinatorFeedbackController::class, 'markAllRead']);
+    Route::post('/feedback/{id}/read', [CoordinatorFeedbackController::class, 'markRead']);
+});
+
+// The school's Dean / Principal: billing owner, school settings, and the
+// school's single coordinator. Billing routes also require that the school id
+// in the URL is the dean's own school (dean.school).
+Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean'])->group(function () {
+    Route::middleware('dean.school')->group(function () {
+        Route::post('/schools/{id}/accept-offer', [DeanSubscriptionController::class, 'acceptOffer']);
+        Route::post('/schools/{id}/checkout', [DeanSubscriptionController::class, 'checkout']);
+        Route::post('/schools/{id}/verify-checkout', [DeanSubscriptionController::class, 'verifyCheckout']);
+        Route::post('/schools/{id}/upload-proof', [DeanSubscriptionController::class, 'uploadProof']);
+        Route::post('/schools/{id}/switch-plan', [DeanSubscriptionController::class, 'switchPlan']);
+        Route::post('/schools/{id}/upgrade-plan', [DeanSubscriptionController::class, 'requestUpgrade']);
+        Route::post('/schools/{id}/cancel-pending-upgrade', [DeanSubscriptionController::class, 'cancelPendingUpgrade']);
+        Route::get('/schools/{id}/upgrade-quote', [DeanSubscriptionController::class, 'upgradeQuote']);
+        Route::post('/schools/{id}/request-plan-change', [DeanSubscriptionController::class, 'requestPlanChange']);
+    });
+
+    Route::get('/dashboard', [DeanController::class, 'dashboard']);
+
+    // Monitoring (read-only) — see DeanMonitoringController.
+    Route::get('/overview', [DeanMonitoringController::class, 'overview']);
+    Route::get('/coordinator/profile', [DeanMonitoringController::class, 'coordinatorProfile']);
+    Route::get('/coordinator/activity', [DeanMonitoringController::class, 'coordinatorActivity']);
+    Route::get('/coordinator/pending', [DeanMonitoringController::class, 'coordinatorPending']);
+    Route::get('/coordinator/feedback', [DeanMonitoringController::class, 'feedbackIndex']);
+    Route::post('/coordinator/feedback', [DeanMonitoringController::class, 'feedbackStore']);
+    Route::get('/interns', [DeanMonitoringController::class, 'interns']);
+    Route::get('/interns/{deploymentId}', [DeanMonitoringController::class, 'internDetail']);
+    Route::get('/interns/{deploymentId}/narrative-report', [DeanMonitoringController::class, 'narrativeReport']);
+    Route::get('/interns/{deploymentId}/narrative-report/docx', [DeanMonitoringController::class, 'narrativeDocx']);
+
+    Route::get('/coordinator', [DeanController::class, 'coordinator']);
+    Route::post('/coordinator/invite', [DeanController::class, 'inviteCoordinator']);
+    Route::post('/coordinator/resend-invitation', [DeanController::class, 'resendCoordinatorInvitation']);
+    Route::patch('/coordinator/email', [DeanController::class, 'updateCoordinatorEmail']);
+    Route::post('/coordinator/deactivate', [DeanController::class, 'deactivateCoordinator']);
+
+    Route::get('/school-settings', [DeanController::class, 'schoolSettings']);
+    Route::patch('/school-settings', [DeanController::class, 'updateSchoolSettings']);
+
+    // Same direct line to the platform owner coordinators have.
     Route::get('/support-tickets', [CoordinatorSupportController::class, 'index']);
     Route::post('/support-tickets', [CoordinatorSupportController::class, 'store']);
     Route::get('/support-tickets/{id}', [CoordinatorSupportController::class, 'show']);

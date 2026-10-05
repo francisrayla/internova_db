@@ -7,6 +7,7 @@ import Logo from "@/components/Logo";
 import ProfileMenu from "@/components/ProfileMenu";
 import ThemeToggle from "@/components/ThemeToggle";
 import SubscriptionNotice from "@/components/SubscriptionNotice";
+import FeedbackUnreadWatcher from "@/components/FeedbackUnreadWatcher";
 import { UserContext } from "@/lib/UserContext";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
@@ -26,17 +27,13 @@ const BASE_NAV_ITEMS = [
   { label: "Evaluations", href: "/coordinator/evaluations", icon: "⭐" },
   { label: "Documents", href: "/coordinator/documents", icon: "📄" },
   { label: "Reports", href: "/coordinator/reports", icon: "📊" },
-];
-
-// Only the school's primary coordinator handles billing/account settings —
-// additional coordinators only see internship operations.
-const PRIMARY_ONLY_NAV_ITEMS = [
-  { label: "Billing", href: "/coordinator/subscription", icon: "💳" },
+  { label: "Dean Feedback", href: "/coordinator/feedback", icon: "💬" },
+  // Billing and editing school details belong to the school's Dean; this page is read-only here.
   { label: "School Settings", href: "/coordinator/settings", icon: "⚙️" },
 ];
 
 // Reachable in any access-gate state — small utility screens, not operational data.
-const GATE_EXEMPT_ROUTES = ["/coordinator/preview", "/coordinator/profile", "/coordinator/account", "/coordinator/notifications", "/coordinator/support"];
+const GATE_EXEMPT_ROUTES = ["/coordinator/profile", "/coordinator/account", "/coordinator/notifications", "/coordinator/support"];
 
 const OFFER_PENDING_STATUSES = ["awaiting_acceptance", "accepted", "pending_payment", "offer_expired"];
 
@@ -44,17 +41,18 @@ const OFFER_PENDING_STATUSES = ["awaiting_acceptance", "accepted", "pending_paym
  * Single source of truth for what a coordinator is allowed to see right now.
  * Hiding sidebar links is not access control — this also drives which route
  * the layout force-redirects to, and the actual data endpoints are gated
- * server-side too (see CoordinatorSubscriptionController).
+ * server-side too. A coordinator never pays: until the school's Dean activates
+ * the subscription they wait on /coordinator/subscription-status.
  */
 function resolveGate(user) {
   if (!user) return { state: "unauthenticated" };
   if (user.status === "pending_approval") return { state: "pending_approval", target: "/coordinator/pending" };
   if (user.school_suspended) return { state: "suspended", target: "/coordinator/subscription-status" };
   if (user.subscription_status === "expired") return { state: "expired", target: "/coordinator/subscription-status" };
-  if (OFFER_PENDING_STATUSES.includes(user.subscription_status)) return { state: "billing_gate", target: "/coordinator/subscription" };
+  if (OFFER_PENDING_STATUSES.includes(user.subscription_status)) return { state: "waiting_for_dean", target: "/coordinator/subscription-status" };
   if (user.subscription_status === "active") return { state: "active" };
   // Safe default while we don't yet know the subscription state.
-  return { state: "billing_gate", target: "/coordinator/subscription" };
+  return { state: "waiting_for_dean", target: "/coordinator/subscription-status" };
 }
 
 // Minimal chrome for gated states — just the brand and account menu, no operational nav.
@@ -75,6 +73,7 @@ export default function CoordinatorLayout({ children }) {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
+  const [feedbackUnread, setFeedbackUnread] = useState(0);
 
   function handleLogout() {
     apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
@@ -161,13 +160,10 @@ export default function CoordinatorLayout({ children }) {
     );
   }
 
-  const isPrimary = Boolean(user.is_primary_coordinator);
-  const navItems = isPrimary ? [...BASE_NAV_ITEMS, ...PRIMARY_ONLY_NAV_ITEMS] : BASE_NAV_ITEMS;
-
   return (
     <AppShell
       section="Coordinator"
-      navItems={navItems}
+      navItems={BASE_NAV_ITEMS.map((item) => (item.href === "/coordinator/feedback" ? { ...item, badge: feedbackUnread } : item))}
       user={user}
       onLogout={handleLogout}
       notificationBellProps={{ audienceRole: "coordinator", schoolId: user.school_id, userId: user.id, historyHref: "/coordinator/notifications" }}
@@ -176,7 +172,8 @@ export default function CoordinatorLayout({ children }) {
       profileLinks={PROFILE_LINKS}
       fallbackName="Coordinator"
     >
-      {!isPrimary && <SubscriptionNotice />}
+      <FeedbackUnreadWatcher onCount={setFeedbackUnread} />
+      <SubscriptionNotice />
       {children}
     </AppShell>
   );

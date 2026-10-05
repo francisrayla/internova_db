@@ -146,7 +146,7 @@ function slugifySchoolCode(name) {
   return `${base || "SCHOOL"}-${suffix}`;
 }
 
-// Approve School & Send Subscription Offer modal — the coordinator account already exists
+// Approve School & Send Subscription Offer modal — the Dean account already exists
 // from registration; this creates the school tenant and sends them an offer to accept and pay.
 function guessPlanFromInterest(interestedPlan) {
   return /premium/i.test(interestedPlan || "") ? "Premium" : "Basic";
@@ -397,7 +397,7 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
           </div>
 
           <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-            This sends a subscription offer (status <strong>Awaiting Acceptance</strong>) to {inquiry.email} as the primary coordinator —
+            This sends a subscription offer (status <strong>Awaiting Acceptance</strong>) to {inquiry.email} as the school&apos;s Dean —
             they can log in with their existing password to review, accept, and pay. The offer expires in 14 days if unanswered.
           </div>
 

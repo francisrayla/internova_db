@@ -8,7 +8,7 @@ use App\Mail\InquiryReply;
 use App\Mail\SupportTicketNotification;
 use App\Models\ActivityLog;
 use App\Models\AiUsageLog;
-use App\Models\CoordinatorProfile;
+use App\Models\DeanProfile;
 use App\Models\PaymentTransaction;
 use App\Models\PlanChangeRequest;
 use App\Models\PlanInquiry;
@@ -20,7 +20,10 @@ use App\Models\SubscriptionPlan;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketMessage;
 use App\Models\User;
+use App\Services\AccountInvitationService;
 use App\Services\ActivityLogService;
+use App\Services\EmailDeliverability;
+use App\Services\SchoolStaff;
 use App\Services\DefaultEvaluationCriteria;
 use App\Services\NarrativeAiService;
 use App\Services\NotificationService;
@@ -40,9 +43,11 @@ class SuperadminFullController extends Controller
         $schools = School::with(['users.roles', 'coordinatorProfiles.user', 'subscriptions.plan'])
             ->get()
             ->map(function ($school) {
+                // admin_* is the school's coordinator; the Dean owns billing and is listed separately.
                 $primary = $school->coordinatorProfiles->firstWhere('is_primary_coordinator', true)
                     ?? $school->coordinatorProfiles->first();
                 $admin = $primary?->user;
+                $dean = $school->users->first(fn ($u) => $u->roles?->name === 'dean');
                 // Prefer the active subscription over a newer pending upgrade row, so a
                 // school mid-upgrade doesn't misleadingly show as "not active" here.
                 $sorted = $school->subscriptions->sortByDesc('id');
@@ -55,6 +60,9 @@ class SuperadminFullController extends Controller
                     'admin_name'  => $admin ? trim("{$admin->first_name} {$admin->last_name}") : '—',
                     'admin_email' => $admin?->email,
                     'account_setup' => $accountSetup,
+                    'dean_name'     => $dean ? (trim("{$dean->first_name} {$dean->last_name}") ?: $dean->name) : null,
+                    'dean_email'    => $dean?->email,
+                    'dean_setup'    => SchoolStaff::accountState($dean),
                     'plan'          => $subscription?->plan?->name ?? '—',
                     'billing_period' => $subscription?->billing_period,
                     'amount'        => $subscription?->amount,
@@ -113,9 +121,9 @@ class SuperadminFullController extends Controller
 
     /**
      * Public "School Registration + Plan Inquiry" form.
-     * Creates a pending coordinator user account (login-ready immediately, but with no
+     * Creates a pending Dean user account (login-ready immediately, but with no
      * school/access until Super Admin approves) plus the inquiry/application record. This
-     * account becomes the school's primary coordinator once approved.
+     * account becomes the school's Dean (billing owner) once approved.
      */
     public function storeInquiry(Request $request): JsonResponse
     {
@@ -136,16 +144,16 @@ class SuperadminFullController extends Controller
             'password'              => 'required|string|min:8|confirmed',
         ]);
 
-        $coordinatorRole = Role::where('name', 'coordinator')->first();
-        if (!$coordinatorRole) {
-            return response()->json(['success' => false, 'message' => 'coordinator role is not configured.'], 500);
+        $deanRole = Role::where('name', 'dean')->first();
+        if (!$deanRole) {
+            return response()->json(['success' => false, 'message' => 'dean role is not configured.'], 500);
         }
 
-        [$inquiry, $user] = DB::transaction(function () use ($data, $coordinatorRole) {
+        [$inquiry, $user] = DB::transaction(function () use ($data, $deanRole) {
             [$firstName, $lastName] = array_pad(explode(' ', trim($data['contact_person']), 2), 2, '');
 
             $user = User::create([
-                'role_id'    => $coordinatorRole->id,
+                'role_id'    => $deanRole->id,
                 'school_id'  => null,
                 'name'       => $data['contact_person'],
                 'first_name' => $firstName,
@@ -194,9 +202,9 @@ class SuperadminFullController extends Controller
     }
 
     /**
-     * Approve a School Registration: creates the school tenant and links the coordinator
+     * Approve a School Registration: creates the school tenant and links the Dean
      * account that was already created at registration time (no invitation step needed —
-     * the applicant already set their own password) as the school's primary coordinator.
+     * the applicant already set their own password) as the school's Dean.
      */
     public function convertInquiryToSchool(Request $request, int $id): JsonResponse
     {
@@ -212,7 +220,7 @@ class SuperadminFullController extends Controller
         if (!$inquiry->user) {
             return response()->json([
                 'success' => false,
-                'message' => 'No coordinator account is linked to this registration.',
+                'message' => 'No account is linked to this registration.',
             ], 422);
         }
 
@@ -264,14 +272,14 @@ class SuperadminFullController extends Controller
                 'offer_expires_at' => now()->addDays(14),
             ]);
 
-            $inquiry->user->update(['school_id' => $school->id, 'status' => 'active']);
+            // An inquiry submitted before the Dean role existed belongs to a coordinator-role
+            // account; whoever registered the school is the Dean, so flip it here.
+            $inquiry->user->update(['school_id' => $school->id, 'status' => 'active', 'role_id' => SchoolStaff::roleId('dean') ?? $inquiry->user->role_id]);
 
-            CoordinatorProfile::create([
-                'user_id'                => $inquiry->user->id,
-                'school_id'              => $school->id,
-                'position'               => $inquiry->position ?? 'Primary Coordinator',
-                'is_primary_coordinator' => true,
-            ]);
+            DeanProfile::updateOrCreate(
+                ['user_id' => $inquiry->user->id],
+                ['school_id' => $school->id, 'position' => $inquiry->position ?: 'Dean']
+            );
 
             $inquiry->update(['status' => 'converted', 'school_id' => $school->id]);
 
@@ -284,13 +292,13 @@ class SuperadminFullController extends Controller
         });
 
         NotificationService::send(
-            'coordinator',
+            'dean',
             'offer_sent',
             'Your subscription offer is ready',
             "Review your {$data['plan_name']} plan offer and accept it to continue.",
             $school->id,
             $inquiry->user->id,
-            '/coordinator/subscription'
+            '/dean/billing'
         );
 
         ActivityLogService::record(
@@ -327,12 +335,12 @@ class SuperadminFullController extends Controller
         PaymentTransaction::where('subscription_id', $subscription->id)
             ->update(['status' => 'paid', 'paid_at' => now()]);
 
-        NotificationService::toSchoolCoordinators(
+        NotificationService::toSchoolDean(
             $school->id,
             'payment_verified',
             'Payment verified',
             "Your bank transfer was verified — {$school->school_name} is now active.",
-            '/coordinator/subscription'
+            '/dean/billing'
         );
 
         ActivityLogService::record(
@@ -410,12 +418,12 @@ class SuperadminFullController extends Controller
         ]);
         $school->update(['status' => 'awaiting_acceptance']);
 
-        NotificationService::toSchoolCoordinators(
+        NotificationService::toSchoolDean(
             $school->id,
             'offer_resent',
             'New subscription offer',
             "A new subscription offer was sent for {$school->school_name} — accept it to continue.",
-            '/coordinator/subscription'
+            '/dean/billing'
         );
 
         ActivityLogService::record(
@@ -427,6 +435,116 @@ class SuperadminFullController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => "New subscription offer sent to {$school->school_name}."]);
+    }
+
+    /**
+     * For a school that registered before the Dean role existed (it has a
+     * coordinator but nobody owns billing): invites its one Dean with the same
+     * "set your own password" link coordinators use for interns.
+     */
+    public function inviteDean(Request $request, int $schoolId): JsonResponse
+    {
+        $school = School::findOrFail($schoolId);
+
+        $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
+        $data = $request->validate([
+            'name'     => 'required|string|max:150',
+            'email'    => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'position' => 'nullable|string|max:100',
+        ]);
+
+        if (SchoolStaff::dean($school->id)) {
+            return response()->json(['success' => false, 'message' => "{$school->school_name} already has a Dean."], 422);
+        }
+        if ($problem = EmailDeliverability::problem($data['email'])) {
+            return response()->json(['success' => false, 'message' => $problem], 422);
+        }
+
+        $deanRole = Role::where('name', 'dean')->first();
+        if (!$deanRole) {
+            return response()->json(['success' => false, 'message' => 'dean role is not configured.'], 500);
+        }
+
+        [$firstName, $lastName] = array_pad(explode(' ', trim($data['name']), 2), 2, '');
+
+        $user = DB::transaction(function () use ($data, $school, $deanRole, $firstName, $lastName) {
+            $user = User::create([
+                'role_id'    => $deanRole->id,
+                'school_id'  => $school->id,
+                'name'       => trim($data['name']),
+                'first_name' => $firstName,
+                'last_name'  => $lastName,
+                'email'      => $data['email'],
+                'password'   => null,
+                'status'     => 'pending_activation',
+            ]);
+
+            DeanProfile::create([
+                'user_id'   => $user->id,
+                'school_id' => $school->id,
+                'position'  => $data['position'] ?? 'Dean',
+            ]);
+
+            return $user;
+        });
+
+        $this->sendDeanInvitation($user, $school);
+
+        ActivityLogService::record(
+            module: 'Schools',
+            action: 'Invited dean',
+            description: "{$user->name} was invited as the Dean of {$school->school_name}.",
+            schoolId: $school->id,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => "Invitation sent to {$user->email}."], 201);
+    }
+
+    /**
+     * Re-issues the Dean's invitation while it is still unaccepted; an
+     * optional corrected email (e.g. after a bounce) is applied first.
+     */
+    public function resendDeanInvitation(Request $request, int $schoolId): JsonResponse
+    {
+        $school = School::findOrFail($schoolId);
+        $dean = SchoolStaff::dean($school->id);
+
+        if (!$dean) {
+            return response()->json(['success' => false, 'message' => "{$school->school_name} has no Dean to re-invite."], 404);
+        }
+        if ($dean->status !== 'pending_activation') {
+            return response()->json(['success' => false, 'message' => 'The Dean has already activated their account.'], 422);
+        }
+
+        if ($request->filled('email')) {
+            $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
+            $data = $request->validate([
+                'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($dean->id)],
+            ]);
+            if ($problem = EmailDeliverability::problem($data['email'])) {
+                return response()->json(['success' => false, 'message' => $problem], 422);
+            }
+            $dean->update(['email' => $data['email'], 'email_bounced_at' => null, 'email_bounce_reason' => null]);
+        }
+
+        $this->sendDeanInvitation($dean, $school);
+
+        ActivityLogService::record(
+            module: 'Schools',
+            action: 'Resent dean invitation',
+            description: "The Dean invitation for {$school->school_name} was resent to {$dean->email}.",
+            schoolId: $school->id,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => "Invitation resent to {$dean->email}."]);
+    }
+
+    private function sendDeanInvitation(User $dean, School $school): void
+    {
+        // Sent on behalf of the platform, not the Super Admin's personal address.
+        AccountInvitationService::send($dean, 'Dean', "of {$school->school_name}", 'Internova', config('mail.from.address'));
     }
 
     /**
@@ -447,6 +565,13 @@ class SuperadminFullController extends Controller
                 'Access restored',
                 "{$school->school_name}'s dashboard access has been restored.",
                 '/coordinator/dashboard'
+            );
+            NotificationService::toSchoolDean(
+                $school->id,
+                'access_restored',
+                'Access restored',
+                "{$school->school_name}'s dashboard access has been restored.",
+                '/dean/dashboard'
             );
             // Not "important" — this echoes the Super Admin's own action back to
             // themselves, purely so any other open Super Admin tab live-refreshes.
@@ -478,6 +603,13 @@ class SuperadminFullController extends Controller
             "{$school->school_name}'s dashboard access has been paused by the Super Admin.",
             '/coordinator/subscription-status'
         );
+        NotificationService::toSchoolDean(
+            $school->id,
+            'access_paused',
+            'Access paused',
+            "{$school->school_name}'s dashboard access has been paused by the Super Admin.",
+            '/dean/billing'
+        );
         // Not "important" — see the note on the restore branch above.
         NotificationService::toSuperadmin('access_paused', 'Access paused', "{$school->school_name} was paused.", '/superadmin/schools?highlight=' . $school->id, important: false);
 
@@ -494,7 +626,7 @@ class SuperadminFullController extends Controller
 
     /**
      * Plan changes a coordinator asked for at a non-standard rate — the Super
-     * Admin sets the actual terms here (see CoordinatorSubscriptionController::requestPlanChange).
+     * Admin sets the actual terms here (see DeanSubscriptionController::requestPlanChange).
      */
     public function planChangeRequests(): JsonResponse
     {
@@ -574,12 +706,12 @@ class SuperadminFullController extends Controller
             'reviewed_at'     => now(),
         ]);
 
-        NotificationService::toSchoolCoordinators(
+        NotificationService::toSchoolDean(
             $school->id,
             'plan_change_approved',
             'Plan change approved',
             "You're now on {$planChangeRequest->requested_plan} ({$planChangeRequest->requested_billing_period}).",
-            '/coordinator/subscription'
+            '/dean/billing'
         );
 
         ActivityLogService::record(
@@ -603,12 +735,12 @@ class SuperadminFullController extends Controller
 
         $planChangeRequest->update(['status' => 'rejected', 'reviewed_at' => now()]);
 
-        NotificationService::toSchoolCoordinators(
+        NotificationService::toSchoolDean(
             $planChangeRequest->school_id,
             'plan_change_rejected',
             'Plan change declined',
             "Your request to switch to {$planChangeRequest->requested_plan} was declined. Contact the Super Admin for details.",
-            '/coordinator/subscription'
+            '/dean/billing'
         );
 
         ActivityLogService::record(
@@ -882,14 +1014,17 @@ class SuperadminFullController extends Controller
         $ticket->messages()->create(['sender_id' => $request->user()->id, 'message' => $data['message'] ?? '', ...$attachment]);
         $ticket->touch();
 
+        // The ticket's owner may be a coordinator or a dean — notify and link by their role.
+        $ownerRole = $ticket->coordinator?->roles?->name ?? 'coordinator';
+
         NotificationService::send(
-            audienceRole: 'coordinator',
+            audienceRole: $ownerRole,
             type: 'support_ticket_reply',
             title: 'Support replied to your request',
             body: $ticket->subject,
             schoolId: $ticket->school_id,
             userId: $ticket->coordinator_id,
-            link: '/coordinator/support'
+            link: "/{$ownerRole}/support"
         );
 
         if ($ticket->coordinator?->email) {
@@ -899,7 +1034,7 @@ class SuperadminFullController extends Controller
                 ticketSubject: $ticket->subject,
                 messageBody: $data['message'] ?? '(attachment only)',
                 hasAttachment: (bool) $attachment['attachment_path'],
-                ticketUrl: config('app.frontend_url') . '/coordinator/support',
+                ticketUrl: config('app.frontend_url') . "/{$ownerRole}/support",
             ));
         }
 

@@ -19,7 +19,7 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
-        $user = User::with(['roles', 'coordinatorProfile', 'school.subscriptions.plan'])->where('email', $data['email'])->first();
+        $user = User::with(['roles', 'coordinatorProfile', 'deanProfile', 'school.subscriptions.plan'])->where('email', $data['email'])->first();
 
         if (!$user || !$user->password || !Hash::check($data['password'], $user->password)) {
             return response()->json(['success' => false, 'message' => 'Invalid email or password.'], 401);
@@ -36,6 +36,15 @@ class AuthController extends Controller
                 'success'          => false,
                 'needsVerification'=> true,
                 'message'          => 'Please verify your email before logging in. Check your inbox for the code we sent you.',
+            ], 403);
+        }
+
+        // A deactivated account (e.g. a coordinator the Dean replaced) keeps its
+        // history but can no longer sign in.
+        if ($user->status === 'inactive') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account has been deactivated. Please contact your school.',
             ], 403);
         }
 
@@ -56,6 +65,8 @@ class AuthController extends Controller
         // leave old browser tabs/devices holding a still-valid token forever.
         $user->tokens()->delete();
         $token = $user->createToken('internova-session')->plainTextToken;
+        // Only feeds the Dean's "last active" — a failure here must never block signing in.
+        rescue(fn () => $user->forceFill(['last_login_at' => now()])->saveQuietly());
 
         return response()->json([
             'success' => true,
@@ -159,7 +170,7 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Forbidden.'], 403);
         }
 
-        $user = User::with(['roles', 'coordinatorProfile', 'school.subscriptions.plan'])->find($id);
+        $user = User::with(['roles', 'coordinatorProfile', 'deanProfile', 'school.subscriptions.plan'])->find($id);
 
         if (!$user) {
             return response()->json(['success' => false, 'message' => 'Account not found.'], 404);
@@ -194,6 +205,7 @@ class AuthController extends Controller
             'school_status' => $user->school?->status,
             'school_suspended' => $user->school?->is_suspended ?? false,
             'is_primary_coordinator' => $user->coordinatorProfile?->is_primary_coordinator ?? false,
+            'dean_position' => $user->deanProfile?->position,
             'subscription_status' => $subscription?->effectiveStatus(),
             'subscription_plan'   => $subscription?->plan?->name,
             'subscription_billing_period' => $subscription?->billing_period,

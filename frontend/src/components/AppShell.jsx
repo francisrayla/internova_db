@@ -192,6 +192,11 @@ export default function AppShell({
                   >
                     <span>{item.icon}</span>
                     <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
+                    {item.badge > 0 && (
+                      <span className={`ml-auto rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ${collapsed ? "lg:hidden" : ""}`} aria-label={`${item.badge} unread`}>
+                        {item.badge > 9 ? "9+" : item.badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

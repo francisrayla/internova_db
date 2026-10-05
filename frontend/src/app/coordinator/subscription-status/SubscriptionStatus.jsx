@@ -24,18 +24,22 @@ export default function SubscriptionStatus() {
   if (!user) return null;
 
   const isSuspended = user.school_suspended;
+  // Neither suspended nor lapsed: the school's subscription isn't active yet, and only the Dean can pay for it.
+  const isWaiting = !isSuspended && user.subscription_status !== "expired";
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center p-6">
       <div className="w-full max-w-lg rounded-3xl bg-white p-10 shadow-xl text-center">
         <div className="text-5xl">{isSuspended ? "⛔" : "⏳"}</div>
         <h1 className="mt-4 text-2xl font-bold text-slate-900">
-          {isSuspended ? "Account Suspended" : "Subscription Expired"}
+          {isSuspended ? "Account Suspended" : isWaiting ? "Waiting for your Dean" : "Subscription Expired"}
         </h1>
         <p className="mt-3 text-slate-600">
           {isSuspended
             ? `${user.school_name}'s access has been suspended by the Super Admin. Operational features are locked until access is restored.`
-            : `${user.school_name}'s subscription period has ended. Renew to restore full access to your workspace.`}
+            : isWaiting
+              ? `Waiting for your Dean to activate the subscription. Your workspace opens as soon as ${user.school_name}'s Dean accepts the plan and pays.`
+              : `${user.school_name}'s subscription period has ended. Ask your Dean to renew it to restore full access to your workspace.`}
         </p>
 
         <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-left text-sm space-y-2">
