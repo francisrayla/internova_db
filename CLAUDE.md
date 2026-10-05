@@ -5,7 +5,7 @@ Laravel API in `backend/`, Next.js app in `frontend/`. Deployed on Railway.
 ## Read less: use the feature logs first
 - Before reading source for a feature, read `.claude/feature-logs/INDEX.md`, then only that feature's `<slug>.md` (map of files, line ranges, how it works, how to test).
 - Run `bash .claude/feature-logs/changed.sh <slug>` to see which mapped files changed since the log was written. Read only those diffs. Trust the log for the rest.
-- For testing, fixing or changing a single feature, prefer delegating to the `Enter` agent (Sonnet, follows the same log workflow).
+- For testing, fixing or changing a single feature, prefer delegating to the `kyo` agent (Sonnet, follows the same log workflow).
 - If you change a feature in the main session, update its log before finishing: `last_commit`, Map line ranges, and one History line (keep the last 5).
 - A feature with no log yet: explore once, then create its log and add it to the INDEX.
 

@@ -1,5 +1,5 @@
 ---
-name: Enter
+name: kyo
 description: Feature worker for the Internova capstone (backend/ + frontend/). Use for testing, fixing or changing a specific feature (attendance, activities, verify email, etc.). It keeps a short log per feature in .claude/feature-logs/ so later runs only read what changed since the last logged commit instead of re-reading the whole feature.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
