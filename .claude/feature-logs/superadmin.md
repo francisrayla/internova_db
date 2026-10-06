@@ -1,6 +1,6 @@
 # Superadmin area (dashboard, schools, settings, AI usage, logs, inquiries, support, maintenance)
-last_commit: 1b9390d + uncommitted
-updated: 2026-10-05
+last_commit: 5a24cfb + uncommitted
+updated: 2026-10-06
 
 ## Map (where the code lives)
 - backend/app/Http/Controllers/Api/SuperadminFullController.php (1062 L); routes/api.php L27-51 (`auth:sanctum` + `role:super_admin`, prefix superadmin): schools L38; planInquiries L87; storeInquiry L120 (PUBLIC POST /api/inquiries, route L55); convertInquiryToSchool (now links the DEAN, creates DeanProfile); inviteDean + resendDeanInvitation (before toggleSchoolSuspension); schools() adds dean_name/dean_email/dean_setup; updateInquiry L625; sendReply L639 (Mail InquiryReply); plansFeatures L673 / updatePlan L699; aiUsage L758; support: mapSupportTicket L801, supportMessages L833, supportMessageShow L843, supportMessageReply L856, supportMessageUpdateStatus L909; activityLogs L934, activityLogSchools L983; systemSettings L1011, updateSystemSetting L1031. Payment/plan-change methods L314-624: see subscription-billing.md.
@@ -13,6 +13,8 @@ updated: 2026-10-05
 - Maintenance: frontend/src/app/maintenance/Maintenance.jsx (60; polls api/health), lib/apiFetch.js L49-57 redirects to /maintenance on 503 with body.maintenance; app/api/health/route.js. No Next middleware file references maintenance.
 - DB: users/roles, schools, plan_inquiries, settings (key,name,description,type,value), activity_logs, ai_usage_logs, support_tickets, support_ticket_messages.
 
+- NEW 2026-10-06: GET /api/superadmin/revenue (SuperadminFullController::revenue -> Services/RevenueReportService): collected_this_month/last_month (Manila month via LocalTime), total_collected, recurring_monthly (active, yearly/12), active_subscriptions, breakdown[] per subscription. Dashboard now uses frontend superadmin/dashboard/RevenuePanel.jsx (replaces the browser-side "Est. monthly revenue"). The dashboard data sources are /api/superadmin/{schools,plan-inquiries,activity-logs,ai-usage,revenue} (Next rewrite in next.config, no proxy files).
+
 ## How it works (max ~10 lines)
 UI page -> Next /api/superadmin/* proxy -> SuperadminFullController. Public inquiry creates a Dean account + PlanInquiry in a transaction (email verification); superadmin replies or converts to school. Support is ticket-based: coordinator creates/replies via CoordinatorSupportController, superadmins are notified (notifySuperadmins + mail), superadmin replies and changes status. Activity logs: other controllers call ActivityLogService::record at action points; the screen filters by school/module. System settings are key/value rows (toggle returns bool); maintenance_mode is enforced by the middleware, and the admin can still log in to turn it off. AI usage: per-school counts from ai_usage_logs plus ai_entitled via PlanFeatures.
 
@@ -20,5 +22,6 @@ UI page -> Next /api/superadmin/* proxy -> SuperadminFullController. Public inqu
 Existing: backend/tests/Feature/SuperadminApiTest.php (2 tests) hits GET /api/superadmin/dashboard and /users unauthenticated; no such routes appear in routes/api.php, so they are likely stale/failing (not run). Run: `cd backend && php artisan test --filter=SuperadminApiTest`. Manual: log in as super_admin; toggle Maintenance Mode in System Settings, a non-admin request should land on /maintenance and recover when off; submit /inquiry and reply from Inquiries; coordinator creates a ticket at /coordinator/support and superadmin replies at /superadmin/support.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-06 5a24cfb + uncommitted — server-side revenue endpoint + dashboard RevenuePanel; schools list carries breakdown/scheduled_switch; see subscription-billing.md — result: 102/102 tests pass
 - 2026-10-05 1b9390d + uncommitted — inquiry creates dean, invite-dean/resend routes + Schools page Dean column; support ticket replies notify by owner role (coordinator or dean); see dean.md — result: tests 23/23 pass (see dean.md)
 - 2026-10-05 cef02dc — first log created (read-only mapping, no code changes; tests not run) — result: n/a. Open question: no /superadmin/dashboard route in routes/api.php though SuperadminDashboard.jsx exists; verify its data source.

@@ -27,7 +27,7 @@ export default function SupervisorInternPortfolio() {
     <div className="space-y-6">
       <div>
         <Link href="/supervisor/interns" className="text-sm font-semibold text-blue-600 hover:underline">
-          ← Back to Assigned Interns
+          ← Back to Interns
         </Link>
         <h2 className="mt-2 text-lg font-semibold text-slate-900">{internName ? `${internName}'s Portfolio` : "Portfolio"}</h2>
       </div>

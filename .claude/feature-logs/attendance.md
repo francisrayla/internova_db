@@ -1,6 +1,6 @@
 # Attendance (intern / supervisor / coordinator, incl. offline queue)
-last_commit: cef02dc
-updated: 2026-10-05
+last_commit: 5a24cfb + uncommitted
+updated: 2026-10-06
 
 ## Map (where the code lives)
 - frontend/src/app/intern/attendance/Attendance.jsx (597 lines) — clock in/out camera+GPS flow (submit ~L279-306: enqueue when offline, AbortSignal.timeout(SUBMIT_TIMEOUT_MS)); history/list view ~L455-480 handles offline load.
@@ -21,6 +21,10 @@ updated: 2026-10-05
 - backend/app/Models/Attendance.php (boot hook ~L61 also dispatches narrative job); backend/app/Jobs/GenerateNarrativeForAttendance.php.
 - DB: attendances (create in 2026_08_11_000001_create_internova_schema.php L141); migrations add selfie/gps (2026_08_17_010000), auto_clocked_out (2026_09_24_120000), offline tracking clock_in/out_is_offline + *_synced_at (2026_10_01_010000); attendance_captures table in schema SQL.
 
+- Supervisor attendance list/log/review use visibleToSupervisor; intern clock in/out notifies ALL active company supervisors (notifySupervisors, one row each). (see coordinator-monitoring log for the shared rule)
+
+- backend/app/Support/LocalTime.php — ONE display tz (config app.display_timezone, env APP_DISPLAY_TIMEZONE, default Asia/Manila; storage stays UTC): today()/todayDate()/date()/time()/format()/of()/dayBounds()/whereLocalDate(); Carbon macro ->local() (AppServiceProvider) used for every human ->format() of a datetime column; use LocalTime::today()/date($clockTime) for any 'today'/attendance_date, whereLocalDate for whereDate on datetime columns (completed_at). Tests: tests/Feature/LocalTimeTest.php
+
 ## How it works
 Intern clocks in/out with selfie + GPS -> POST /api/intern/attendance/clock-in|out -> proxy -> InternMonitoringController. If offline or a network error/20s timeout, entry is queued locally (offlineQueue) with device/trusted time; OfflineStatus syncs when online and flags rows *_is_offline with synced_at; rejected ones are reported back. Offline intern is landed on Attendance page. Clock-out/auto clock-out triggers narrative job creating a "recorded" daily activity. Supervisor logs and reviews (PATCH) attendance; coordinator only views.
 
@@ -29,6 +33,8 @@ Intern clocks in/out with selfie + GPS -> POST /api/intern/attendance/clock-in|o
 - Manual: intern login, clock in with camera/GPS; DevTools Network -> Offline, clock in again, confirm queued badge, go online and confirm sync + offline flag; reload while offline confirms landing on /intern/attendance; supervisor page shows/approves; coordinator page lists.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-06 5a24cfb + uncommitted — main session: local demo attendance for deployment 1 (58 rows, selfie demo-*) shifted -8h so it is stored as UTC like real data (it had been inserted as Manila wall-clock); ledger now shows 07:57 AM–04:17 PM. Verified messenger: ⋮ visible on every bubble (390/1229), New group modal z-100 with black/60 backdrop, focus in the name field. Also re-encoded this file to UTF-8 (a cp1252 0x97 dash had crept in) — result: pass
+- 2026-10-06 5a24cfb + uncommitted — TIMEZONE FIX: clock times formatted Manila (->local()), attendance_date/today/day_ends_at/activity default from LocalTime (was UTC, 00:00-07:59 Manila clock-ins landed on yesterday); offline device_time offset respected; LocalTimeTest added — pass
+- 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
+- 2026-10-06 5a24cfb + uncommitted — sw.js SELF_DESTRUCT: on localhost/127.0.0.1 a worker registered without ?keep=1 (old dev registrations, e.g. the user's Edge) skips caching, and on activate deletes internova-* caches, unregisters and reloads open tabs. PwaRegister registers /sw.js?keep=1 in production builds, so deployed sites and local `npm start` keep offline mode. Verified in headless Chrome (old-style registration → 0 registrations, 0 caches) and by evaluating the flag for 4 URLs — result: pass
 - 2026-10-05 2489d09 + uncommitted — PwaRegister: service worker registers in production only; in `next dev` it unregisters any old worker and clears internova-* Cache Storage (offline clock-in queue is IndexedDB, untouched). Offline mode must be tested with build + start — result: tests 16/16, build ok
-- 2026-10-05 43bc039 + uncommitted — sw.js: /storage photos requested from the narrative report pages (/intern/portfolio/report, */narrative-report) and /api/**/narrative-report/docx are no longer handled by the service worker (keeps the 200-photo MEDIA cache and the stall timer intact); offline queue, other caches and attendance untouched. Verified by running the fetch handler in Node vs the original (headless Chrome + dev + SW fails on navigation even with the original sw.js) — result: pass
-- 2026-10-05 cef02dc — first log created from code reading (no tests run) — result: n/a

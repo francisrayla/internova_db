@@ -120,6 +120,8 @@ export default function EvaluationMonitoring() {
     }, {});
   }, [criteria]);
 
+  const criteriaTotal = criteria.reduce((n, c) => n + Number(c.max_score), 0);
+
   const visibleEvaluations = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return evaluations;
@@ -148,6 +150,11 @@ export default function EvaluationMonitoring() {
               </div>
             ))}
           </div>
+        )}
+        {criteria.length > 0 && criteriaTotal !== 100 && (
+          <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            Your criteria add up to {criteriaTotal} points. Most OJT forms use 100.
+          </p>
         )}
         <NewCriterionForm onSaved={load} />
       </section>

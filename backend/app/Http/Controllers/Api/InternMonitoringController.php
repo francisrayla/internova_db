@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Support\LocalTime;
 use App\Models\DailyActivity;
 use App\Models\Document;
 use App\Models\Evaluation;
@@ -19,6 +20,7 @@ use App\Models\TaskComment;
 use App\Models\TaskProof;
 use App\Jobs\GenerateNarrativeForAttendance;
 use App\Services\ActivityLogService;
+use App\Services\DeploymentHistoryService;
 use App\Services\DeploymentSummaryService;
 use App\Services\NarrativeAiService;
 use App\Services\NotificationService;
@@ -86,7 +88,7 @@ class InternMonitoringController extends Controller
         $evaluationsCount = Evaluation::where('deployment_id', $deployment->id)->count();
         $lastActivityDate = DailyActivity::where('deployment_id', $deployment->id)->max('activity_date');
         $hasActivityToday = DailyActivity::where('deployment_id', $deployment->id)
-            ->whereDate('activity_date', now()->toDateString())
+            ->whereDate('activity_date', LocalTime::today())
             ->exists();
 
         return response()->json([
@@ -95,6 +97,8 @@ class InternMonitoringController extends Controller
             'evaluations_count' => $evaluationsCount,
             'last_activity_date' => $lastActivityDate ? Carbon::parse($lastActivityDate)->format('M d, Y') : null,
             'has_activity_today' => $hasActivityToday,
+            // Earlier placements (empty when the intern was never reassigned).
+            'history' => DeploymentHistoryService::segments($deployment),
         ]);
     }
 
@@ -138,12 +142,12 @@ class InternMonitoringController extends Controller
             'status' => $t->status,
             'due_date' => $t->due_date?->format('M d, Y'),
             'due_date_raw' => $t->due_date?->format('Y-m-d'),
-            'created_at' => $t->created_at->format('M d, Y'),
-            'completed_at' => $t->completed_at?->format('M d, Y'),
+            'created_at' => $t->created_at->local()->format('M d, Y'),
+            'completed_at' => $t->completed_at?->local()?->format('M d, Y'),
             'evaluation' => $t->evaluation ? [
                 'rating' => (float) $t->evaluation->rating,
                 'comments' => $t->evaluation->comments,
-                'evaluated_at' => $t->evaluation->evaluated_at?->format('M d, Y'),
+                'evaluated_at' => $t->evaluation->evaluated_at?->local()?->format('M d, Y'),
             ] : null,
             'subtask_total' => $t->subtasks->count(),
             'subtask_done' => $t->subtasks->where('status', 'completed')->count(),
@@ -198,7 +202,7 @@ class InternMonitoringController extends Controller
             'id' => $c->id,
             'comment' => $c->comment,
             'author_name' => $c->user?->name,
-            'created_at' => $c->created_at->format('M d, Y g:i A'),
+            'created_at' => $c->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -210,7 +214,7 @@ class InternMonitoringController extends Controller
             'file_url' => Storage::disk('public')->url($p->file_path),
             'mime_type' => $p->mime_type,
             'uploaded_by_name' => trim("{$p->uploader?->first_name} {$p->uploader?->last_name}") ?: $p->uploader?->name,
-            'created_at' => $p->created_at->format('M d, Y g:i A'),
+            'created_at' => $p->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -482,11 +486,11 @@ class InternMonitoringController extends Controller
         return [
             'id' => $a->id,
             'attendance_date' => $a->attendance_date?->format('M d, Y'),
-            'clock_in' => $a->clock_in?->format('h:i A'),
+            'clock_in' => $a->clock_in?->local()?->format('h:i A'),
             'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
             'clock_in_location' => $a->clock_in_latitude !== null ? ['lat' => $a->clock_in_latitude, 'lng' => $a->clock_in_longitude] : null,
             'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
-            'clock_out' => $a->clock_out?->format('h:i A'),
+            'clock_out' => $a->clock_out?->local()?->format('h:i A'),
             'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
             'clock_out_location' => $a->clock_out_latitude !== null ? ['lat' => $a->clock_out_latitude, 'lng' => $a->clock_out_longitude] : null,
             'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
@@ -526,14 +530,14 @@ class InternMonitoringController extends Controller
         // day_ends_at lets the app tell, offline, when a cached copy of this
         // response belongs to a day that's already over — without it, a
         // "today's attendance complete" cached yesterday would block clock-in.
-        $dayEndsAt = now()->endOfDay()->toIso8601String();
+        $dayEndsAt = LocalTime::now()->endOfDay()->toIso8601String();
 
         if (!$deployment) {
             return response()->json(['record' => null, 'next_action' => null, 'day_ends_at' => $dayEndsAt]);
         }
 
         $record = Attendance::where('deployment_id', $deployment->id)
-            ->whereDate('attendance_date', now()->toDateString())
+            ->whereDate('attendance_date', LocalTime::today())
             ->first();
 
         $nextAction = !$record || !$record->clock_in ? 'clock_in' : (!$record->clock_out ? 'clock_out' : null);
@@ -628,7 +632,7 @@ class InternMonitoringController extends Controller
         // Bucketed by the day it actually happened on, not the day it
         // happened to sync on — an offline clock-in at 11pm that only
         // reaches the server the next morning still belongs to that first day.
-        $today = $clockTime->toDateString();
+        $today = LocalTime::date($clockTime);
         $existing = Attendance::where('deployment_id', $deployment->id)
             ->whereDate('attendance_date', $today)
             ->first();
@@ -651,17 +655,7 @@ class InternMonitoringController extends Controller
         ]);
         $attendance->save();
 
-        if ($deployment->supervisor_id) {
-            NotificationService::toUser(
-                'supervisor',
-                $deployment->supervisor_id,
-                $deployment->school_id,
-                'attendance_logged',
-                'Attendance logged',
-                "{$request->user()->name} clocked in for {$attendance->attendance_date->format('M d, Y')}.",
-                '/supervisor/attendance'
-            );
-        }
+        $deployment->notifySupervisors('attendance_logged', 'Attendance logged', "{$request->user()->name} clocked in for {$attendance->attendance_date->format('M d, Y')}.", '/supervisor/attendance');
 
         ActivityLogService::record(
             module: 'Attendance',
@@ -708,17 +702,7 @@ class InternMonitoringController extends Controller
             'status' => 'approved',
         ]);
 
-        if ($deployment->supervisor_id) {
-            NotificationService::toUser(
-                'supervisor',
-                $deployment->supervisor_id,
-                $deployment->school_id,
-                'attendance_logged',
-                'Attendance completed',
-                "{$request->user()->name} clocked out for {$attendance->attendance_date->format('M d, Y')}.",
-                '/supervisor/attendance'
-            );
-        }
+        $deployment->notifySupervisors('attendance_logged', 'Attendance completed', "{$request->user()->name} clocked out for {$attendance->attendance_date->format('M d, Y')}.", '/supervisor/attendance');
 
         ActivityLogService::record(
             module: 'Attendance',
@@ -768,7 +752,7 @@ class InternMonitoringController extends Controller
 
         Attendance::whereIn('deployment_id', $deploymentIds)
             ->whereNotNull('clock_out')
-            ->where('attendance_date', '<', now()->toDateString())
+            ->where('attendance_date', '<', LocalTime::today())
             ->get(['id', 'deployment_id', 'attendance_date'])
             ->each(function (Attendance $a) use ($loggedDates) {
                 $key = "{$a->deployment_id}:{$a->attendance_date->toDateString()}";
@@ -812,20 +796,20 @@ class InternMonitoringController extends Controller
     public function activitySuggestions(Request $request): JsonResponse
     {
         $internId = $request->user()->id;
-        $today = now()->toDateString();
+        $today = LocalTime::today();
 
         $usedTaskIds = DailyActivity::whereNotNull('source_task_id')->pluck('source_task_id');
         $usedSubtaskIds = DailyActivity::whereNotNull('source_subtask_id')->pluck('source_subtask_id');
 
         $tasks = Task::whereHas('assignees', fn ($q) => $q->where('user_id', $internId))
             ->where('status', 'completed')
-            ->whereDate('completed_at', $today)
+            ->where(fn ($q) => LocalTime::whereLocalDate($q, 'completed_at', $today))
             ->whereNotIn('id', $usedTaskIds)
             ->get(['id', 'title', 'description']);
 
         $subtasks = Subtask::whereHas('task.assignees', fn ($q) => $q->where('user_id', $internId))
             ->where('status', 'completed')
-            ->whereDate('completed_at', $today)
+            ->where(fn ($q) => LocalTime::whereLocalDate($q, 'completed_at', $today))
             ->whereNotIn('id', $usedSubtaskIds)
             ->with('task:id,title')
             ->get(['id', 'task_id', 'title', 'description']);
@@ -884,7 +868,7 @@ class InternMonitoringController extends Controller
             'activity_date' => 'nullable|date',
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:4000',
-            'photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:5120',
+            'photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
             'source_task_id' => 'nullable|integer',
             'source_subtask_id' => 'nullable|integer',
         ]);
@@ -912,7 +896,7 @@ class InternMonitoringController extends Controller
             'deployment_id' => $deployment->id,
             'source_task_id' => $sourceTaskId,
             'source_subtask_id' => $sourceSubtaskId,
-            'activity_date' => $data['activity_date'] ?? now()->toDateString(),
+            'activity_date' => $data['activity_date'] ?? LocalTime::today(),
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
             'photo_path' => $photoPath,
@@ -1013,7 +997,7 @@ class InternMonitoringController extends Controller
             'file_url' => Storage::disk('public')->url($d->file_path),
             'status' => $d->status,
             'remarks' => $d->remarks,
-            'uploaded_at' => $d->created_at->format('M d, Y'),
+            'uploaded_at' => $d->created_at->local()->format('M d, Y'),
         ];
     }
 
@@ -1040,7 +1024,7 @@ class InternMonitoringController extends Controller
 
         $data = $request->validate([
             'document_type' => 'required|string|max:100',
-            'file' => 'required|file|mimes:jpg,jpeg,png,pdf,doc,docx|max:5120',
+            'file' => 'required|file|mimes:jpg,jpeg,png,pdf,doc,docx|max:10240',
         ]);
 
         $schoolId = $request->user()->school_id;
@@ -1133,7 +1117,7 @@ class InternMonitoringController extends Controller
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
             'project_url' => 'nullable|url|max:255',
-            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:3072',
+            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
         ]);
 
         $imagePath = null;

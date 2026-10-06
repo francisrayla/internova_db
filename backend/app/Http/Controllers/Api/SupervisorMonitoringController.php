@@ -18,6 +18,7 @@ use App\Models\TaskAssignee;
 use App\Models\TaskComment;
 use App\Models\TaskEvaluation;
 use App\Models\TaskProof;
+use App\Models\User;
 use App\Services\ActivityLogService;
 use App\Services\DeploymentSummaryService;
 use App\Services\NotificationService;
@@ -29,22 +30,22 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * A supervisor only ever sees the interns actually assigned to them
- * (deployment.supervisor_id = the logged-in user) — never their whole
+ * A supervisor sees every intern deployed at their company (shared with the
+ * company's other supervisor) via InternshipDeployment::visibleToSupervisor — never their whole
  * school's roster the way a coordinator does. Attendance is the one thing
  * a supervisor can log/approve that a coordinator can't: they're the one
  * who's actually there to see whether the intern showed up.
  */
 class SupervisorMonitoringController extends Controller
 {
-    private function deploymentIdsForSupervisor(int $supervisorId): array
+    private function deploymentIdsForSupervisor(User $user): array
     {
-        return InternshipDeployment::where('supervisor_id', $supervisorId)->pluck('id')->all();
+        return InternshipDeployment::visibleToSupervisor($user)->pluck('id')->all();
     }
 
-    private function deploymentForSupervisor(int $deploymentId, int $supervisorId): ?InternshipDeployment
+    private function deploymentForSupervisor(int $deploymentId, User $user): ?InternshipDeployment
     {
-        return InternshipDeployment::where('id', $deploymentId)->where('supervisor_id', $supervisorId)->first();
+        return InternshipDeployment::visibleToSupervisor($user)->where('id', $deploymentId)->first();
     }
 
     public function interns(Request $request): JsonResponse
@@ -52,8 +53,8 @@ class SupervisorMonitoringController extends Controller
         $supervisorId = $request->user()->id;
         $schoolId = $request->user()->school_id;
 
-        $deployments = InternshipDeployment::with(['intern', 'company', 'supervisor'])
-            ->where('supervisor_id', $supervisorId)
+        $deployments = InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
+            ->visibleToSupervisor($request->user())
             ->orderByDesc('id')
             ->get();
 
@@ -72,9 +73,9 @@ class SupervisorMonitoringController extends Controller
      */
     public function internPortfolio(Request $request, int $deploymentId): JsonResponse
     {
-        $deployment = $this->deploymentForSupervisor($deploymentId, $request->user()->id);
+        $deployment = $this->deploymentForSupervisor($deploymentId, $request->user());
         if (!$deployment) {
-            return response()->json(['success' => false, 'message' => 'This intern is not assigned to you.'], 404);
+            return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
         }
 
         $portfolio = Portfolio::with('items')->where('intern_id', $deployment->intern_id)->first();
@@ -89,7 +90,7 @@ class SupervisorMonitoringController extends Controller
     {
         $supervisorId = $request->user()->id;
 
-        $query = Task::with(['assignees.user', 'subtasks', 'evaluation'])->where('assigned_by', $supervisorId)->orderByDesc('id');
+        $query = Task::with(['assignees.user', 'subtasks', 'evaluation'])->visibleToSupervisor($request->user())->orderByDesc('id');
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -97,7 +98,7 @@ class SupervisorMonitoringController extends Controller
 
         $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t));
 
-        return response()->json(['tasks' => $tasks, 'interns' => $this->internOptions($supervisorId)]);
+        return response()->json(['tasks' => $tasks, 'interns' => $this->internOptions($request->user())]);
     }
 
     private function mapTaskRow(Task $t): array
@@ -120,21 +121,21 @@ class SupervisorMonitoringController extends Controller
             'status' => $t->status,
             'due_date' => $t->due_date?->format('M d, Y'),
             'due_date_raw' => $t->due_date?->format('Y-m-d'),
-            'created_at' => $t->created_at->format('M d, Y'),
-            'completed_at' => $t->completed_at?->format('M d, Y'),
+            'created_at' => $t->created_at->local()->format('M d, Y'),
+            'completed_at' => $t->completed_at?->local()?->format('M d, Y'),
             'evaluation' => $t->evaluation ? [
                 'rating' => (float) $t->evaluation->rating,
                 'comments' => $t->evaluation->comments,
-                'evaluated_at' => $t->evaluation->evaluated_at?->format('M d, Y'),
+                'evaluated_at' => $t->evaluation->evaluated_at?->local()?->format('M d, Y'),
             ] : null,
             'subtask_total' => $t->subtasks->count(),
             'subtask_done' => $t->subtasks->where('status', 'completed')->count(),
         ];
     }
 
-    private function taskForSupervisor(int $taskId, int $supervisorId): ?Task
+    private function taskForSupervisor(int $taskId, User $user): ?Task
     {
-        return Task::where('assigned_by', $supervisorId)->find($taskId);
+        return Task::visibleToSupervisor($user)->find($taskId);
     }
 
     public function storeTask(Request $request): JsonResponse
@@ -158,12 +159,12 @@ class SupervisorMonitoringController extends Controller
         // Only deployments actually supervised by this supervisor can be
         // assigned — this also silently drops any id that doesn't belong to
         // them rather than trusting the client-submitted list.
-        $deployments = InternshipDeployment::where('supervisor_id', $supervisorId)
+        $deployments = InternshipDeployment::visibleToSupervisor($request->user())
             ->whereIn('id', $data['deployment_ids'])
             ->get();
 
         if ($deployments->isEmpty()) {
-            return response()->json(['success' => false, 'message' => 'Select at least one intern you supervise.'], 422);
+            return response()->json(['success' => false, 'message' => 'Select at least one intern at your company.'], 422);
         }
 
         // A leader only makes sense on a group task, and has to actually be
@@ -206,7 +207,7 @@ class SupervisorMonitoringController extends Controller
     public function taskShow(Request $request, int $id): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $task = $this->taskForSupervisor($id, $supervisorId);
+        $task = $this->taskForSupervisor($id, $request->user());
         if (!$task) {
             return response()->json(['success' => false, 'message' => 'Task not found.'], 404);
         }
@@ -228,7 +229,7 @@ class SupervisorMonitoringController extends Controller
         }
 
         $supervisorId = $request->user()->id;
-        $task = $this->taskForSupervisor($id, $supervisorId);
+        $task = $this->taskForSupervisor($id, $request->user());
         if (!$task) {
             return response()->json(['success' => false, 'message' => 'Task not found.'], 404);
         }
@@ -304,7 +305,7 @@ class SupervisorMonitoringController extends Controller
             'file_url' => Storage::disk('public')->url($p->file_path),
             'mime_type' => $p->mime_type,
             'uploaded_by_name' => trim("{$p->uploader?->first_name} {$p->uploader?->last_name}") ?: $p->uploader?->name,
-            'created_at' => $p->created_at->format('M d, Y g:i A'),
+            'created_at' => $p->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -314,7 +315,7 @@ class SupervisorMonitoringController extends Controller
             'id' => $c->id,
             'comment' => $c->comment,
             'author_name' => $c->user?->name,
-            'created_at' => $c->created_at->format('M d, Y g:i A'),
+            'created_at' => $c->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -325,7 +326,7 @@ class SupervisorMonitoringController extends Controller
         }
 
         $supervisorId = $request->user()->id;
-        $task = $this->taskForSupervisor($taskId, $supervisorId);
+        $task = $this->taskForSupervisor($taskId, $request->user());
         if (!$task) {
             return response()->json(['success' => false, 'message' => 'Task not found.'], 404);
         }
@@ -365,7 +366,7 @@ class SupervisorMonitoringController extends Controller
     public function destroySubtask(Request $request, int $id): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $subtask = $this->subtaskForSupervisor($id, $supervisorId);
+        $subtask = $this->subtaskForSupervisor($id, $request->user());
         if (!$subtask) {
             return response()->json(['success' => false, 'message' => 'Subtask not found.'], 404);
         }
@@ -377,15 +378,15 @@ class SupervisorMonitoringController extends Controller
         return response()->json(['success' => true, 'message' => 'Subtask removed.']);
     }
 
-    private function subtaskForSupervisor(int $subtaskId, int $supervisorId): ?Subtask
+    private function subtaskForSupervisor(int $subtaskId, User $user): ?Subtask
     {
-        return Subtask::whereHas('task', fn ($q) => $q->where('assigned_by', $supervisorId))->find($subtaskId);
+        return Subtask::whereHas('task', fn ($q) => $q->visibleToSupervisor($user))->find($subtaskId);
     }
 
     public function storeTaskComment(Request $request, int $taskId): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $task = $this->taskForSupervisor($taskId, $supervisorId);
+        $task = $this->taskForSupervisor($taskId, $request->user());
         if (!$task) {
             return response()->json(['success' => false, 'message' => 'Task not found.'], 404);
         }
@@ -417,7 +418,7 @@ class SupervisorMonitoringController extends Controller
     public function storeSubtaskComment(Request $request, int $subtaskId): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $subtask = $this->subtaskForSupervisor($subtaskId, $supervisorId);
+        $subtask = $this->subtaskForSupervisor($subtaskId, $request->user());
         if (!$subtask) {
             return response()->json(['success' => false, 'message' => 'Subtask not found.'], 404);
         }
@@ -450,7 +451,7 @@ class SupervisorMonitoringController extends Controller
     public function attendance(Request $request): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $deploymentIds = $this->deploymentIdsForSupervisor($supervisorId);
+        $deploymentIds = $this->deploymentIdsForSupervisor($request->user());
 
         $query = Attendance::with('deployment.intern')
             ->whereIn('deployment_id', $deploymentIds)
@@ -471,10 +472,10 @@ class SupervisorMonitoringController extends Controller
                 'deployment_id' => $a->deployment_id,
                 'intern_name' => trim("{$a->deployment?->intern?->first_name} {$a->deployment?->intern?->last_name}") ?: $a->deployment?->intern?->name,
                 'attendance_date' => $a->attendance_date?->format('M d, Y'),
-                'clock_in' => $a->clock_in?->format('h:i A'),
+                'clock_in' => $a->clock_in?->local()?->format('h:i A'),
                 'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
                 'clock_in_location' => $a->clock_in_latitude !== null ? ['lat' => $a->clock_in_latitude, 'lng' => $a->clock_in_longitude] : null,
-                'clock_out' => $a->clock_out?->format('h:i A'),
+                'clock_out' => $a->clock_out?->local()?->format('h:i A'),
                 'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
                 'clock_out_location' => $a->clock_out_latitude !== null ? ['lat' => $a->clock_out_latitude, 'lng' => $a->clock_out_longitude] : null,
                 'auto_clocked_out' => (bool) $a->auto_clocked_out,
@@ -486,7 +487,7 @@ class SupervisorMonitoringController extends Controller
             'total' => $records->total(),
             'page' => $records->currentPage(),
             'has_more' => $records->hasMorePages(),
-            'interns' => $this->internOptions($supervisorId),
+            'interns' => $this->internOptions($request->user()),
         ]);
     }
 
@@ -501,9 +502,9 @@ class SupervisorMonitoringController extends Controller
             'clock_out' => 'nullable|date_format:H:i|after:clock_in',
         ]);
 
-        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $supervisorId);
+        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
-            return response()->json(['success' => false, 'message' => 'This intern is not assigned to you.'], 404);
+            return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
         }
 
         // A supervisor logging attendance was there to see it happen — no
@@ -532,7 +533,7 @@ class SupervisorMonitoringController extends Controller
         $supervisorId = $request->user()->id;
         $data = $request->validate(['status' => 'required|string|in:approved,rejected']);
 
-        $attendance = Attendance::whereIn('deployment_id', $this->deploymentIdsForSupervisor($supervisorId))->find($id);
+        $attendance = Attendance::whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))->find($id);
         if (!$attendance) {
             return response()->json(['success' => false, 'message' => 'Attendance record not found.'], 404);
         }
@@ -563,10 +564,10 @@ class SupervisorMonitoringController extends Controller
         return response()->json(['success' => true, 'message' => 'Attendance updated.']);
     }
 
-    private function internOptions(int $supervisorId): array
+    private function internOptions(User $user): array
     {
         return InternshipDeployment::with('intern')
-            ->where('supervisor_id', $supervisorId)
+            ->visibleToSupervisor($user)
             ->where('status', 'active')
             ->get()
             ->map(fn (InternshipDeployment $d) => [
@@ -621,7 +622,7 @@ class SupervisorMonitoringController extends Controller
     public function evaluations(Request $request): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $deploymentIds = $this->deploymentIdsForSupervisor($supervisorId);
+        $deploymentIds = $this->deploymentIdsForSupervisor($request->user());
 
         $query = Evaluation::with(['deployment.intern', 'evaluator', 'scores.criterion'])
             ->whereIn('deployment_id', $deploymentIds)
@@ -633,7 +634,7 @@ class SupervisorMonitoringController extends Controller
 
         $evaluations = $query->get()->map(fn (Evaluation $e) => $this->mapEvaluation($e));
 
-        return response()->json(['evaluations' => $evaluations, 'interns' => $this->internOptions($supervisorId)]);
+        return response()->json(['evaluations' => $evaluations, 'interns' => $this->internOptions($request->user())]);
     }
 
     private function mapEvaluation(Evaluation $e): array
@@ -682,9 +683,9 @@ class SupervisorMonitoringController extends Controller
             'scores.*.remarks' => 'nullable|string|max:500',
         ]);
 
-        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $supervisorId);
+        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
-            return response()->json(['success' => false, 'message' => 'This intern is not assigned to you.'], 404);
+            return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
         }
 
         $criteria = EvaluationCriterion::whereIn('id', collect($data['scores'])->pluck('criteria_id'))
@@ -765,9 +766,9 @@ class SupervisorMonitoringController extends Controller
             'remarks' => 'nullable|string|max:2000',
         ]);
 
-        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $supervisorId);
+        $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
-            return response()->json(['success' => false, 'message' => 'This intern is not assigned to you.'], 404);
+            return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
         }
 
         $evaluation = Evaluation::create([
@@ -810,7 +811,7 @@ class SupervisorMonitoringController extends Controller
     public function activities(Request $request): JsonResponse
     {
         $supervisorId = $request->user()->id;
-        $deploymentIds = $this->deploymentIdsForSupervisor($supervisorId);
+        $deploymentIds = $this->deploymentIdsForSupervisor($request->user());
 
         $query = DailyActivity::with('deployment.intern')
             ->whereIn('deployment_id', $deploymentIds)
@@ -836,7 +837,7 @@ class SupervisorMonitoringController extends Controller
             'review_remarks' => $a->review_remarks,
         ]);
 
-        return response()->json(['activities' => $activities, 'interns' => $this->internOptions($supervisorId)]);
+        return response()->json(['activities' => $activities, 'interns' => $this->internOptions($request->user())]);
     }
 
     public function reviewActivity(Request $request, int $id): JsonResponse
@@ -847,7 +848,7 @@ class SupervisorMonitoringController extends Controller
             'review_remarks' => 'nullable|string|max:500',
         ]);
 
-        $activity = DailyActivity::whereIn('deployment_id', $this->deploymentIdsForSupervisor($supervisorId))->find($id);
+        $activity = DailyActivity::whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))->find($id);
         if (!$activity) {
             return response()->json(['success' => false, 'message' => 'Activity entry not found.'], 404);
         }
@@ -903,7 +904,7 @@ class SupervisorMonitoringController extends Controller
         ]);
 
         $activities = DailyActivity::with('deployment.intern')
-            ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($supervisorId))
+            ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))
             ->whereIn('id', $data['ids'])
             ->where('status', DailyActivity::PENDING)
             ->get();

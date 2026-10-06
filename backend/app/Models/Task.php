@@ -19,6 +19,12 @@ class Task extends Model
         return $this->belongsTo(Company::class);
     }
 
+    /** Tasks assigned to interns at the supervisor's company (any supervisor there). */
+    public function scopeVisibleToSupervisor($query, User $user)
+    {
+        return $query->whereHas('assignees', fn ($q) => $q->whereIn('deployment_id', InternshipDeployment::visibleToSupervisor($user)->select('id')));
+    }
+
     public function assignedBy()
     {
         return $this->belongsTo(User::class, 'assigned_by');
@@ -103,16 +109,27 @@ class Task extends Model
             'completed_at' => $status === 'completed' ? now() : null,
         ]);
 
-        if ($status === 'completed' && !$wasCompleted && $this->assigned_by) {
-            NotificationService::send(
-                audienceRole: 'supervisor',
-                type: 'task_completed',
-                title: 'Task completed — ready to rate',
-                body: "\"{$this->title}\" is done. Rate it to close it out.",
-                schoolId: $this->company?->school_id,
-                userId: $this->assigned_by,
-                link: "/supervisor/tasks/{$this->id}",
-            );
+        if ($status === 'completed' && !$wasCompleted) {
+            // Every active supervisor of the task's company can rate it, so all of
+            // them are told (one row each). Falls back to the creator.
+            $companyIds = InternshipDeployment::whereIn('id', $this->assignees()->pluck('deployment_id'))->pluck('company_id')->push($this->company_id)->filter()->unique();
+            $ids = SupervisorProfile::whereIn('company_id', $companyIds)
+                ->whereHas('user', fn ($q) => $q->where('status', 'active'))
+                ->pluck('user_id')->unique();
+            if ($ids->isEmpty() && $this->assigned_by) {
+                $ids = collect([$this->assigned_by]);
+            }
+            foreach ($ids as $uid) {
+                NotificationService::send(
+                    audienceRole: 'supervisor',
+                    type: 'task_completed',
+                    title: 'Task completed — ready to rate',
+                    body: "\"{$this->title}\" is done. Rate it to close it out.",
+                    schoolId: $this->company?->school_id,
+                    userId: $uid,
+                    link: "/supervisor/tasks/{$this->id}",
+                );
+            }
         }
     }
 }

@@ -179,6 +179,9 @@ class NarrativeReportTest extends TestCase
         $this->assertNull($res->json('documents.endorsement_letter'));
         $this->assertSame(9, $res->json('ledger.total_hours'));
         $this->assertCount(1, $res->json('ledger.rows'));
+        // Stored UTC (08:00-17:00) is shown in Manila time.
+        $this->assertSame('04:00 PM', $res->json('ledger.rows.0.time_in'));
+        $this->assertSame('01:00 AM', $res->json('ledger.rows.0.time_out'));
         // Only the recorded entry reaches the journal.
         $this->assertCount(1, $res->json('journal'));
         $this->assertSame('Filed records.', $res->json('journal.0.schedule'));

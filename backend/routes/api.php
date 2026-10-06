@@ -41,6 +41,7 @@ Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->g
     Route::post('/schools/{id}/resend-offer', [SuperadminFullController::class, 'resendSchoolOffer']);
     Route::post('/schools/{id}/invite-dean', [SuperadminFullController::class, 'inviteDean']);
     Route::post('/schools/{id}/resend-dean-invitation', [SuperadminFullController::class, 'resendDeanInvitation']);
+    Route::get('/revenue', [SuperadminFullController::class, 'revenue']);
     Route::get('/plans-features', [SuperadminFullController::class, 'plansFeatures']);
     Route::patch('/plans/{id}', [SuperadminFullController::class, 'updatePlan']);
     Route::get('/ai-usage', [SuperadminFullController::class, 'aiUsage']);
@@ -205,6 +206,7 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean'])->group(function
         Route::post('/schools/{id}/verify-checkout', [DeanSubscriptionController::class, 'verifyCheckout']);
         Route::post('/schools/{id}/upload-proof', [DeanSubscriptionController::class, 'uploadProof']);
         Route::post('/schools/{id}/switch-plan', [DeanSubscriptionController::class, 'switchPlan']);
+        Route::post('/schools/{id}/cancel-scheduled-switch', [DeanSubscriptionController::class, 'cancelScheduledSwitch']);
         Route::post('/schools/{id}/upgrade-plan', [DeanSubscriptionController::class, 'requestUpgrade']);
         Route::post('/schools/{id}/cancel-pending-upgrade', [DeanSubscriptionController::class, 'cancelPendingUpgrade']);
         Route::get('/schools/{id}/upgrade-quote', [DeanSubscriptionController::class, 'upgradeQuote']);
@@ -251,8 +253,8 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean'])->group(function
 });
 
 Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->group(function () {
-    // Always scoped server-side to deployments where supervisor_id is the
-    // logged-in supervisor — never their whole school's roster.
+    // Always scoped server-side to deployments at the supervisor's company (InternshipDeployment::visibleToSupervisor) — never their
+    // whole school's roster; both supervisors of a company share their interns.
     Route::get('/interns', [SupervisorMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}/portfolio', [SupervisorMonitoringController::class, 'internPortfolio']);
 

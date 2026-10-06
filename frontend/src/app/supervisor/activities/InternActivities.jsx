@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 const STATUS_STYLES = {
   approved: "bg-emerald-100 text-emerald-700",
@@ -19,6 +20,7 @@ export default function InternActivities() {
   const [busyId, setBusyId] = useState(null);
   const [approvingAll, setApprovingAll] = useState(false);
   const [notice, setNotice] = useState("");
+  const [confirmApprove, setConfirmApprove] = useState(false);
 
   function load() {
     const params = statusFilter ? `?status=${statusFilter}` : "";
@@ -33,8 +35,7 @@ export default function InternActivities() {
   const pendingIds = activities.filter((a) => a.status === "pending").map((a) => a.id);
 
   async function approveAll() {
-    const count = pendingIds.length;
-    if (!window.confirm(`Approve all ${count} pending ${count === 1 ? "entry" : "entries"}? Approved entries go into the interns' narrative reports.`)) return;
+    setConfirmApprove(false);
     setApprovingAll(true);
     setError("");
     setNotice("");
@@ -95,7 +96,7 @@ export default function InternActivities() {
         {!loading && pendingIds.length > 0 && (
           <button
             type="button"
-            onClick={approveAll}
+            onClick={() => setConfirmApprove(true)}
             disabled={approvingAll || busyId !== null}
             className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
           >
@@ -154,6 +155,9 @@ export default function InternActivities() {
           ))
         )}
       </section>
+      <ConfirmDialog open={confirmApprove} title={`Approve all ${pendingIds.length} pending ${pendingIds.length === 1 ? "entry" : "entries"}?`} tone="primary" confirmLabel="Approve all" onConfirm={approveAll} onCancel={() => setConfirmApprove(false)}>
+        <p>Approved entries go into the interns&apos; narrative reports.</p>
+      </ConfirmDialog>
     </div>
   );
 }

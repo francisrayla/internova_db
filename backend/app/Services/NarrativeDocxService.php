@@ -142,6 +142,9 @@ class NarrativeDocxService
         if (!empty($data['company']['address'])) {
             $section->addText(mb_strtoupper($data['company']['address']), $bold, $c);
         }
+        foreach ($data['deployment']['previous'] ?? [] as $p) {
+            $section->addText((string) $p['label'], ['italic' => true, 'size' => 11], $c + ['spaceBefore' => 120]);
+        }
 
         $seal = $this->prepareImage(resource_path('narrative/ched-logo.png'), 600);
         if ($seal) {
@@ -275,12 +278,13 @@ class NarrativeDocxService
         if (!$ledger['rows']) {
             return;
         }
-        $w = [1900, 1700, 1700, 1500, 1840];
+        $multi = !empty($ledger['multi_company']);
+        $w = $multi ? [1400, 1300, 1300, 900, 1240, 2500] : [1900, 1700, 1700, 1500, 1840];
         $table = $section->addTable($this->tableStyle());
-        $this->headerRow($table, $w, ['DATE', 'TIME IN', 'TIME OUT', 'HOURS', 'TOTAL HOURS']);
+        $this->headerRow($table, $w, array_merge(['DATE', 'TIME IN', 'TIME OUT', 'HOURS', 'TOTAL HOURS'], $multi ? ['COMPANY'] : []));
         foreach ($ledger['rows'] as $r) {
             $table->addRow(null, ['cantSplit' => true]);
-            foreach ([$r['date'], $r['time_in'], $r['time_out'], $r['hours'], $r['running_total']] as $i => $v) {
+            foreach (array_merge([$r['date'], $r['time_in'], $r['time_out'], $r['hours'], $r['running_total']], $multi ? [$r['company'] ?? ''] : []) as $i => $v) {
                 $table->addCell($w[$i])->addText((string) $v, ['size' => 11], ['alignment' => Jc::CENTER]);
             }
         }
@@ -386,6 +390,9 @@ class NarrativeDocxService
                 $table->addCell($w[$i])->addText((string) $v, ['size' => 11]);
             }
             $cell = $table->addCell($w[4]);
+            if (!empty($r['company'])) {
+                $cell->addText('At ' . $r['company'], ['size' => 9, 'italic' => true]);
+            }
             $lines = preg_split('/\n/', (string) $r['schedule']);
             foreach ($lines as $line) {
                 $cell->addText($line, ['size' => 11]);

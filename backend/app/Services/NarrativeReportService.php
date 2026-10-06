@@ -24,12 +24,17 @@ class NarrativeReportService
 
     public static function build(InternshipDeployment $d): array
     {
-        $d->loadMissing(['intern', 'company', 'supervisor', 'school']);
+        $d->loadMissing(['intern', 'company.activeSupervisorProfiles.user', 'school']);
         $school = $d->school;
         $profile = InternProfile::where('user_id', $d->intern_id)->where('school_id', $d->school_id)->first();
         $summary = DeploymentSummaryService::summarize($d, $profile);
         $studentName = $summary['intern_name'];
         $companyName = $d->company?->company_name;
+
+        // Transfer history (empty when never reassigned): the company in effect on each date.
+        $segments = DeploymentHistoryService::segments($d);
+        $multi = count($segments) > 1;
+        $companyOn = fn (?string $day) => $multi ? DeploymentHistoryService::companyOn($segments, $day) : null;
 
         $template = NarrativeTemplateService::resolve($school, $d->start_date, [
             'company_name' => $companyName,
@@ -74,10 +79,11 @@ class NarrativeReportService
             $running += $hours;
             $ledger[] = [
                 'date' => $a->attendance_date?->format('M d, Y'),
-                'time_in' => $a->clock_in->format('h:i A'),
-                'time_out' => $a->clock_out->format('h:i A'),
+                'time_in' => $a->clock_in->local()->format('h:i A'),
+                'time_out' => $a->clock_out->local()->format('h:i A'),
                 'hours' => $hours,
                 'running_total' => round($running, 2),
+                'company' => $companyOn($a->attendance_date?->toDateString()),
             ];
         }
 
@@ -85,10 +91,10 @@ class NarrativeReportService
         foreach ($approved as $a) {
             $date = $a->attendance_date?->format('M d, Y');
             if ($a->clock_in_selfie_path) {
-                $attendancePhotos[] = ['url' => $url($a->clock_in_selfie_path), 'date' => $date, 'time' => $a->clock_in?->format('h:i A'), 'kind' => 'Time in'];
+                $attendancePhotos[] = ['url' => $url($a->clock_in_selfie_path), 'date' => $date, 'time' => $a->clock_in?->local()?->format('h:i A'), 'kind' => 'Time in'];
             }
             if ($a->clock_out_selfie_path) {
-                $attendancePhotos[] = ['url' => $url($a->clock_out_selfie_path), 'date' => $date, 'time' => $a->clock_out?->format('h:i A'), 'kind' => 'Time out'];
+                $attendancePhotos[] = ['url' => $url($a->clock_out_selfie_path), 'date' => $date, 'time' => $a->clock_out?->local()?->format('h:i A'), 'kind' => 'Time out'];
             }
         }
 
@@ -111,8 +117,9 @@ class NarrativeReportService
             $key = $a->attendance_date?->toDateString();
             if ($key) {
                 $days[$key]['date'] = $a->attendance_date;
-                $days[$key]['am'] = $a->clock_in?->format('h:i A');
-                $days[$key]['pm'] = $a->clock_out?->format('h:i A');
+                $days[$key]['am'] = $a->clock_in?->local()?->format('h:i A');
+                $days[$key]['pm'] = $a->clock_out?->local()?->format('h:i A');
+                $days[$key]['company'] = $companyOn($key);
             }
         }
         foreach ($activities as $act) {
@@ -120,6 +127,7 @@ class NarrativeReportService
             if ($key) {
                 $days[$key]['date'] = $act->activity_date;
                 $days[$key]['entries'][] = trim($act->description ?: $act->title);
+                $days[$key]['company'] ??= $companyOn($key);
             }
         }
         ksort($days);
@@ -129,6 +137,7 @@ class NarrativeReportService
             'am' => $row['am'] ?? null,
             'pm' => $row['pm'] ?? null,
             'schedule' => implode("\n\n", array_filter($row['entries'] ?? [])),
+            'company' => $row['company'] ?? null,
         ], $days));
 
         return [
@@ -151,8 +160,15 @@ class NarrativeReportService
                 'end_date' => $summary['end_date'],
                 'required_hours' => $summary['required_hours'],
                 'hours_completed' => $summary['hours_completed'],
+                // Earlier placements, for one line on the title page: "Previously deployed at X, Apr 20 – Oct 19, 2026".
+                'previous' => collect($segments)->reject(fn ($x) => $x['is_current'])->map(fn ($x) => [
+                    'company_name' => $x['company_name'],
+                    'range' => $x['range'],
+                    'hours' => $x['hours'],
+                    'label' => "Previously deployed at {$x['company_name']}" . ($x['range'] ? ", {$x['range']}" : ''),
+                ])->values()->all(),
             ],
-            'ledger' => ['rows' => $ledger, 'total_hours' => round($running, 2), 'required_hours' => $d->required_hours],
+            'ledger' => ['multi_company' => $multi, 'rows' => $ledger, 'total_hours' => round($running, 2), 'required_hours' => $d->required_hours],
             'attendance_photos' => $attendancePhotos,
             'duties' => ['intro' => NarrativeTemplateService::DUTIES_INTRO, 'tasks' => $taskRows],
             'task_photos' => $taskPhotos,

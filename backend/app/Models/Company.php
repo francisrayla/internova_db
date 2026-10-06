@@ -12,4 +12,20 @@ class Company extends Model
     {
         return $this->hasMany(InternshipDeployment::class);
     }
+
+    public function supervisorProfiles()
+    {
+        return $this->hasMany(SupervisorProfile::class);
+    }
+
+    /**
+     * Supervisors whose account is active. Every one of them is responsible
+     * for every intern deployed here (no per-intern assignment any more).
+     * Eager-load with `company.activeSupervisorProfiles.user`.
+     */
+    public function activeSupervisorProfiles()
+    {
+        return $this->hasMany(SupervisorProfile::class)
+            ->whereHas('user', fn ($q) => $q->where('status', 'active'));
+    }
 }

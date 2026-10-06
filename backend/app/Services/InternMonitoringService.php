@@ -91,7 +91,7 @@ class InternMonitoringService
 
     public static function calendarStart(?Carbon $today = null): Carbon
     {
-        return ($today ?? Carbon::today())->copy()->startOfWeek(Carbon::MONDAY)->subWeeks(3)->startOfDay();
+        return ($today ?? \App\Support\LocalTime::todayDate())->copy()->startOfWeek(Carbon::MONDAY)->subWeeks(3)->startOfDay();
     }
 
     // ---------------------------------------------------------------
@@ -250,7 +250,7 @@ class InternMonitoringService
     /** @return Collection<int, array> rows; keys starting with "_" are internal. */
     public static function rows(School $school): Collection
     {
-        $deployments = InternshipDeployment::with(['intern', 'company', 'supervisor'])
+        $deployments = InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
             ->where('school_id', $school->id)->orderByDesc('id')->get();
         if ($deployments->isEmpty()) {
             return collect();
@@ -273,17 +273,18 @@ class InternMonitoringService
             ->selectRaw("task_assignees.deployment_id as deployment_id, count(*) as total, sum(case when tasks.status = 'completed' then 1 else 0 end) as done")
             ->groupBy('task_assignees.deployment_id')->get()->keyBy('deployment_id');
         $narrative = NarrativeProgressService::forDeployments($school, $deployments);
-        $today = Carbon::today();
+        $movedFrom = DeploymentHistoryService::movedFrom($deployments);
+        $today = \App\Support\LocalTime::todayDate();
         $calStart = self::calendarStart($today);
 
-        $rows = $deployments->map(function (InternshipDeployment $d) use ($attendance, $latestEval, $journal, $tasks, $narrative, $profiles, $today, $calStart) {
+        $rows = $deployments->map(function (InternshipDeployment $d) use ($attendance, $latestEval, $journal, $tasks, $narrative, $movedFrom, $profiles, $today, $calStart) {
             $att = $attendance->get($d->id, collect());
             $dayHours = [];
             $byDate = [];
             $hours = 0.0;
             $rank = ['approved' => 3, 'pending' => 2, 'rejected' => 1];
             foreach ($att as $a) {
-                $key = ($a->attendance_date ?? $a->clock_in)->toDateString();
+                $key = $a->attendance_date ? $a->attendance_date->toDateString() : \App\Support\LocalTime::date($a->clock_in);
                 $h = $a->clock_out ? max(0, $a->clock_in->diffInMinutes($a->clock_out)) / 60 : null;
                 if ($a->status === 'approved' && $h !== null) {
                     $hours += $h;
@@ -315,7 +316,7 @@ class InternMonitoringService
             $flags = [];
             $missed = 0;
             if ($isActive && $started) {
-                $ref = $lastClockIn?->copy()->startOfDay() ?? $d->start_date->copy()->subDay();
+                $ref = ($lastClockIn ? Carbon::parse(\App\Support\LocalTime::date($lastClockIn)) : null) ?? $d->start_date->copy()->subDay();
                 $missed = self::workingDaysBetween($ref, $today);
                 if ($missed >= self::NO_CLOCK_IN_WORKING_DAYS) {
                     $flags[] = ['key' => 'no_clock_in', 'level' => 'red', 'label' => $lastClockIn ? "No clock-in for {$missed} working days" : "Has not clocked in yet ({$missed} working days)"];
@@ -352,7 +353,8 @@ class InternMonitoringService
                 'year_level' => $profile?->year_level,
                 'company_id' => $d->company_id,
                 'company_name' => $d->company?->company_name,
-                'supervisor_name' => self::nameOf($d->supervisor),
+                'moved_from' => $movedFrom[$d->id]['company_name'] ?? null,
+                'supervisor_name' => $d->supervisorNames(),
                 'status' => $d->status,
                 'account_status' => SchoolStaff::accountState($d->intern),
                 'start_date' => $d->start_date?->toDateString(),

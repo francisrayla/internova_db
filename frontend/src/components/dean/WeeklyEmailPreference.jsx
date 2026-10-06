@@ -33,7 +33,7 @@ export default function WeeklyEmailPreference() {
   }
 
   return (
-    <section className="mt-6 max-w-lg rounded-3xl border border-slate-200 bg-white p-5">
+    <section className="mt-6 max-w-lg rounded-3xl border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-slate-900">Weekly summary email</h2>

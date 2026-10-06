@@ -54,7 +54,7 @@ class NotificationCreated implements ShouldBroadcastNow
             'body'       => $this->notification->body,
             'link'       => $this->notification->link,
             'important'  => $this->notification->important,
-            'created_at' => $this->notification->created_at->format('F d, Y \a\t g:i A'),
+            'created_at' => $this->notification->created_at->local()->format('F d, Y \a\t g:i A'),
         ];
     }
 }

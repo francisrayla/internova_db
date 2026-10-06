@@ -21,7 +21,9 @@ export default function PwaRegister() {
       }
       return;
     }
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    // "?keep=1" tells sw.js this is a real build (see SELF_DESTRUCT there), so a
+    // local `npm run build && npm start` still gets offline mode on localhost.
+    navigator.serviceWorker.register("/sw.js?keep=1").catch(() => {});
   }, []);
 
   return null;

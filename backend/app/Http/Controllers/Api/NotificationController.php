@@ -54,7 +54,7 @@ class NotificationController extends Controller
                 'body'       => $n->body,
                 'link'       => $n->link,
                 'read'       => $n->read_at !== null,
-                'created_at' => $n->created_at->format('F d, Y \a\t g:i A'),
+                'created_at' => $n->created_at->local()->format('F d, Y \a\t g:i A'),
             ]),
             'unread_count' => (clone $query)->whereNull('read_at')->count(),
         ]);
@@ -89,7 +89,7 @@ class NotificationController extends Controller
                 'body'       => $n->body,
                 'link'       => $n->link,
                 'read'       => $n->read_at !== null,
-                'created_at' => $n->created_at->format('F d, Y \a\t g:i A'),
+                'created_at' => $n->created_at->local()->format('F d, Y \a\t g:i A'),
             ]),
             'page'        => $page,
             'per_page'    => $perPage,

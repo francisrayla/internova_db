@@ -58,7 +58,7 @@ function Stat({ label, value, of, pct, help }) {
   return (
     <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
       <p className="text-xs font-semibold text-slate-500 sm:text-sm">{label}</p>
-      <p className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">
+      <p className="mt-1 text-xl font-bold text-slate-900 sm:text-xl">
         {value}
         {of !== undefined && <span className="text-base font-medium text-slate-500"> of {of}</span>}
       </p>
@@ -89,7 +89,7 @@ export default function DeanDashboard() {
   const subStatus = SUBSCRIPTION_LABELS[sub?.status] ?? { label: sub?.status ?? "No plan yet", tone: "slate" };
 
   return (
-    <div className="space-y-8 sm:p-2 lg:p-6">
+    <div className="space-y-6 sm:p-2 lg:p-6">
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">
           {greeting()}, Dean {lastName}
@@ -144,7 +144,7 @@ export default function DeanDashboard() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 {GROUP_ORDER.map((key) => (
                   <Link key={key} href={`/dean/interns?group=${key}`} className={`min-w-0 rounded-2xl border px-3 py-3 transition hover:shadow-sm ${GROUP_BOX[GROUPS[key].tone]}`}>
-                    <span className="block text-2xl font-bold">{p.groups[key]}</span>
+                    <span className="block text-xl font-bold">{p.groups[key]}</span>
                     <span className="block truncate text-sm font-semibold">{GROUPS[key].label}</span>
                   </Link>
                 ))}
@@ -166,11 +166,11 @@ export default function DeanDashboard() {
             )}
           </section>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <section>
               <SectionTitle title="Coordinator at a glance" help="Who is running day-to-day and how active they are." />
               {c ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="flex items-center gap-3">
                     <Avatar name={c.name} url={c.avatar_url} />
                     <div className="min-w-0 flex-1">

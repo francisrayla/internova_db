@@ -56,7 +56,19 @@ let stalledUntil = 0;
 const GIVE_UP_MS = 30000;
 const SHELL_ASSETS = ["/", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png", "/apple-touch-icon.png"];
 
+// A worker left over from `next dev` on localhost (registered before the app
+// stopped registering one in development) keeps serving old scripts after
+// every edit. Production builds register "/sw.js?keep=1"; any other
+// registration on localhost removes itself, clears its caches and reloads the
+// open tabs so they pick up fresh code. Deployed sites are never affected.
+const SELF_DESTRUCT =
+  ["localhost", "127.0.0.1"].includes(self.location.hostname) && !new URL(self.location.href).searchParams.has("keep");
+
 self.addEventListener("install", (event) => {
+  if (SELF_DESTRUCT) {
+    self.skipWaiting();
+    return;
+  }
   event.waitUntil(
     caches.open(PAGE_CACHE).then((cache) => cache.addAll(SHELL_ASSETS)).catch(() => {})
   );
@@ -64,6 +76,18 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
+  if (SELF_DESTRUCT) {
+    event.waitUntil(
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.filter((key) => key.startsWith("internova-")).map((key) => caches.delete(key))))
+        .then(() => self.registration.unregister())
+        .then(() => self.clients.matchAll({ type: "window" }))
+        .then((clients) => clients.forEach((client) => client.navigate(client.url)))
+        .catch(() => {})
+    );
+    return;
+  }
   const keep = [STATIC_CACHE, PAGE_CACHE, API_CACHE, MEDIA_CACHE];
   event.waitUntil(
     caches
@@ -185,6 +209,7 @@ self.addEventListener("message", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (SELF_DESTRUCT) return;
   const { request } = event;
   if (request.method !== "GET") return;
 

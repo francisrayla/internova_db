@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Services\ActivityLogService;
 use App\Services\CoordinatorInsightsService;
 use App\Services\DeanReportDocxService;
+use App\Services\DeploymentHistoryService;
 use App\Services\DeploymentSummaryService;
 use App\Services\FeedbackThreadService;
 use App\Services\InternMonitoringService;
@@ -72,7 +73,7 @@ class DeanMonitoringController extends Controller
 
     private function deployment(Request $request, int $id): ?InternshipDeployment
     {
-        return InternshipDeployment::with(['intern', 'company', 'supervisor'])
+        return InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
             ->where('id', $id)->where('school_id', $request->user()->school_id)->first();
     }
 
@@ -193,7 +194,7 @@ class DeanMonitoringController extends Controller
                 $age = $ageDays($r['_created_at']);
                 $items[] = [
                     'type' => 'no_supervisor',
-                    'title' => "{$r['intern_name']} has no supervisor assigned",
+                    'title' => "{$r['intern_name']} has no supervisor at their company",
                     'detail' => "Deployed at {$r['company_name']} " . ($age === 0 ? 'today' : self::daysText($age) . ' ago'),
                     'since' => $r['_created_at']->toIso8601String(),
                     'age_days' => $age,
@@ -250,7 +251,7 @@ class DeanMonitoringController extends Controller
         $coordinator = $this->currentCoordinator($school->id);
         $brief = $this->coordinatorBrief($coordinator, count($pending));
         $subscription = $school->currentSubscription();
-        $today = Carbon::today();
+        $today = \App\Support\LocalTime::todayDate();
 
         $alerts = [];
         $add = function (string $key, string $level, string $title, string $text, string $link) use (&$alerts) {
@@ -302,7 +303,7 @@ class DeanMonitoringController extends Controller
             $add('behind_hours', 'amber', "{$behind} " . self::plural($behind, 'intern is', 'interns are') . ' behind on hours', 'Their hours are well below where they should be by now.', '/dean/interns?filter=attention');
         }
         if (($n = $count('no_supervisor')) > 0) {
-            $add('no_supervisor', 'amber', "{$n} active " . self::plural($n, 'intern has', 'interns have') . ' no supervisor', 'Nobody is on site to log or review their attendance.', '/dean/coordinator?tab=pending');
+            $add('no_supervisor', 'amber', "{$n} active " . self::plural($n, 'intern has', 'interns have') . ' no supervisor at their company', 'Nobody is on site to log or review their attendance.', '/dean/coordinator?tab=pending');
         }
         if (($n = $count('evaluation_due')) > 0) {
             $add('evaluation_due', 'amber', "{$n} " . self::plural($n, 'intern needs', 'interns need') . ' an evaluation', 'Their deployment is ending or has ended without one.', '/dean/coordinator?tab=pending');
@@ -494,7 +495,7 @@ class DeanMonitoringController extends Controller
         $coordinator = $this->currentCoordinator($school->id);
         $path = DeanReportDocxService::build([
             'school' => $school,
-            'generated_at' => now(),
+            'generated_at' => \App\Support\LocalTime::now(),
             'rows' => $rows,
             'groups' => InternMonitoringService::groupCounts($rows),
             'scorecard' => CoordinatorInsightsService::scorecard($school, $rows),
@@ -502,7 +503,7 @@ class DeanMonitoringController extends Controller
             'activity' => CoordinatorInsightsService::activityChart($school, $coordinator),
             'coordinator' => $this->nameOf($coordinator),
         ]);
-        $name = 'School_Monitoring_Report_' . now()->format('Y-m-d') . '.docx';
+        $name = 'School_Monitoring_Report_' . \App\Support\LocalTime::now()->format('Y-m-d') . '.docx';
 
         return response()->download($path, $name, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -599,8 +600,8 @@ class DeanMonitoringController extends Controller
             ->map(fn (Attendance $a) => [
                 'id' => $a->id,
                 'date' => $a->attendance_date?->toDateString(),
-                'clock_in' => $a->clock_in?->format('h:i A'),
-                'clock_out' => $a->clock_out?->format('h:i A'),
+                'clock_in' => $a->clock_in?->local()?->format('h:i A'),
+                'clock_out' => $a->clock_out?->local()?->format('h:i A'),
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, $a->clock_in->diffInMinutes($a->clock_out)) / 60, 1) : null,
                 'status' => $a->status,
                 'auto_clocked_out' => (bool) $a->auto_clocked_out,
@@ -672,6 +673,8 @@ class DeanMonitoringController extends Controller
             'tasks' => $tasks->values(),
             'evaluations' => $evaluations->values(),
             'documents' => $documents->values(),
+            // Placements in date order; empty when the intern was never reassigned.
+            'history' => DeploymentHistoryService::segments($d),
         ]);
     }
 

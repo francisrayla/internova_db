@@ -140,6 +140,9 @@ function TitlePage({ data, template }) {
           <p className="nr-b" style={{ margin: 0 }}>A NARRATIVE REPORT ON ON-THE-JOB TRAINING UNDERTAKEN AT {(place || "____________").toUpperCase()}</p>
           <p className="nr-b" style={{ margin: "8px 0 0" }}>{(data.company.name || "").toUpperCase()}</p>
           {data.company.address && <p className="nr-b" style={{ margin: 0 }}>{data.company.address.toUpperCase()}</p>}
+          {(data.deployment?.previous ?? []).map((p, k) => (
+            <p key={k} style={{ margin: "6px 0 0", fontStyle: "italic", fontSize: "0.9em" }}>{p.label}</p>
+          ))}
         </div>
         <div style={{ display: "flex", justifyContent: "center" }}>
           <img src="/ched-logo.png" alt="Commission on Higher Education" style={{ height: "1.6in", width: "auto" }} />
@@ -205,12 +208,12 @@ function LedgerBody({ ledger }) {
     <>
       <table className="nr-table">
         <thead>
-          <tr><th>DATE</th><th>TIME IN</th><th>TIME OUT</th><th>HOURS</th><th>TOTAL HOURS</th></tr>
+          <tr><th>DATE</th><th>TIME IN</th><th>TIME OUT</th><th>HOURS</th><th>TOTAL HOURS</th>{ledger.multi_company && <th>COMPANY</th>}</tr>
         </thead>
         <tbody>
           {ledger.rows.map((r, i) => (
             <tr key={i} style={{ textAlign: "center" }}>
-              <td>{r.date}</td><td>{r.time_in}</td><td>{r.time_out}</td><td>{r.hours}</td><td>{r.running_total}</td>
+              <td>{r.date}</td><td>{r.time_in}</td><td>{r.time_out}</td><td>{r.hours}</td><td>{r.running_total}</td>{ledger.multi_company && <td style={{ textAlign: "left" }}>{r.company}</td>}
             </tr>
           ))}
         </tbody>
@@ -324,7 +327,7 @@ function JournalBody({ data }) {
               <td>{r.day}</td>
               <td style={{ whiteSpace: "nowrap" }}>{r.am}</td>
               <td style={{ whiteSpace: "nowrap" }}>{r.pm}</td>
-              <td style={{ whiteSpace: "pre-line" }}>{r.schedule}</td>
+              <td style={{ whiteSpace: "pre-line" }}>{r.company && <span style={{ display: "block", fontSize: "0.8em", fontStyle: "italic" }}>At {r.company}</span>}{r.schedule}</td>
             </tr>
           ))}
         </tbody>

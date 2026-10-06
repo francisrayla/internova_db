@@ -1,6 +1,6 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: 1f8447e + uncommitted
-updated: 2026-10-05
+last_commit: 5a24cfb + uncommitted
+updated: 2026-10-06
 
 ## Map (where the code lives)
 - Phase 1 (account/billing): migration 2026_10_06_000000 (role dean only if roles has rows, dean_profiles); Models/DeanProfile.php; Services/SchoolStaff.php (roleId, dean, coordinator = the single seat, accountState pending|active|inactive); Services/AccountInvitationService.php; Controllers/Api/DeanController.php (dashboard, coordinator, invite/resend/updateEmail/deactivate, school settings); DeanSubscriptionController.php (billing, renamed from Coordinator*); Middleware/EnsureDeanOfSchool (`dean.school`); SuperadminFullController (inviteDean etc.); NotificationService::toSchoolDean; seeder dean@internova.test/password; tests/Feature/DeanTest.php.
@@ -14,6 +14,8 @@ updated: 2026-10-05
 - Migration 2026_10_08_000000: documents.reviewed_at, dean_feedback.status/acknowledged_at/resolved_at, dean_feedback_replies, dean_profiles.weekly_summary_email (default true).
 - Routes added: dean GET coordinator/insights, coordinator/feedback/unread-count, report/docx, preferences (+PATCH); POST coordinator/feedback/read-all|{id}/reply|resolve|reopen; interns?group=. coordinator: POST feedback/{id}/acknowledge|reply.
 - Frontend added: components/dean/{monitoring.jsx (GroupPill, Projection, AttendanceCalendar, CalendarDots), InternTable.jsx, FeedbackThread.jsx (both sides), WeeklyEmailPreference.jsx}; app/dean/coordinator/Insights.jsx (scorecard, chart, checklist); DeanInterns (strip, Cards/Table toggle in localStorage `dean.internsView`, download), InternDetail (projection + 4-week calendar), DeanDashboard (group tiles, Setup x of N, download); FeedbackUnreadWatcher takes role (dean badge on Coordinator nav); DownloadDocxButton fallbackName.
+
+- supervisor_name on rows (InternMonitoringService, DeploymentSummaryService) = names of the company's ACTIVE supervisors joined with ', ' (null = none); dean scorecard 'Active interns with a supervisor', checklist 'Every active intern has a supervisor' and 'no_supervisor' attention now mean the company has >=1 active supervisor. (see coordinator-monitoring log for the shared rule)
 
 ## How it works
 - One Dean + one coordinator per school. Dean pays/edits settings, invites/deactivates the coordinator (see Phase 1 rules in git history/code), and monitors read-only.
@@ -33,8 +35,9 @@ updated: 2026-10-05
 - Frontend: `npx eslint <touched>` (pre-existing set-state-in-effect errors in coordinator/layout.jsx, billing, AppShell); build from a scratch copy: tar copy of frontend minus node_modules/.next, mklink /J node_modules, `npx next build --webpack`, remove junction then copy.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-06 5a24cfb + uncommitted — calendar/scorecard/weekly summary/report docx 'today' now LocalTime::todayDate()/now() (Manila); last clock-in day via LocalTime::date
+- 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
+- 2026-10-06 5a24cfb + uncommitted — reassigned interns now stay ONE deployment (see coordinator-monitoring): InternMonitoringService rows add moved_from, internDetail adds history (DeploymentHistoryService), InternDetail shows DeploymentHistory, InternCard/InternTable show 'Moved from' — result: pass (tests 68/68)
+- 2026-10-06 5a24cfb + uncommitted — same size pass on dean screens (numbers text-xl, cards p-4/p-5, avatars 40/48); checked 1229 and 390, no overflow/errors — result: pass
 - 2026-10-06 1f8447e + uncommitted — Coordinator page split: /dean/coordinator is read-only monitoring (tabs Summary=scorecard+chart+checklist, Activity, Pending work, Interns, Feedback; header has 'Manage coordinator' button); new full page /dean/coordinator/manage (ManageCoordinator.jsx: details, invitation resend/change email, 'Replacing your coordinator' steps, red Danger zone with confirm). ManageTab.jsx removed; ?tab=manage redirects to the new page; backend alert links + Overview link point to /dean/coordinator/manage. Verified desktop + 390px, no overflow/errors; dean tests 38/38 — result: pass
 - 2026-10-06 1f8447e + uncommitted — fix: 'Manage coordinator →' (and any ?tab= link) did nothing when already on the page because the tab was read once into useState; new lib/useUrlTab.js makes ?tab= the source of truth (router.replace, scroll:false) for DeanCoordinator + InternDetail; link-driven tab changes scroll the tab bar into view. Verified in headless Chrome incl. Back button — result: pass
-- 2026-10-06 1f8447e + uncommitted — desktop bug: sr-only spans (setup checklist, activity chart) had no positioned ancestor, escaped main's overflow and stretched the document to 1325px, so the whole app scrolled up leaving a blank area; added `relative` to their containers (Insights, ActivityTab, FeedbackThread, InternTable). docH now = viewport on every dean page — result: pass
-- 2026-10-05 1f8447e + uncommitted — verified monitoring upgrade in headless Chrome (local DB migrated): every dean page/tab at 390px and 360px has no overflow, no JS errors, no failed API calls; InternTable status cell compacted to pill + 'N flags' (flags in title), hours no-wrap — result: pass (tests 54/54)
-- 2026-10-05 1f8447e + uncommitted — built all 10 monitoring upgrades (groups, calendar, projection, table view, scorecard, checklist, chart, two-way feedback, weekly email, docx report); DeanInsightsTest 21 tests — result: php artisan test 54/54 pass; eslint no new problems; next build --webpack OK; not browser-checked (dev DB not migrated)

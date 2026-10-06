@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
 import { validateImageFile } from "@/lib/imageValidation";
+import { shrinkImage } from "@/lib/imageCompress";
 
 function initialsOf(name) {
   return (name || "?")
@@ -15,7 +16,7 @@ function initialsOf(name) {
     .toUpperCase();
 }
 
-const MAX_BYTES = 3 * 1024 * 1024;
+const MAX_BYTES = 10 * 1024 * 1024;
 
 /**
  * Same shared modal for every role — opened from each layout's profile menu
@@ -46,8 +47,8 @@ export default function AvatarUploadModal({ user, onClose, onUpdated }) {
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  function handlePick(e) {
-    const picked = e.target.files?.[0];
+  async function handlePick(e) {
+    const picked = await shrinkImage(e.target.files?.[0]);
     if (!picked) return;
     const validationError = validateImageFile(picked, MAX_BYTES);
     if (validationError) {

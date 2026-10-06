@@ -5,6 +5,7 @@ import Icon from "@/components/Icon";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
+import { shrinkImage } from "@/lib/imageCompress";
 
 import DocumentTypeField from "@/components/DocumentTypeField";
 const STATUS_STYLES = {
@@ -52,7 +53,7 @@ export default function MyDocuments() {
     try {
       const formData = new FormData();
       formData.append("document_type", docType.trim());
-      formData.append("file", file);
+      formData.append("file", await shrinkImage(file));
       const res = await apiFetch("/api/intern/documents", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not upload this document.");
@@ -98,7 +99,7 @@ export default function MyDocuments() {
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700"
             />
-            <span className="mt-1 block text-xs text-slate-400">JPG, PNG, PDF, DOC or DOCX, up to 5MB.</span>
+            <span className="mt-1 block text-xs text-slate-400">JPG, PNG, PDF, DOC or DOCX, up to 10MB. Photos are resized automatically.</span>
           </label>
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="flex justify-end">

@@ -25,6 +25,11 @@ class SchoolSubscription extends Model
 
     const OFFER_PENDING_STATUSES = ['awaiting_acceptance', 'accepted', 'pending_payment'];
 
+    public function school()
+    {
+        return $this->belongsTo(School::class);
+    }
+
     public function plan()
     {
         return $this->belongsTo(SubscriptionPlan::class, 'plan_id');

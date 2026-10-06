@@ -51,8 +51,20 @@ class School extends Model
      */
     public function currentSubscription()
     {
-        return $this->subscriptions()->where('status', 'active')->latest('id')->first()
-            ?? $this->subscriptions()->latest('id')->first();
+        $active = $this->subscriptions()->where('status', 'active')->latest('id')->first();
+
+        // A paid term that has ended hands over to a scheduled plan switch, if any.
+        if ($active && ($rolled = \App\Services\SubscriptionRollover::apply($this, $active))) {
+            return $rolled;
+        }
+
+        return $active ?? $this->latestBillableSubscription();
+    }
+
+    /** Newest subscription row that is not a not-yet-started scheduled switch. */
+    public function latestBillableSubscription()
+    {
+        return $this->subscriptions()->where('status', '!=', 'scheduled')->latest('id')->first();
     }
 
     /**

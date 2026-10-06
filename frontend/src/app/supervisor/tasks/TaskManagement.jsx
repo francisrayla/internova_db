@@ -79,7 +79,7 @@ function InternPicker({ interns, selected, onChange }) {
       {open && (
         <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
           {interns.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-slate-400">No interns assigned to you yet.</p>
+            <p className="px-3 py-2 text-sm text-slate-400">No interns are deployed at your company yet.</p>
           ) : filtered.length === 0 ? (
             <p className="px-3 py-2 text-sm text-slate-400">{selectedInterns.length === interns.length ? "All interns selected." : "No matches."}</p>
           ) : (
@@ -276,7 +276,7 @@ export default function TaskManagement() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
-          <p className="mt-1 text-sm text-slate-600">Assign work to the interns you supervise — individually or as a group.</p>
+          <p className="mt-1 text-sm text-slate-600">Assign work to the interns at your company — individually or as a group.</p>
         </div>
         <button onClick={() => setShowModal(true)} disabled={interns.length === 0} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40">
           Assign task

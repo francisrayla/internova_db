@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
+import RevenuePanel from "./RevenuePanel";
 
 const ACTIVE_INQUIRY_STATUSES = ["new", "contacted", "under_discussion", "approved"];
 const EXPIRED_STATUSES = ["expired", "offer_expired"];
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const [inquiries, setInquiries] = useState([]);
   const [activity, setActivity] = useState([]);
   const [aiUsage, setAiUsage] = useState(null);
+  const [revenue, setRevenue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const echoChannelRef = useRef(null);
@@ -36,8 +38,10 @@ export default function DashboardPage() {
       fetchSuperadminData("activity-logs"),
       // Optional — the dashboard still loads if this one fails.
       fetchSuperadminData("ai-usage").catch(() => null),
+      fetchSuperadminData("revenue").catch(() => null),
     ])
-      .then(([schoolsRes, inquiriesRes, activityRes, aiRes]) => {
+      .then(([schoolsRes, inquiriesRes, activityRes, aiRes, revenueRes]) => {
+        setRevenue(revenueRes);
         setSchools(schoolsRes.schools ?? []);
         setInquiries(inquiriesRes.inquiries ?? []);
         setActivity(activityRes.logs ?? []);
@@ -74,11 +78,6 @@ export default function DashboardPage() {
   const suspendedSchools = schools.filter((s) => s.is_suspended);
   const expiredSchools = schools.filter((s) => EXPIRED_STATUSES.includes(s.subscription_status) && !s.is_suspended);
   const pendingSchools = schools.filter((s) => PENDING_STATUSES.includes(s.subscription_status) && !s.is_suspended);
-
-  const monthlyRevenue = activeSchools.reduce((sum, s) => {
-    const amount = Number(s.amount ?? 0);
-    return sum + (s.billing_period === "yearly" ? amount / 12 : amount);
-  }, 0);
 
   const pendingInquiries = inquiries.filter((i) => ACTIVE_INQUIRY_STATUSES.includes(i.status));
   // `inquiries` already comes back newest-first (see SuperadminFullController::planInquiries),
@@ -146,15 +145,11 @@ export default function DashboardPage() {
             ))}
       </section>
 
-      {/* Revenue + AI row */}
-      <section className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Est. Monthly Revenue</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">
-            ₱{monthlyRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </p>
-          <p className="mt-1 text-xs text-blue-600">from {activeSchools.length} active subscription{activeSchools.length === 1 ? "" : "s"}</p>
-        </div>
+      {/* Revenue (server-side, from money actually paid) */}
+      <RevenuePanel revenue={revenue} loading={loading} />
+
+      {/* AI row */}
+      <section>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI Requests This Month</p>
           <p className="mt-3 text-3xl font-bold text-slate-900">

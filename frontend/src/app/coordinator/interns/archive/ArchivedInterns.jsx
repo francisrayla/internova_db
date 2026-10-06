@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import Icon from "@/components/Icon";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Pagination, { PAGE_SIZE } from "@/components/Pagination";
 
 import { inputProps } from "@/lib/inputRules";
@@ -68,6 +69,7 @@ export default function ArchivedInterns() {
   const [courseFilter, setCourseFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState(null);
+  const [toDelete, setToDelete] = useState(null);
 
   function load() {
     setLoading(true);
@@ -98,14 +100,16 @@ export default function ArchivedInterns() {
     }
   }
 
-  async function handleDelete(intern) {
-    if (!window.confirm(`Delete ${intern.intern_name}? This can't be undone.`)) return;
+  async function handleDelete() {
+    const intern = toDelete;
+    if (!intern) return;
     setBusyId(intern.deployment_id);
     setError("");
     try {
       const res = await apiFetch(`/api/coordinator/interns/${intern.deployment_id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not delete intern.");
+      setToDelete(null);
       load();
     } catch (err) {
       setError(err.message);
@@ -188,7 +192,7 @@ export default function ArchivedInterns() {
                       </Link>
                       <p className="text-xs text-slate-500">{[i.student_number, i.course].filter(Boolean).join(" · ") || "—"}</p>
                     </div>
-                    <ArchivedRowMenu intern={i} onRestore={handleRestore} onDelete={handleDelete} busy={busyId === i.deployment_id} />
+                    <ArchivedRowMenu intern={i} onRestore={handleRestore} onDelete={setToDelete} busy={busyId === i.deployment_id} />
                   </div>
                   <p className="mt-2 text-sm text-slate-700">
                     {i.company_name ?? "—"}
@@ -224,7 +228,7 @@ export default function ArchivedInterns() {
                       </td>
                       <td className="px-5 py-4 text-slate-700">{i.hours_completed}h / {i.required_hours}h</td>
                       <td className="px-5 py-4 text-right">
-                        <ArchivedRowMenu intern={i} onRestore={handleRestore} onDelete={handleDelete} busy={busyId === i.deployment_id} />
+                        <ArchivedRowMenu intern={i} onRestore={handleRestore} onDelete={setToDelete} busy={busyId === i.deployment_id} />
                       </td>
                     </tr>
                   ))}
@@ -235,6 +239,9 @@ export default function ArchivedInterns() {
         )}
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </section>
+      <ConfirmDialog open={!!toDelete} title={`Delete ${toDelete?.intern_name}?`} confirmLabel="Delete intern" busy={busyId !== null} error={error} onConfirm={handleDelete} onCancel={() => setToDelete(null)}>
+        <p>This removes their account and deployment for good and can&apos;t be undone. It only works while they have no attendance, tasks, evaluations or documents on file.</p>
+      </ConfirmDialog>
     </div>
   );
 }

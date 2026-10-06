@@ -22,6 +22,7 @@ const BASE_NAV_ITEMS = [
   { label: "Dashboard", href: "/coordinator/dashboard", icon: "▣" },
   { label: "Interns", href: "/coordinator/interns", icon: "👥" },
   { label: "Companies", href: "/coordinator/companies", icon: "🏢" },
+  { label: "Supervisors", href: "/coordinator/supervisors", icon: "🧑‍🏫" },
   { label: "Attendance", href: "/coordinator/attendance", icon: "⏰" },
   { label: "Tasks", href: "/coordinator/tasks", icon: "🗂️" },
   { label: "Evaluations", href: "/coordinator/evaluations", icon: "⭐" },

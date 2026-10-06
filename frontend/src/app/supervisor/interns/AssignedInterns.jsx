@@ -39,8 +39,8 @@ export default function AssignedInterns() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Assigned Interns</h2>
-        <p className="mt-1 text-sm text-slate-600">Interns you supervise — hours, tasks, and evaluation progress.</p>
+        <h2 className="text-lg font-semibold text-slate-900">Interns</h2>
+        <p className="mt-1 text-sm text-slate-600">Every intern at your company (shared with your fellow supervisor) — hours, tasks, and evaluation progress.</p>
       </div>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -59,7 +59,7 @@ export default function AssignedInterns() {
           <p className="px-6 py-10 text-center text-sm text-slate-500">Loading interns…</p>
         ) : filtered.length === 0 ? (
           <p className="px-6 py-10 text-center text-sm text-slate-400">
-            {interns.length === 0 ? "No interns are assigned to you yet." : "No interns match this search."}
+            {interns.length === 0 ? "No interns are deployed at your company yet." : "No interns match this search."}
           </p>
         ) : (
           <>

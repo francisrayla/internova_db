@@ -32,8 +32,8 @@ class CoordinatorSupportController extends Controller
             'category' => $t->category,
             'status' => $t->status,
             'last_message' => $last?->message ?: ($last?->attachment_name ? "📎 {$last->attachment_name}" : null),
-            'last_message_at' => $last?->created_at?->format('M d, Y g:i A'),
-            'created_at' => $t->created_at->format('M d, Y'),
+            'last_message_at' => $last?->created_at?->local()?->format('M d, Y g:i A'),
+            'created_at' => $t->created_at->local()->format('M d, Y'),
         ];
     }
 
@@ -48,7 +48,7 @@ class CoordinatorSupportController extends Controller
             'attachment_name' => $m->attachment_name,
             'attachment_type' => $m->attachment_type,
             'attachment_size' => $m->attachment_size,
-            'created_at' => $m->created_at->format('M d, Y g:i A'),
+            'created_at' => $m->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 

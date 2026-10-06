@@ -15,6 +15,37 @@ class SubscriptionPlan extends Model
         'is_active' => 'boolean',
     ];
 
+    /** Lower-cased, trimmed, single-spaced — how plan names are compared for duplicates. */
+    public static function normalizeName(?string $name): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/', ' ', (string) $name)));
+    }
+
+    /**
+     * No two plans may share a name (pricing looks plans up by name, so a twin
+     * would silently be ignored). Checked on create and on rename only, so
+     * existing duplicates can still be edited until plans:dedupe has merged them.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (SubscriptionPlan $plan) {
+            if ($plan->exists && !$plan->isDirty('name')) {
+                return;
+            }
+
+            $taken = static::query()
+                ->when($plan->exists, fn ($q) => $q->where('id', '!=', $plan->id))
+                ->get(['id', 'name'])
+                ->contains(fn ($other) => static::normalizeName($other->name) === static::normalizeName($plan->name));
+
+            if ($taken) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'name' => "A plan named \"{$plan->name}\" already exists.",
+                ]);
+            }
+        });
+    }
+
     /**
      * The real charge for a billing period — the single source of truth for
      * pricing across checkout, upgrades, plan switches, and Super Admin

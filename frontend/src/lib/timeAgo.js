@@ -46,3 +46,8 @@ export function greeting(now = new Date()) {
   if (h < 18) return "Good afternoon";
   return "Good evening";
 }
+
+// Today's calendar date (YYYY-MM-DD) in the app's business timezone (Philippines), not UTC.
+export function todayLocalDate(now = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}

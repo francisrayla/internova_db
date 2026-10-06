@@ -15,7 +15,7 @@ function Scorecard({ scorecard }) {
               <p className="min-w-0 text-sm font-semibold text-slate-700">{m.title}</p>
               <Pill tone={m.verdict.tone}>{m.verdict.label}</Pill>
             </div>
-            <p className={`mt-2 text-2xl font-bold ${m.verdict.key === "none" ? "text-slate-400" : "text-slate-900"}`}>{m.display}</p>
+            <p className={`mt-2 text-xl font-bold ${m.verdict.key === "none" ? "text-slate-400" : "text-slate-900"}`}>{m.display}</p>
             <p className="mt-1 text-xs text-slate-500">{m.detail}</p>
           </div>
         ))}
@@ -119,7 +119,7 @@ export default function Insights() {
   return (
     <div className="space-y-6">
       <Scorecard scorecard={data.scorecard} />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ActivityChart chart={data.activity_chart} />
         <Checklist checklist={data.checklist} />
       </div>

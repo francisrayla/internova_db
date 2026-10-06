@@ -24,6 +24,7 @@ export default function InternCard({ intern }) {
           <p className="truncate font-semibold text-slate-900">{intern.intern_name}</p>
           <p className="truncate text-sm text-slate-500">
             {intern.company_name ?? "No company"} · {intern.supervisor_name ?? <span className="text-amber-700">No supervisor yet</span>}
+            {intern.moved_from && <span className="text-slate-400"> · Moved from {intern.moved_from}</span>}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">

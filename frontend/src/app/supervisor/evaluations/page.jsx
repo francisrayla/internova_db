@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import DailyPerformanceEvaluation from "./DailyPerformanceEvaluation";
 
 export default function Page() {
-  return <DailyPerformanceEvaluation />;
+  return (
+    <Suspense fallback={null}>
+      <DailyPerformanceEvaluation />
+    </Suspense>
+  );
 }

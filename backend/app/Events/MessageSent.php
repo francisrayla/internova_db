@@ -52,8 +52,8 @@ class MessageSent implements ShouldBroadcastNow
                 'preview' => $replyTo->message !== '' ? $replyTo->message : ($replyTo->attachment_path ? (str_starts_with((string) $replyTo->attachment_type, 'image/') ? '📷 Photo' : '📎 ' . ($replyTo->attachment_name ?? 'File')) : null),
             ] : null,
             'read_at' => null,
-            'created_at' => $this->message->created_at->format('g:i A'),
-            'created_at_full' => $this->message->created_at->format('F d, Y \a\t g:i A'),
+            'created_at' => $this->message->created_at->local()->format('g:i A'),
+            'created_at_full' => $this->message->created_at->local()->format('F d, Y \a\t g:i A'),
         ];
     }
 }

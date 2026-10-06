@@ -5,6 +5,7 @@ import Link from "next/link";
 import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { clean } from "@/lib/inputRules";
 import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse, normalizeCourse } from "@/lib/internOptions";
 import {
@@ -394,17 +395,9 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
 
 function DeployStep({ rows, companies, onBack, onImported }) {
   const activeCompanies = companies.filter((c) => c.status === "active");
-  const [form, setForm] = useState({ company_id: activeCompanies.length === 1 ? String(activeCompanies[0].id) : "", supervisor_id: "", start_date: "" });
-  const [supervisors, setSupervisors] = useState([]);
+  const [form, setForm] = useState({ company_id: activeCompanies.length === 1 ? String(activeCompanies[0].id) : "", start_date: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!form.company_id) return;
-    fetchCoordinatorData(`supervisors?company_id=${form.company_id}`)
-      .then((r) => setSupervisors(r.supervisors ?? []))
-      .catch(() => setSupervisors([]));
-  }, [form.company_id]);
 
   const byCourse = useMemo(() => {
     const groups = new Map();
@@ -427,7 +420,6 @@ function DeployStep({ rows, companies, onBack, onImported }) {
         body: JSON.stringify({
           rows: rows.map(({ key, ...r }) => r),
           company_id: Number(form.company_id),
-          supervisor_id: form.supervisor_id ? Number(form.supervisor_id) : null,
           start_date: form.start_date,
         }),
       });
@@ -461,18 +453,12 @@ function DeployStep({ rows, companies, onBack, onImported }) {
           <div className="mt-5 space-y-4">
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Company</span>
-              <select value={form.company_id} onChange={(e) => { setSupervisors([]); setForm((f) => ({ ...f, company_id: e.target.value, supervisor_id: "" })); }} className={selectClass}>
+              <select value={form.company_id} onChange={(e) => setForm((f) => ({ ...f, company_id: e.target.value }))} className={selectClass}>
                 <option value="">Select a company…</option>
                 {activeCompanies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
               </select>
             </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Supervisor <span className="font-normal text-slate-400">(optional)</span></span>
-              <select value={form.supervisor_id} onChange={(e) => setForm((f) => ({ ...f, supervisor_id: e.target.value }))} disabled={!form.company_id} className={selectClass}>
-                <option value="">No supervisor assigned yet</option>
-                {supervisors.map((s) => <option key={s.user_id} value={s.user_id}>{s.name}</option>)}
-              </select>
-            </label>
+            <CompanySupervisorsNote companyId={form.company_id} companyName={activeCompanies.find((c) => String(c.id) === String(form.company_id))?.company_name} />
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
               <input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className={selectClass} />

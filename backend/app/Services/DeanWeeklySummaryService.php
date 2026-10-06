@@ -41,7 +41,7 @@ class DeanWeeklySummaryService
 
     public static function build(User $dean, ?Carbon $now = null): array
     {
-        $now = $now ?? now();
+        $now = $now ?? \App\Support\LocalTime::now();
         $school = School::findOrFail($dean->school_id);
         $rows = InternMonitoringService::rows($school);
         $groups = InternMonitoringService::groupCounts($rows);

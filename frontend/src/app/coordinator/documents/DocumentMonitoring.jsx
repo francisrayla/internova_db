@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
+import { shrinkImage } from "@/lib/imageCompress";
 import DocumentTypeField from "@/components/DocumentTypeField";
 
 const STATUS_STYLES = {
@@ -34,7 +35,7 @@ function UploadModal({ interns, onClose, onSaved }) {
       const body = new FormData();
       body.append("deployment_id", form.deployment_id);
       body.append("document_type", form.document_type);
-      body.append("file", file);
+      body.append("file", await shrinkImage(file));
       const res = await apiFetch("/api/coordinator/documents", { method: "POST", body });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not upload document.");

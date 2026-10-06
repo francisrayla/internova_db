@@ -128,7 +128,7 @@ class AuthController extends Controller
 
     public function uploadAvatar(Request $request): JsonResponse
     {
-        $request->validate(['avatar' => 'required|image|mimes:jpg,jpeg,png,webp,gif|max:3072']);
+        $request->validate(['avatar' => 'required|image|mimes:jpg,jpeg,png,webp,gif|max:10240']);
 
         $user = $request->user();
 
@@ -221,6 +221,8 @@ class AuthController extends Controller
             // (e.g. plan_features.includes('Subtasks')); every gated backend
             // endpoint re-checks it independently, since hiding a control
             // client-side is never the real enforcement.
+            'scheduled_switch'    => $user->school ? \App\Services\SubscriptionRollover::summary(\App\Services\SubscriptionRollover::scheduledFor($user->school)) : null,
+            'subscription_breakdown' => $subscription ? \App\Services\SubscriptionBreakdown::forSubscription($subscription) : null,
             'plan_features'       => $subscription?->plan?->features ?? [],
             'pending_upgrade'     => $pendingUpgrade ? [
                 'plan'            => $pendingUpgrade->plan?->name,
@@ -229,6 +231,7 @@ class AuthController extends Controller
                 'payment_method'  => $pendingUpgrade->payment_method,
                 'payment_status'  => $pendingUpgrade->payment_status,
                 'payment_reference' => $pendingUpgrade->payment_reference,
+                'breakdown'       => \App\Services\SubscriptionBreakdown::forPendingUpgrade($pendingUpgrade),
             ] : null,
         ];
     }

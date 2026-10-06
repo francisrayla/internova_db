@@ -137,7 +137,7 @@ class CoordinatorInsightsService
 
         // 4. Evaluated (of those due or ended)
         $due = $rows->filter(fn ($r) => $r['status'] !== 'inactive' && ($r['status'] === 'completed'
-            || ($r['end_date'] && Carbon::parse($r['end_date'])->lte(Carbon::today()->addDays(InternMonitoringService::EVALUATION_WINDOW_DAYS)))));
+            || ($r['end_date'] && Carbon::parse($r['end_date'])->lte(\App\Support\LocalTime::todayDate()->addDays(InternMonitoringService::EVALUATION_WINDOW_DAYS)))));
         $done = $due->where('has_evaluation', true)->count();
         $evalPct = self::pct($done, $due->count());
         $evaluated = [
@@ -214,14 +214,14 @@ class CoordinatorInsightsService
     /** Coordinator actions per day for the last 4 weeks (Monday first, current week last). */
     public static function activityChart(School $school, ?User $coordinator): array
     {
-        $today = Carbon::today();
+        $today = \App\Support\LocalTime::todayDate();
         $start = InternMonitoringService::calendarStart($today);
         $counts = [];
         if ($coordinator) {
             ActivityLog::where('user_id', $coordinator->id)->where('school_id', $school->id)
                 ->where('created_at', '>=', $start)->get(['created_at'])
                 ->each(function ($a) use (&$counts) {
-                    $k = $a->created_at->toDateString();
+                    $k = \App\Support\LocalTime::date($a->created_at);
                     $counts[$k] = ($counts[$k] ?? 0) + 1;
                 });
         }

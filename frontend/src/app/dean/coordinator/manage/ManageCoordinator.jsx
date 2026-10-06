@@ -19,7 +19,7 @@ const STATUS = {
 function Card({ title, help, tone = "default", children }) {
   const box = tone === "danger" ? "border-red-200 bg-red-50" : "border-slate-200 bg-white";
   return (
-    <section className={`rounded-2xl border p-5 ${box}`}>
+    <section className={`rounded-2xl border p-4 ${box}`}>
       {title && <h2 className={`font-semibold ${tone === "danger" ? "text-red-800" : "text-slate-900"}`}>{title}</h2>}
       {help && <p className={`mt-1 text-sm ${tone === "danger" ? "text-red-700" : "text-slate-500"}`}>{help}</p>}
       <div className={title || help ? "mt-4" : ""}>{children}</div>
@@ -114,10 +114,10 @@ export default function ManageCoordinator() {
       {profile !== undefined && coordinator && (
         <Card>
           <div className="flex items-center gap-4">
-            <Avatar name={coordinator.name} url={coordinator.avatar_url} size={56} />
+            <Avatar name={coordinator.name} url={coordinator.avatar_url} size={48} />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-lg font-semibold text-slate-900">{coordinator.name}</p>
+                <p className="truncate text-base font-semibold text-slate-900">{coordinator.name}</p>
                 <Pill tone={STATUS[coordinator.status]?.tone}>{STATUS[coordinator.status]?.label}</Pill>
               </div>
               <p className="truncate text-sm text-slate-500">{coordinator.email}</p>

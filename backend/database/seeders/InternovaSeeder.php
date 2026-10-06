@@ -180,7 +180,6 @@ class InternovaSeeder extends Seeder
             ['intern_id' => $intern->id, 'company_id' => $company->id],
             [
                 'school_id' => $school->id,
-                'supervisor_id' => $supervisor->id,
                 'coordinator_id' => $coordinator->id,
                 'start_date' => now()->subMonths(1)->toDateString(),
                 'end_date' => now()->addMonths(2)->toDateString(),

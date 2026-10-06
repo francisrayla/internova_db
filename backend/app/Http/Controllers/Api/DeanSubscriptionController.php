@@ -9,6 +9,8 @@ use App\Models\School;
 use App\Models\SubscriptionPlan;
 use App\Services\ActivityLogService;
 use App\Services\NotificationService;
+use App\Services\SubscriptionBreakdown;
+use App\Services\SubscriptionRollover;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -39,7 +41,7 @@ class DeanSubscriptionController extends Controller
 
     private function latestSubscription(School $school)
     {
-        return $school->subscriptions()->latest('id')->first();
+        return $school->latestBillableSubscription();
     }
 
     /**
@@ -47,7 +49,7 @@ class DeanSubscriptionController extends Controller
      * subscription payment and plan upgrades — one place that knows how to
      * talk to PayMongo instead of duplicating the request shape twice.
      */
-    private function createCheckoutSession(School $school, string $lineItemName, float $amount, string $paymentMethod, string $referenceNumber): ?array
+    private function createCheckoutSession(School $school, string $lineItemName, float $amount, string $paymentMethod, string $referenceNumber, ?string $lineItemDescription = null): ?array
     {
         // No PayMongo key on this server means online checkout simply isn't
         // available — report it as such instead of crashing the request.
@@ -63,6 +65,7 @@ class DeanSubscriptionController extends Controller
                 'attributes' => [
                     'line_items' => [[
                         'name'     => $lineItemName,
+                        'description' => $lineItemDescription,
                         'amount'   => (int) round($amount * 100),
                         'currency' => 'PHP',
                         'quantity' => 1,
@@ -86,24 +89,7 @@ class DeanSubscriptionController extends Controller
      */
     private function calculateProration($current, float $newPrice): array
     {
-        $oldPrice = SubscriptionPlan::priceForName($current->plan?->name, $current->billing_period);
-        $difference = $newPrice - $oldPrice;
-
-        $totalDays = max(1, $current->start_date->diffInDays($current->end_date));
-        $remainingDays = min($totalDays, max(0, now()->startOfDay()->diffInDays($current->end_date->copy()->startOfDay())));
-
-        $amountNow = round($difference * $remainingDays / $totalDays, 2);
-
-        return [
-            'old_price'          => $oldPrice,
-            'new_price'          => $newPrice,
-            'difference'         => $difference,
-            'total_days'         => $totalDays,
-            'remaining_days'     => $remainingDays,
-            'amount_now'         => max(0, $amountNow),
-            'next_renewal_price' => $newPrice,
-            'current_end_date'   => $current->end_date->format('F d, Y'),
-        ];
+        return SubscriptionBreakdown::prorate($current, $newPrice);
     }
 
     /**
@@ -141,13 +127,18 @@ class DeanSubscriptionController extends Controller
             return response()->json(['success' => false, 'message' => 'An upgrade keeps your current billing period. Switch billing period separately once your current cycle ends.'], 422);
         }
 
-        $newPrice = SubscriptionPlan::activeOrFail($data['plan_name'])->priceFor($data['billing_period']);
+        $plan = SubscriptionPlan::activeOrFail($data['plan_name']);
+        $newPrice = $plan->priceFor($data['billing_period']);
 
         if ($newPrice <= (float) $current->amount) {
             return response()->json(['success' => false, 'message' => 'That is not an upgrade — use the Switch Plan option instead.'], 422);
         }
 
-        return response()->json(['success' => true, 'quote' => $this->calculateProration($current, $newPrice)]);
+        return response()->json([
+            'success'   => true,
+            'quote'     => $this->calculateProration($current, $newPrice),
+            'breakdown' => SubscriptionBreakdown::forUpgrade($current, $plan, $data['billing_period']),
+        ]);
     }
 
     /**
@@ -241,13 +232,14 @@ class DeanSubscriptionController extends Controller
         // coordinator is redirected to PayMongo's hosted page to pay, then the
         // frontend calls verifyCheckout() when they return, which re-confirms
         // payment status directly with PayMongo before activating anything.
-        $planName = $subscription->plan?->name ?? 'Subscription';
+        $breakdown = SubscriptionBreakdown::forSubscription($subscription);
         $checkoutSession = $this->createCheckoutSession(
             $school,
-            "{$planName} Plan ({$subscription->billing_period})",
-            (float) $subscription->amount,
+            $breakdown['line_item_name'],
+            $breakdown['total'],
             $data['payment_method'],
-            "SUB-{$subscription->id}"
+            "SUB-{$subscription->id}",
+            $breakdown['description']
         );
 
         if (!$checkoutSession) {
@@ -350,16 +342,17 @@ class DeanSubscriptionController extends Controller
     }
 
     /**
-     * Instant self-service switch — only for a downgrade or lateral move (new price
-     * is not higher than what's already being paid), so no new money needs to be
-     * collected. An upgrade must go through requestUpgrade() instead, which requires
-     * actual payment before the higher-tier plan takes effect. A custom rate for
-     * either direction goes through requestPlanChange() for Super Admin review.
+     * Self-service switch to a cheaper plan or shorter period (new price is not
+     * higher than what is already being paid). The school has already paid for
+     * its current term, so the switch is SCHEDULED for the day after that term
+     * ends and billed then (see SubscriptionRollover) instead of replacing the
+     * paid term. An upgrade must go through requestUpgrade(), which collects
+     * payment now. A custom rate goes through requestPlanChange().
      */
     public function switchPlan(Request $request, int $schoolId): JsonResponse
     {
         $school = School::findOrFail($schoolId);
-        $subscription = $this->latestSubscription($school);
+        $subscription = $school->currentSubscription();
 
         if ($school->is_suspended) {
             return response()->json(['success' => false, 'message' => 'This account is suspended. Contact the Super Admin.'], 422);
@@ -385,33 +378,82 @@ class DeanSubscriptionController extends Controller
             return response()->json(['success' => false, 'message' => 'That is an upgrade — it requires payment. Use the Upgrade option instead.'], 422);
         }
 
-        $end = $data['billing_period'] === 'monthly' ? now()->addMonth() : now()->addYear();
+        $scheduled = $this->scheduleSwitch($school, $subscription, $plan, $data['billing_period'], $price, 0, null);
 
-        $new = $school->subscriptions()->create([
+        NotificationService::toSuperadmin(
+            'plan_switch_scheduled',
+            'Plan switch scheduled',
+            "{$school->school_name} will switch to {$data['plan_name']} ({$data['billing_period']}) on {$scheduled->start_date->format('F d, Y')}.",
+            '/superadmin/schools?highlight=' . $school->id,
+            important: false
+        );
+        ActivityLogService::record(
+            module: 'Subscription',
+            action: 'Scheduled plan switch',
+            description: "{$school->school_name} scheduled a switch to {$data['plan_name']} ({$data['billing_period']}) starting {$scheduled->start_date->format('F d, Y')}.",
+            schoolId: $school->id,
+            request: $request
+        );
+
+        return response()->json([
+            'success'         => true,
+            'scheduled'       => true,
+            'message'         => "Your switch to {$data['plan_name']} {$data['billing_period']} starts on {$scheduled->start_date->format('F d, Y')}. You keep your current plan until then.",
+            'plan'            => $data['plan_name'],
+            'amount'          => $scheduled->amount,
+            'starts_on'       => $scheduled->start_date->format('F d, Y'),
+            'scheduled_switch' => SubscriptionRollover::summary($scheduled),
+        ]);
+    }
+
+    /**
+     * Creates the scheduled row (replacing any earlier scheduled switch) that
+     * starts the day after the paid term ends. Not billed until then.
+     */
+    public static function scheduleSwitch(School $school, $current, SubscriptionPlan $plan, string $period, float $listPrice, float $discount, ?string $note)
+    {
+        $school->subscriptions()->where('status', 'scheduled')->update(['status' => 'cancelled']);
+
+        $start = $current->end_date->copy()->addDay();
+        $end = $period === 'monthly' ? $start->copy()->addMonth() : $start->copy()->addYear();
+
+        return $school->subscriptions()->create([
             'plan_id'         => $plan->id,
-            'status'          => 'active',
-            'list_price'      => $price,
-            'discount_amount' => 0,
-            'amount'          => $price,
-            'billing_period'  => $data['billing_period'],
-            'payment_method'  => $subscription->payment_method,
-            'payment_status'  => 'paid',
-            'paid_at'         => now(),
-            'start_date'      => now()->toDateString(),
+            'status'          => 'scheduled',
+            'list_price'      => $listPrice,
+            'discount_amount' => $discount,
+            'amount'          => max(0, $listPrice - $discount),
+            'agreement_note'  => $note,
+            'billing_period'  => $period,
+            'payment_method'  => $current->payment_method,
+            'payment_status'  => null,
+            'start_date'      => $start->toDateString(),
             'end_date'        => $end->toDateString(),
             'offer_sent_at'   => now(),
             'accepted_at'     => now(),
         ]);
+    }
 
-        $this->supersedeOtherActive($school, $new);
+    public function cancelScheduledSwitch(Request $request, int $schoolId): JsonResponse
+    {
+        $school = School::findOrFail($schoolId);
+        $scheduled = SubscriptionRollover::scheduledFor($school);
 
-        return response()->json([
-            'success'     => true,
-            'message'     => "Switched to the {$data['plan_name']} plan.",
-            'plan'        => $data['plan_name'],
-            'amount'      => $new->amount,
-            'valid_until' => $new->end_date->format('F d, Y'),
-        ]);
+        if (!$scheduled) {
+            return response()->json(['success' => true, 'message' => 'No scheduled switch to cancel.']);
+        }
+
+        $scheduled->update(['status' => 'cancelled']);
+
+        ActivityLogService::record(
+            module: 'Subscription',
+            action: 'Cancelled scheduled plan switch',
+            description: "{$school->school_name} cancelled its scheduled plan switch.",
+            schoolId: $school->id,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Scheduled switch cancelled. You stay on your current plan.']);
     }
 
     /**
@@ -441,6 +483,10 @@ class DeanSubscriptionController extends Controller
             return response()->json(['success' => false, 'message' => 'You already have an upgrade payment in progress.'], 422);
         }
 
+        if (SubscriptionRollover::scheduledFor($school)) {
+            return response()->json(['success' => false, 'message' => 'You have a plan switch scheduled for the end of your current term. Cancel it first if you want to upgrade now.'], 422);
+        }
+
         $data = $request->validate([
             'plan_name'      => 'required|string|in:Basic,Premium',
             'billing_period' => 'required|string|in:monthly,yearly',
@@ -460,8 +506,8 @@ class DeanSubscriptionController extends Controller
 
         // Same formula as upgradeQuote() — the coordinator is charged this exact
         // amount, not the quote they saw, in case time passed between the two calls.
-        $proration = $this->calculateProration($current, $price);
-        $amountNow = $proration['amount_now'];
+        $breakdown = SubscriptionBreakdown::forUpgrade($current, $plan, $data['billing_period']);
+        $amountNow = $breakdown['total'];
 
         // The cycle itself doesn't change — same start/end date as the plan being
         // upgraded from, so activate() won't recompute a fresh period for it.
@@ -506,10 +552,11 @@ class DeanSubscriptionController extends Controller
 
         $checkoutSession = $this->createCheckoutSession(
             $school,
-            "Upgrade to {$data['plan_name']} ({$data['billing_period']}) — prorated",
+            $breakdown['line_item_name'],
             (float) $amountNow,
             $data['payment_method'],
-            "UPG-{$pending->id}"
+            "UPG-{$pending->id}",
+            $breakdown['description']
         );
 
         if (!$checkoutSession) {

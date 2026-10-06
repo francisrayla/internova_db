@@ -79,7 +79,7 @@ class DeanReportDocxService
                 $r['status_group_label'],
                 $r['hours_completed'] . ' / ' . $r['required_hours'] . ' h',
                 $r['projection']['label'] . ($r['projection']['note'] ? ' (' . $r['projection']['note'] . ')' : ''),
-                $r['last_clock_in_at'] ? Carbon::parse($r['last_clock_in_at'])->format('M j, Y') : 'Never',
+                $r['last_clock_in_at'] ? \App\Support\LocalTime::format($r['last_clock_in_at'], 'M j, Y') : 'Never',
                 $r['narrative_total'] ? $r['narrative_done'] . ' of ' . $r['narrative_total'] : '-',
                 $r['latest_evaluation_score'] !== null ? (string) $r['latest_evaluation_score'] : ($r['has_evaluation'] ? 'Done' : 'None yet'),
             ];

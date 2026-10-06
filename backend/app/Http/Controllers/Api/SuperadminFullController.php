@@ -50,7 +50,7 @@ class SuperadminFullController extends Controller
                 $dean = $school->users->first(fn ($u) => $u->roles?->name === 'dean');
                 // Prefer the active subscription over a newer pending upgrade row, so a
                 // school mid-upgrade doesn't misleadingly show as "not active" here.
-                $sorted = $school->subscriptions->sortByDesc('id');
+                $sorted = $school->subscriptions->where('status', '!=', 'scheduled')->sortByDesc('id');
                 $subscription = $sorted->firstWhere('status', 'active') ?? $sorted->first();
                 $accountSetup = $admin && !is_null($admin->password) ? 'active' : 'pending';
 
@@ -66,6 +66,8 @@ class SuperadminFullController extends Controller
                     'plan'          => $subscription?->plan?->name ?? '—',
                     'billing_period' => $subscription?->billing_period,
                     'amount'        => $subscription?->amount,
+                    'scheduled_switch' => \App\Services\SubscriptionRollover::summary($school->subscriptions->firstWhere('status', 'scheduled')),
+                    'breakdown'     => $subscription ? \App\Services\SubscriptionBreakdown::forSubscription($subscription) : null,
                     'payment'       => $subscription?->paid_at ? 'paid' : 'unpaid',
                     'payment_method' => $subscription?->payment_method,
                     'payment_status' => $subscription?->payment_status,
@@ -113,7 +115,7 @@ class SuperadminFullController extends Controller
                 'status'                => $i->status,
                 'notes'                 => $i->notes,
                 'school_id'             => $i->school_id,
-                'submitted_at'          => $i->created_at?->format('M d, Y · g:i A'),
+                'submitted_at'          => $i->created_at?->local()?->format('M d, Y · g:i A'),
             ]);
 
         return response()->json(['inquiries' => $inquiries]);
@@ -316,13 +318,19 @@ class SuperadminFullController extends Controller
         ], 201);
     }
 
+    /** Server-side revenue figures from real paid transactions (see RevenueReportService). */
+    public function revenue(\App\Services\RevenueReportService $service): JsonResponse
+    {
+        return response()->json($service->report());
+    }
+
     /**
      * Super Admin manually verifies a bank transfer payment after reviewing the uploaded proof.
      */
     public function verifySchoolPayment(Request $request, int $schoolId): JsonResponse
     {
         $school = School::findOrFail($schoolId);
-        $subscription = $school->subscriptions()->latest('id')->first();
+        $subscription = $school->latestBillableSubscription();
 
         if (!$subscription || $subscription->payment_status !== 'pending_verification') {
             return response()->json(['success' => false, 'message' => 'No payment is awaiting verification for this school.'], 422);
@@ -361,7 +369,7 @@ class SuperadminFullController extends Controller
     public function confirmSchoolPayment(Request $request, int $schoolId): JsonResponse
     {
         $school = School::findOrFail($schoolId);
-        $subscription = $school->subscriptions()->latest('id')->first();
+        $subscription = $school->latestBillableSubscription();
 
         if (!$subscription) {
             return response()->json(['success' => false, 'message' => 'This school has no subscription record.'], 422);
@@ -374,6 +382,20 @@ class SuperadminFullController extends Controller
         $subscription->activate();
         $school->update(['status' => 'active']);
         $school->subscriptions()->where('status', 'active')->where('id', '!=', $subscription->id)->update(['status' => 'superseded']);
+
+        // A manual confirmation may happen with no checkout ever started (no
+        // transaction row yet) — record one so revenue reports count the money.
+        if (!PaymentTransaction::where('subscription_id', $subscription->id)->exists()) {
+            PaymentTransaction::create([
+                'school_id'       => $school->id,
+                'subscription_id' => $subscription->id,
+                'payment_type'    => 'initial',
+                'new_plan_id'     => $subscription->plan_id,
+                'payment_method'  => $subscription->payment_method ?? 'manual',
+                'amount'          => $subscription->amount,
+                'status'          => 'pending',
+            ]);
+        }
 
         PaymentTransaction::where('subscription_id', $subscription->id)
             ->update(['status' => 'paid', 'paid_at' => now()]);
@@ -396,7 +418,7 @@ class SuperadminFullController extends Controller
     public function resendSchoolOffer(Request $request, int $schoolId): JsonResponse
     {
         $school = School::findOrFail($schoolId);
-        $subscription = $school->subscriptions()->latest('id')->first();
+        $subscription = $school->latestBillableSubscription();
 
         if (!$subscription) {
             return response()->json(['success' => false, 'message' => 'This school has no subscription to resend.'], 422);
@@ -635,7 +657,7 @@ class SuperadminFullController extends Controller
             ->orderByDesc('created_at')
             ->get()
             ->map(function ($r) {
-                $currentSubscription = $r->school?->subscriptions->sortByDesc('id')->first();
+                $currentSubscription = $r->school?->subscriptions->where('status', '!=', 'scheduled')->sortByDesc('id')->first();
 
                 return [
                     'id'                        => $r->id,
@@ -648,7 +670,7 @@ class SuperadminFullController extends Controller
                     'list_price'                => SubscriptionPlan::where('name', $r->requested_plan)->first()?->priceFor($r->requested_billing_period),
                     'note'                      => $r->note,
                     'status'                    => $r->status,
-                    'submitted_at'              => $r->created_at?->format('M d, Y · g:i A'),
+                    'submitted_at'              => $r->created_at?->local()?->format('M d, Y · g:i A'),
                 ];
             });
 
@@ -677,8 +699,37 @@ class SuperadminFullController extends Controller
         $discount = $data['discount_amount'] ?? 0;
         $amount = max(0, $listPrice - $discount);
 
+        // A change that is not an upgrade must not cut short a term the school already
+        // paid for: schedule it for the day after that term ends (billed then).
+        $running = $school->currentSubscription();
+        if ($running && $running->status === 'active' && !$running->isRenewalExpired() && $amount <= (float) $running->amount) {
+            $scheduled = DeanSubscriptionController::scheduleSwitch(
+                $school, $running, $plan, $planChangeRequest->requested_billing_period, $listPrice, $discount, $data['agreement_note'] ?? null
+            );
+            $startsOn = $scheduled->start_date->format('F d, Y');
+
+            $planChangeRequest->update(['status' => 'approved', 'discount_amount' => $discount, 'reviewed_at' => now()]);
+
+            NotificationService::toSchoolDean(
+                $school->id,
+                'plan_change_approved',
+                'Plan change approved',
+                "Your switch to {$planChangeRequest->requested_plan} ({$planChangeRequest->requested_billing_period}) starts on {$startsOn}. You keep your current plan until then.",
+                '/dean/billing'
+            );
+            ActivityLogService::record(
+                module: 'Subscription',
+                action: 'Approved plan change (scheduled)',
+                description: "{$school->school_name} will switch to {$planChangeRequest->requested_plan} ({$planChangeRequest->requested_billing_period}) on {$startsOn}.",
+                schoolId: $school->id,
+                request: $request
+            );
+
+            return response()->json(['success' => true, 'scheduled' => true, 'message' => "{$school->school_name} will switch to {$planChangeRequest->requested_plan} on {$startsOn}."]);
+        }
+
         $end = $planChangeRequest->requested_billing_period === 'monthly' ? now()->addMonth() : now()->addYear();
-        $previousPayment = $school->subscriptions()->latest('id')->first();
+        $previousPayment = $school->latestBillableSubscription();
 
         $newSubscription = $school->subscriptions()->create([
             'plan_id'         => $plan->id,
@@ -942,8 +993,8 @@ class SuperadminFullController extends Controller
             'category' => $t->category,
             'status' => $t->status,
             'last_message' => $last?->message ?: ($last?->attachment_name ? "📎 {$last->attachment_name}" : null),
-            'last_message_at' => $last?->created_at?->format('M d, Y g:i A'),
-            'created_at' => $t->created_at->format('M d, Y'),
+            'last_message_at' => $last?->created_at?->local()?->format('M d, Y g:i A'),
+            'created_at' => $t->created_at->local()->format('M d, Y'),
         ];
     }
 
@@ -958,7 +1009,7 @@ class SuperadminFullController extends Controller
             'attachment_name' => $m->attachment_name,
             'attachment_type' => $m->attachment_type,
             'attachment_size' => $m->attachment_size,
-            'created_at' => $m->created_at->format('M d, Y g:i A'),
+            'created_at' => $m->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -1095,7 +1146,7 @@ class SuperadminFullController extends Controller
         return response()->json([
             'logs' => $logs->map(fn ($log) => [
                 'id'          => $log->id,
-                'timestamp'   => $log->created_at->format('M d, Y \a\t g:i A'),
+                'timestamp'   => $log->created_at->local()->format('M d, Y \a\t g:i A'),
                 'user'        => $log->user?->name ?? 'System',
                 'school'      => $log->school?->school_name,
                 'module'      => $log->module,

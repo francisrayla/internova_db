@@ -1,6 +1,6 @@
 # Documents, portfolio, reports, downloads, AI narrative
-last_commit: 43bc039 (+ uncommitted)
-updated: 2026-10-05
+last_commit: 5a24cfb + uncommitted
+updated: 2026-10-06
 
 ## Map (where the code lives)
 - backend/routes/api.php — intern: L248-253 (documents, portfolio, portfolio/items), L245 activities/polish-narrative; coordinator: L123-124 (interns/{id}/portfolio, /report), L166-168 (documents); supervisor: L191 (interns/{id}/portfolio)
@@ -29,6 +29,8 @@ updated: 2026-10-05
 
 - frontend/src/components/narrative-report/NarrativeChecklist.jsx — requirements checklist (x of N complete) built from the narrative-report payload in template order; used on intern MyPortfolio, coordinator interns/[id]/portfolio and interns/[id]/report (print:hidden)
 
+- Supervisor portfolio view uses visibleToSupervisor; narrative report supervisor_name = company supervisors (DeploymentHistoryService::supervisorNamesByCompany resolves per segment company, transfer from/to_supervisor ids no longer used). (see coordinator-monitoring log for the shared rule)
+
 ## How it works (max ~10 lines)
 - Documents: intern (needs current deployment, else 422) or coordinator uploads; jpg/jpeg/png/pdf/doc/docx, max 5 MB, public disk at documents/{schoolId}; status starts pending. Coordinator approves/rejects (+remarks); intern notified, ActivityLogService records.
 - Coordinator document list scoped to the school's deployment ids; dashboard uses documents?status=pending.
@@ -45,10 +47,8 @@ updated: 2026-10-05
 - Manual: intern uploads a PDF at /intern/documents -> coordinator sees it at /coordinator/documents, approves -> intern notified. Add a portfolio item with image; view it from supervisor and coordinator portfolio pages (unassigned intern -> 404 for supervisor). Open the coordinator intern report and print. Request /api/download with a bad path (expect 400).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-06 5a24cfb + uncommitted — uploads: new frontend/src/lib/imageCompress.js `shrinkImage` (JPEG/PNG/WEBP over ~900 KB or 1600 px → 1600 px JPEG q0.82, EXIF-orientation aware, returns original on failure; GIF/PDF/DOC untouched) used in portfolio work samples, activity photos, avatar, task proofs, intern + coordinator documents. Limits raised to 10 MB (frontend + backend: portfolio image, activity photo, avatar, documents). Chrome test: 11.44 MB photo → 0.67 MB. Note: check Railway PHP upload_max_filesize/post_max_size on deploy (local is 10M/12M) — result: pass (tests 87/87)
+- 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
+- 2026-10-06 5a24cfb + uncommitted — narrative report: ledger.multi_company + per-row company (ledger, journal) from deployment_transfers via DeploymentHistoryService::companyOn; deployment.previous[] = 'Previously deployed at X, range' on title page (screen NarrativeReport.jsx + NarrativeDocxService: COMPANY column, 'At X' line, italic previous line) — result: pass (DeploymentTransferTest)
 - 2026-10-05 1f8447e + uncommitted — documents.reviewed_at added (migration 2026_10_08), stamped in CoordinatorMonitoringController::reviewDocument; Document model fillable/cast — result: pass (see dean log)
 - 2026-10-05 1b9390d + uncommitted — NarrativeReportController::docxResponse now public (reused by DeanMonitoringController); ReportToolbar download logic extracted to components/narrative-report/DownloadDocxButton.jsx; added logging of template/logo changes (module Reports); NarrativeProgressService (batched checklist) added — result: tests 33/33
-- 2026-10-05 43bc039 + uncommitted — removed duplicate docx routes; DocumentTypeField restores Memorandum of Agreement, Medical Certificate, Insurance; sw.js skips caching report photos and the docx download (see attendance log) — result: pass
-- 2026-10-05 43bc039 + uncommitted — NarrativeChecklist added for coordinator (intern portfolio + report pages) and replaces the intern's 'Still missing' list; checked in headless Chrome (dep 13: 2/15, dep 1: 15/15) — result: pass
-- 2026-10-05 43bc039 + uncommitted — Word (.docx) export + Print toolbar (phpoffice/phpword added), binary proxy passthrough; tests 16/16, lint no new issues, build ok; real deployment 1 docx 3.1MB in ~1.8s, 135 media, 18 page breaks, 8.5x13 — result: pass (not opened in real Word/LibreOffice here)
-- 2026-10-05 43bc039 + uncommitted — Apprenticeship in Action now shows task proof photos (selfies only as fallback, they already fill Proof of Attendance); checked in headless Chrome with a full 480h demo OJT for intern@internova.test (34 pages). Settings card now opens as a read-only summary with an Edit button at the top; logo upload + fields only in edit mode. Dev note: public/sw.js caches /_next/static cache-first, and dev chunk names are unhashed, so a browser that already ran the app on localhost:3000 can keep old JS — bypass/unregister the service worker in DevTools when testing in dev — result: pass
-- 2026-10-05 43bc039 + uncommitted — Phase 1 narrative report built (backend, tests, frontend, settings card) — result: pass (tests 14/14, lint no new issues, build ok; pre-existing set-state-in-effect error in DocumentMonitoring)

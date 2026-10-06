@@ -65,7 +65,7 @@ export default function FeedbackTab({ coordinator, onSent }) {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={send} className="rounded-2xl border border-slate-200 bg-white p-5">
+      <form onSubmit={send} className="rounded-2xl border border-slate-200 bg-white p-4">
         <h3 className="font-semibold text-slate-900">Send feedback to your coordinator</h3>
         <p className="mt-1 text-sm text-slate-500">
           Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;Dean Feedback&quot;. They can acknowledge it and reply, and you can mark a conversation resolved when it is dealt with.

@@ -52,7 +52,7 @@ class GroupMessageSent implements ShouldBroadcastNow
                 'sender_name' => trim("{$replyTo->sender?->first_name} {$replyTo->sender?->last_name}") ?: $replyTo->sender?->name,
                 'preview' => $replyTo->message !== '' ? $replyTo->message : ($replyTo->attachment_path ? (str_starts_with((string) $replyTo->attachment_type, 'image/') ? '📷 Photo' : '📎 ' . ($replyTo->attachment_name ?? 'File')) : null),
             ] : null,
-            'created_at' => $this->message->created_at->format('g:i A'),
+            'created_at' => $this->message->created_at->local()->format('g:i A'),
         ];
     }
 }

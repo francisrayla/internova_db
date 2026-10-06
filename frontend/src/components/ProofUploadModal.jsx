@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { shrinkImage } from "@/lib/imageCompress";
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const ACCEPTED_EXT = ["jpg", "jpeg", "png", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"];
@@ -59,8 +60,9 @@ export default function ProofUploadModal({ title, onConfirm, onCancel }) {
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  function addFiles(fileList) {
-    const files = Array.from(fileList ?? []);
+  async function addFiles(fileList) {
+    // Phone photos are shrunk first so they upload fast; other files pass through.
+    const files = await Promise.all(Array.from(fileList ?? []).map((f) => shrinkImage(f)));
     if (files.length === 0) return;
 
     const rejected = files.find((f) => !ACCEPTED_EXT.includes(extOf(f.name)) || f.size > MAX_FILE_BYTES);

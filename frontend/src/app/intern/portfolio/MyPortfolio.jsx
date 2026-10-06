@@ -7,9 +7,10 @@ import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { validateImageFile } from "@/lib/imageValidation";
+import { shrinkImage } from "@/lib/imageCompress";
 
 import { clean, inputProps } from "@/lib/inputRules";
-const MAX_ITEM_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_ITEM_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export default function MyPortfolio() {
   const [portfolio, setPortfolio] = useState(null);
@@ -144,8 +145,8 @@ export default function MyPortfolio() {
     }
   }
 
-  function handleItemImage(e) {
-    const picked = e.target.files?.[0];
+  async function handleItemImage(e) {
+    const picked = await shrinkImage(e.target.files?.[0]);
     if (!picked) {
       setItemImage(null);
       return;

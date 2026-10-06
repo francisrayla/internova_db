@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { apiFetch } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
 import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse } from "@/lib/internOptions";
@@ -16,23 +16,12 @@ const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", course: "", co
 export default function AddInternModal({ companies, lockedCompanyId, lockedCompanyName, onClose, onSaved }) {
   const [step, setStep] = useState(1);
   const [account, setAccount] = useState(EMPTY_ACCOUNT);
-  const [deployment, setDeployment] = useState({ company_id: lockedCompanyId ?? "", supervisor_id: "", start_date: "" });
-  const [supervisors, setSupervisors] = useState([]);
+  const [deployment, setDeployment] = useState({ company_id: lockedCompanyId ?? "", start_date: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [invited, setInvited] = useState(false);
 
   const activeCompanies = (companies ?? []).filter((c) => c.status === "active");
-
-  useEffect(() => {
-    if (!deployment.company_id) {
-      setSupervisors([]);
-      return;
-    }
-    fetchCoordinatorData(`supervisors?company_id=${deployment.company_id}`)
-      .then((r) => setSupervisors(r.supervisors ?? []))
-      .catch(() => setSupervisors([]));
-  }, [deployment.company_id]);
 
   function validateStep1() {
     if (!account.first_name.trim() || !account.last_name.trim()) return "Enter the intern's full name.";
@@ -166,19 +155,13 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
                 ) : (
                   <label className="block text-sm">
                     <span className="mb-1.5 block font-semibold text-slate-700">Company</span>
-                    <select value={deployment.company_id} onChange={(e) => setDeployment((f) => ({ ...f, company_id: e.target.value, supervisor_id: "" }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+                    <select value={deployment.company_id} onChange={(e) => setDeployment((f) => ({ ...f, company_id: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
                       <option value="">Select a company…</option>
                       {activeCompanies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
                     </select>
                   </label>
                 )}
-                <label className="block text-sm">
-                  <span className="mb-1.5 block font-semibold text-slate-700">Supervisor</span>
-                  <select value={deployment.supervisor_id} onChange={(e) => setDeployment((f) => ({ ...f, supervisor_id: e.target.value }))} disabled={!deployment.company_id} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 disabled:bg-slate-50">
-                    <option value="">No supervisor assigned yet</option>
-                    {supervisors.map((s) => <option key={s.user_id} value={s.user_id}>{s.name}</option>)}
-                  </select>
-                </label>
+                <CompanySupervisorsNote companyId={deployment.company_id} companyName={lockedCompanyName ?? activeCompanies.find((c) => String(c.id) === String(deployment.company_id))?.company_name} />
                 <label className="block text-sm">
                   <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
                   <input type="date" value={deployment.start_date} onChange={(e) => setDeployment((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />

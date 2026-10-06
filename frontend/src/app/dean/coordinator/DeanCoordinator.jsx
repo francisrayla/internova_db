@@ -80,12 +80,12 @@ export default function DeanCoordinator() {
 
       {c && (
         <>
-          <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
             <div className="flex min-w-0 flex-1 items-center gap-4">
-              <Avatar name={c.name} url={c.avatar_url} size={56} />
+              <Avatar name={c.name} url={c.avatar_url} size={48} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-lg font-semibold text-slate-900">{c.name}</p>
+                  <p className="truncate text-base font-semibold text-slate-900">{c.name}</p>
                   <Pill tone={STATUS[c.status]?.tone}>{STATUS[c.status]?.label}</Pill>
                 </div>
                 <p className="truncate text-sm text-slate-500">{c.email}</p>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
 import { apiFetch } from "@/lib/apiFetch";
+import BillingBreakdown from "@/components/BillingBreakdown";
 
 import { inputProps } from "@/lib/inputRules";
 const FILTERS = ["All Schools", "Awaiting Acceptance", "Accepted", "Pending Payment", "Active", "Offer Expired", "Paused", "Past Due", "Expired"];
@@ -446,6 +447,12 @@ export default function SchoolsPage() {
               {manageSchool.amount != null && (
                 <div className="flex justify-between"><span className="text-slate-500">Amount</span><span className="font-semibold text-slate-900">₱{Number(manageSchool.amount).toLocaleString()} / {manageSchool.billing_period === "monthly" ? "mo" : "yr"}</span></div>
               )}
+              {manageSchool.scheduled_switch && (
+                <div className="rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  Scheduled switch: <strong>{manageSchool.scheduled_switch.plan} ({manageSchool.scheduled_switch.billing_period})</strong> starts {manageSchool.scheduled_switch.starts_on}, billed ₱{Number(manageSchool.scheduled_switch.amount ?? 0).toLocaleString()} then.
+                </div>
+              )}
+              <BillingBreakdown breakdown={manageSchool.breakdown} title="Subscription price breakdown" />
               <div className="flex justify-between"><span className="text-slate-500">Dean</span><span className="font-semibold text-slate-900">{manageSchool.dean_name ?? "None yet"}</span></div>
               {manageSchool.dean_email && (
                 <div className="flex justify-between"><span className="text-slate-500">Dean Setup</span><Pill ok={manageSchool.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /></div>

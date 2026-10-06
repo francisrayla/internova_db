@@ -96,7 +96,7 @@ export default function DeanInterns() {
                 onClick={() => setGroup(on ? "" : key)}
                 className={`min-w-0 rounded-2xl border px-3 py-3 text-left transition ${STRIP_STYLE[g.tone]} ${on ? "ring-2 ring-blue-500" : "hover:shadow-sm"}`}
               >
-                <span className="block text-2xl font-bold">{data.summary[key]}</span>
+                <span className="block text-xl font-bold">{data.summary[key]}</span>
                 <span className="block truncate text-sm font-semibold">{g.label}</span>
                 <span className="hidden truncate text-xs opacity-80 sm:block">{g.help}</span>
               </button>

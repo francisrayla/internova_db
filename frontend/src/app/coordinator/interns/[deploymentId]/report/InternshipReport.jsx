@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
+import DeploymentHistory from "@/components/DeploymentHistory";
 
 function StatBlock({ label, value }) {
   return (
@@ -86,6 +87,8 @@ export default function InternshipReport() {
             {report.deployment.start_date ?? "—"} – {report.deployment.end_date ?? "Present"} · Generated on {generatedOn}
           </p>
         </header>
+
+        <DeploymentHistory history={report.deployment_history} printable bare className="mt-6" />
 
         <section className="grid grid-cols-3 gap-6 py-6">
           <StatBlock label="Hours Rendered" value={`${report.summary.hours_completed}h / ${report.summary.required_hours}h`} />

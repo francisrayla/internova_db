@@ -1,6 +1,6 @@
 # Tasks (intern / supervisor / coordinator, subtasks, comments, ratings)
-last_commit: cef02dc
-updated: 2026-10-05
+last_commit: 5a24cfb + uncommitted
+updated: 2026-10-06
 
 ## Map (where the code lives)
 - backend/routes/api.php — coordinator (L158-164, view-only + comments), supervisor (L202-212), intern (L228-236) task routes.
@@ -15,6 +15,8 @@ updated: 2026-10-05
 - Proxies: frontend/src/app/api/{intern,supervisor,coordinator}/[...path]/route.js (catch-all, no task-specific routes). Data helper: frontend/src/lib/internApi.js (fetchInternData).
 - DB: tasks, task_assignees, subtasks, task_comments, task_proofs, task_evaluations (unique task_id; rating widened). NOTE internova_database_schema.sql is stale (still has deployment_id/assigned_to); real shape comes from migrations 2026_08_14_*(restructure_tasks_for_group_assignment, task_assignees, task_proofs, leader_id, multi_assignee subtasks) and 2026_08_15 widen rating.
 
+- Supervisor tasks: Task::scopeVisibleToSupervisor (tasks whose assignee deployments are at the supervisor's company), so both supervisors see/create/rate each other's tasks; Task::setStatus completed notifies all active supervisors of the assignees' companies (fallback assigned_by). (see coordinator-monitoring log for the shared rule)
+
 ## How it works
 Supervisor creates a task for one or many interns (deployment_ids) -> task_assignees rows; group tasks have a leader. Intern moves status (updateTask), adds/completes subtasks (plan-gated), uploads proof, completes task (leader only for groups). Task status can be derived from subtasks (Task::recalculateStatusFromSubtasks). Supervisor rates completed tasks 1-10 (+comments), notifies assignees ("task_evaluated"). Coordinator only views + comments across school/companies. Comments exist on tasks and subtasks for all three roles. Ratings feed the Technical Ability section of the formal evaluation.
 
@@ -24,4 +26,5 @@ Supervisor creates a task for one or many interns (deployment_ids) -> task_assig
 - Backend: `cd backend && php artisan test`; frontend `cd frontend && npm run build`.
 
 ## History (newest first)
+- 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
 - 2026-10-05 cef02dc — initial log created (documentation only, no code changes) — result: n/a

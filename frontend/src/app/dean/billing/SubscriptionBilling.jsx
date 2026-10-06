@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
+import BillingBreakdown from "@/components/BillingBreakdown";
 
 import { inputProps } from "@/lib/inputRules";
 const PLAN_FEATURES = {
@@ -227,10 +228,10 @@ export default function SubscriptionPage() {
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || "Could not calculate the upgrade price.");
-        return data.quote;
+        return data;
       })
-      .then((quote) => {
-        setUpgradeFlow({ plan: planName, period, step: "confirm", quote, loading: false });
+      .then(({ quote, breakdown }) => {
+        setUpgradeFlow({ plan: planName, period, step: "confirm", quote, breakdown, loading: false });
       })
       .catch((err) => {
         setError(err.message);
@@ -316,13 +317,27 @@ export default function SubscriptionPage() {
         return data;
       })
       .then((data) => {
-        persistUser({
-          subscription_plan: data.plan,
-          subscription_billing_period: period,
-          subscription_amount: data.amount,
-          subscription_end_date: data.valid_until,
-        });
-        setSwitchMessage(`Switched to ${data.plan} (${period}). Now valid until ${data.valid_until}.`);
+        // The paid term is never cut short: the switch is scheduled for when it ends.
+        persistUser({ scheduled_switch: data.scheduled_switch });
+        setSwitchMessage(data.message);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setSwitchBusy(false));
+  }
+
+  function handleCancelScheduledSwitch() {
+    setSwitchBusy(true);
+    setSwitchMessage("");
+    setError("");
+    apiFetch(`/api/dean/schools/${user.school_id}/cancel-scheduled-switch`, { method: "POST" })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || "Could not cancel the scheduled switch.");
+        return data;
+      })
+      .then((data) => {
+        persistUser({ scheduled_switch: null });
+        setSwitchMessage(data.message);
       })
       .catch((err) => setError(err.message))
       .finally(() => setSwitchBusy(false));
@@ -434,6 +449,25 @@ export default function SubscriptionPage() {
             )}
           </div>
 
+          {user.scheduled_switch && (
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-left text-sm">
+              <p className="font-semibold text-blue-800">
+                Your switch to {user.scheduled_switch.plan} {user.scheduled_switch.billing_period} starts on {user.scheduled_switch.starts_on}.
+              </p>
+              <p className="mt-1 text-blue-700">
+                You keep {user.subscription_plan} until then, and nothing is charged now. You will pay{" "}
+                ₱{Number(user.scheduled_switch.amount ?? 0).toLocaleString()} when the new term begins.
+              </p>
+              <button
+                onClick={handleCancelScheduledSwitch}
+                disabled={switchBusy}
+                className="mt-3 rounded-xl border border-blue-300 bg-white px-4 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+              >
+                {switchBusy ? "Please wait…" : "Cancel scheduled switch"}
+              </button>
+            </div>
+          )}
+
           {switchMessage && <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-700">{switchMessage}</p>}
           {requestDone && <p className="mt-4 rounded-xl bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-700">Request sent — the Super Admin will follow up with you.</p>}
           {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700">{error}</p>}
@@ -467,6 +501,7 @@ export default function SubscriptionPage() {
                   <div className="flex justify-between"><span className="text-slate-500">Reference Code</span><span className="font-semibold text-slate-900">{user.pending_upgrade.payment_reference}</span></div>
                   <div className="flex justify-between border-t border-slate-200 pt-2"><span className="text-slate-500">Amount</span><span className="font-bold text-blue-700">₱{Number(user.pending_upgrade.amount ?? 0).toLocaleString()}</span></div>
                 </div>
+                <BillingBreakdown breakdown={user.pending_upgrade.breakdown} className="mt-4" />
                 <form onSubmit={handleUploadProof} className="mt-4 space-y-3 text-left">
                   <label className="block text-sm font-semibold text-slate-700">Upload Proof of Payment</label>
                   <input
@@ -528,6 +563,7 @@ export default function SubscriptionPage() {
                   <div className="flex justify-between"><span className="text-slate-500">Remaining period</span><span className="font-semibold text-slate-900">{upgradeFlow.quote.remaining_days} of {upgradeFlow.quote.total_days} days</span></div>
                   <div className="flex justify-between border-t border-slate-200 pt-1.5"><span className="text-slate-500">Upgrade amount today</span><span className="font-bold text-blue-700">₱{upgradeFlow.quote.amount_now.toLocaleString()}</span></div>
                 </div>
+                <BillingBreakdown breakdown={upgradeFlow.breakdown} className="mt-3" />
                 <p className="mt-3 text-xs text-slate-400">
                   Starting next renewal: ₱{upgradeFlow.quote.next_renewal_price.toLocaleString()}/{upgradeFlow.period === "monthly" ? "mo" : "yr"}. Your renewal date stays {upgradeFlow.quote.current_end_date}.
                 </p>
@@ -553,6 +589,7 @@ export default function SubscriptionPage() {
                   <div className="flex justify-between"><span className="text-slate-500">Plan Upgrade</span><span className="font-semibold text-slate-900">{user.subscription_plan} → {upgradeFlow.plan}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Amount Due Today</span><span className="font-bold text-blue-700">₱{upgradeFlow.quote.amount_now.toLocaleString()}</span></div>
                 </div>
+                <BillingBreakdown breakdown={upgradeFlow.breakdown} className="mt-3" />
                 <p className="mt-4 text-sm font-semibold text-slate-700">Choose Payment Method</p>
                 <div className="mt-2 grid grid-cols-2 gap-3">
                   {PAYMENT_METHODS.map((m) => (
@@ -581,7 +618,7 @@ export default function SubscriptionPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-slate-900">Available Plans</h2>
-              <p className="mt-1 text-sm text-slate-500">Downgrades switch instantly. Upgrades require payment.</p>
+              <p className="mt-1 text-sm text-slate-500">Upgrades require payment and start now. A cheaper plan or shorter period starts when your current paid term ends.</p>
             </div>
             <div className="flex rounded-xl bg-slate-100 p-1 text-sm font-semibold">
               {["monthly", "yearly"].map((period) => (
@@ -635,7 +672,7 @@ export default function SubscriptionPage() {
                       disabled={switchBusy}
                       className="mt-4 w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
                     >
-                      {switchBusy ? "Switching…" : `Switch to ${planName}`}
+                      {switchBusy ? "Scheduling…" : user.scheduled_switch?.plan === planName && user.scheduled_switch?.billing_period === billingToggle ? "Switch already scheduled" : `Switch to ${planName} at end of term`}
                     </button>
                   )}
                 </div>
@@ -644,7 +681,7 @@ export default function SubscriptionPage() {
           </div>
 
           <div className="mt-5 border-t border-slate-100 pt-4 text-center">
-            <p className="text-xs text-slate-400">Upgrades and instant switches use the standard rate above — no discounts.</p>
+            <p className="text-xs text-slate-400">Upgrades and scheduled switches use the standard rate above — no discounts.</p>
             <button
               onClick={() => { setRequestOpen((v) => !v); setRequestDone(false); }}
               className="mt-1 text-sm font-semibold text-blue-700 hover:underline"
@@ -787,6 +824,8 @@ export default function SubscriptionPage() {
           <div className="flex justify-between"><span className="text-slate-500">Amount Due</span><span className="font-bold text-blue-700">₱{Number(user.subscription_amount ?? 0).toLocaleString()}</span></div>
         </div>
 
+        <BillingBreakdown breakdown={user.subscription_breakdown} className="mt-3" />
+
         <p className="mt-5 text-sm font-semibold text-slate-700 text-left">Choose Payment Method</p>
         <div className="mt-2 grid grid-cols-2 gap-3">
           {PAYMENT_METHODS.map((m) => (
@@ -827,6 +866,8 @@ export default function SubscriptionPage() {
         <div className="flex justify-between"><span className="text-slate-500">Billing</span><span className="font-semibold text-slate-900 capitalize">{user.subscription_billing_period}</span></div>
         <div className="flex justify-between border-t border-slate-200 pt-2"><span className="text-slate-500">Amount Due</span><span className="font-bold text-blue-700">₱{Number(user.subscription_amount ?? 0).toLocaleString()}</span></div>
       </div>
+
+      <BillingBreakdown breakdown={user.subscription_breakdown} className="mt-4" />
 
       <div className="mt-5 rounded-2xl border border-slate-200 p-4 text-left">
         <p className="text-xs font-semibold uppercase text-slate-500 mb-2">Included Features</p>

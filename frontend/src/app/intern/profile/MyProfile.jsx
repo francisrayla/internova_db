@@ -8,6 +8,7 @@ import EditProfileModal from "@/components/EditProfileModal";
 import { useCurrentUser } from "@/lib/UserContext";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { fetchInternData } from "@/lib/internApi";
+import DeploymentHistory from "@/components/DeploymentHistory";
 
 const LIVE_TYPES = [
   "task_evaluated",
@@ -127,6 +128,7 @@ export default function MyProfile() {
             <p className="text-slate-500">Supervisor</p>
             <p className="font-semibold text-slate-900">{summary?.supervisor_name ?? "—"}</p>
           </div>
+        <DeploymentHistory history={summary?.history} compact title="Where you have trained" className="mt-4 border-slate-100 shadow-none" />
         </div>
       </section>
 

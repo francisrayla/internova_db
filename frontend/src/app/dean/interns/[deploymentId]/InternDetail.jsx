@@ -10,6 +10,7 @@ import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
 import { AttendanceCalendar, GroupPill, Projection } from "@/components/dean/monitoring";
 import { BackLink, EmptyState, ErrorNote, Pill, ProgressBar, Skeleton, SkeletonList, TabBar } from "@/components/dean/ui";
+import DeploymentHistory from "@/components/DeploymentHistory";
 
 const TAB_KEYS = ["attendance", "journal", "tasks", "evaluations", "documents", "narrative"];
 
@@ -23,7 +24,7 @@ function Stat({ label, children, help }) {
   return (
     <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
       <p className="text-xs font-semibold text-slate-500 sm:text-sm">{label}</p>
-      <div className="mt-1 text-lg font-bold text-slate-900 sm:text-xl">{children}</div>
+      <div className="mt-1 text-base font-bold text-slate-900 sm:text-xl">{children}</div>
       {help && <p className="mt-1 text-xs text-slate-500">{help}</p>}
     </div>
   );
@@ -217,7 +218,7 @@ export default function InternDetail() {
               {[i.course, i.year_level, i.student_number && `Student no. ${i.student_number}`].filter(Boolean).join(" · ")}
             </p>
             <p className="text-sm text-slate-500">
-              {i.company_name ?? "No company"} · Supervisor: {i.supervisor_name ?? "none yet"} · {formatDate(i.start_date)} to {formatDate(i.end_date)}
+              {i.company_name ?? "No company"} · Supervisor: {i.supervisor_name ?? "none yet"} · {formatDate(i.start_date)} – {i.end_date ? formatDate(i.end_date) : "present"}
             </p>
             {i.flags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -248,7 +249,7 @@ export default function InternDetail() {
               <Projection projection={i.projection} className="mt-1" />
               <p className="mt-2 text-xs text-slate-500">
                 {i.projection?.pace_hours_per_day ? `Based on about ${i.projection.pace_hours_per_day} hours per working day lately (Mon to Fri). ` : ""}
-                Deployment ends {formatDate(i.end_date)}.
+                {i.end_date ? `Deployment ends ${formatDate(i.end_date)}.` : "No end date set for this deployment."}
               </p>
               {i.status_reasons?.length > 0 && (
                 <ul className="mt-2 list-disc pl-5 text-xs text-slate-600">
@@ -261,6 +262,8 @@ export default function InternDetail() {
               <AttendanceCalendar calendar={i.calendar} />
             </section>
           </div>
+
+          <DeploymentHistory history={data.history} />
 
           <TabBar
             active={tab}

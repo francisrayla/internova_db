@@ -5,12 +5,13 @@ import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { validateImageFile } from "@/lib/imageValidation";
+import { shrinkImage } from "@/lib/imageCompress";
 import Icon from "@/components/Icon";
 import { useCurrentUser } from "@/lib/UserContext";
 import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
 
 import { inputProps } from "@/lib/inputRules";
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
 const STATUS_STYLES = {
   pending: "bg-amber-100 text-amber-700",
@@ -172,8 +173,8 @@ export default function DailyActivities() {
     }
   }
 
-  function handlePhoto(e) {
-    const picked = e.target.files?.[0];
+  async function handlePhoto(e) {
+    const picked = await shrinkImage(e.target.files?.[0]);
     if (!picked) {
       setPhoto(null);
       return;

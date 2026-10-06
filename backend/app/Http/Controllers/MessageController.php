@@ -11,6 +11,7 @@ use App\Models\GroupMessage;
 use App\Models\InternshipDeployment;
 use App\Models\Message;
 use App\Models\MessageThreadSetting;
+use App\Models\SupervisorProfile;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,9 +42,9 @@ class MessageController extends Controller
                 ->get();
         }
 
-        // Supervisor: interns actually deployed to them, plus their school's coordinators.
+        // Supervisor: interns at their company (shared with the company's other supervisor), plus their school's coordinators.
         if ($roleId === 3) {
-            $internIds = InternshipDeployment::where('supervisor_id', $user->id)->pluck('intern_id')->unique();
+            $internIds = InternshipDeployment::visibleToSupervisor($user)->pluck('intern_id')->unique();
 
             return User::where(function ($q) use ($internIds, $user) {
                 $q->whereIn('id', $internIds)
@@ -56,7 +57,9 @@ class MessageController extends Controller
         // though they may report to different supervisors within it).
         if ($roleId === 4) {
             $deployments = InternshipDeployment::where('intern_id', $user->id)->get();
-            $ids = $deployments->pluck('supervisor_id')->merge($deployments->pluck('coordinator_id'))->filter()->unique();
+            $supervisorIds = SupervisorProfile::whereIn('company_id', $deployments->pluck('company_id')->filter()->unique())
+                ->whereHas('user', fn ($q) => $q->where('status', 'active'))->pluck('user_id');
+            $ids = $supervisorIds->merge($deployments->pluck('coordinator_id'))->filter()->unique();
 
             $companyIds = $deployments->pluck('company_id')->filter()->unique();
             $companyMateIds = InternshipDeployment::whereIn('company_id', $companyIds)
@@ -137,9 +140,9 @@ class MessageController extends Controller
             'attachment_type' => $m->attachment_type,
             'attachment_size' => $m->attachment_size,
             'reply_to' => $this->mapReplySnippet($m->replyTo),
-            'read_at' => $m->read_at?->format('M d, Y g:i A'),
-            'created_at' => $m->created_at->format('g:i A'),
-            'created_at_full' => $m->created_at->format('M d, Y g:i A'),
+            'read_at' => $m->read_at?->local()?->format('M d, Y g:i A'),
+            'created_at' => $m->created_at->local()->format('g:i A'),
+            'created_at_full' => $m->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -156,8 +159,8 @@ class MessageController extends Controller
             'attachment_size' => $m->attachment_size,
             'reply_to' => $this->mapReplySnippet($m->replyTo),
             'is_system' => (bool) $m->is_system,
-            'created_at' => $m->created_at->format('g:i A'),
-            'created_at_full' => $m->created_at->format('M d, Y g:i A'),
+            'created_at' => $m->created_at->local()->format('g:i A'),
+            'created_at_full' => $m->created_at->local()->format('M d, Y g:i A'),
         ];
     }
 
@@ -204,7 +207,7 @@ class MessageController extends Controller
             'role' => $contact->role_id == 2 ? 'coordinator' : ($contact->role_id == 3 ? 'supervisor' : 'intern'),
             'avatar_url' => $contact->avatar_url,
             'last_message' => $this->previewLabel($lastMessage),
-            'last_message_at' => $lastMessage?->created_at?->format('g:i A'),
+            'last_message_at' => $lastMessage?->created_at?->local()?->format('g:i A'),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? 0,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
             'unread_count' => $unreadCount,
@@ -479,7 +482,7 @@ class MessageController extends Controller
                 'avatar_url' => $m->user?->avatar_url,
             ])->values(),
             'last_message' => $this->previewLabel(groupMessage: $lastMessage),
-            'last_message_at' => $lastMessage?->created_at?->format('g:i A'),
+            'last_message_at' => $lastMessage?->created_at?->local()?->format('g:i A'),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? $g->created_at->timestamp,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
             'last_message_sender_name' => $lastMessage ? (trim("{$lastMessage->sender?->first_name} {$lastMessage->sender?->last_name}") ?: $lastMessage->sender?->name) : null,

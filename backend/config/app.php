@@ -84,6 +84,12 @@ return [
     'timezone' => 'UTC',
 
     /*
+    | Display / business timezone. Storage stays UTC; everything a person reads
+    | and every "today" boundary uses this (see App\Support\LocalTime).
+    */
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Asia/Manila'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------

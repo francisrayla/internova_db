@@ -48,18 +48,18 @@ class GenerateNarrativeForAttendance implements ShouldQueue
 
         $taskTitles = Task::whereHas('assignees', fn ($q) => $q->where('user_id', $internId))
             ->where('status', 'completed')
-            ->whereDate('completed_at', $date)
+            ->where(fn ($q) => \App\Support\LocalTime::whereLocalDate($q, 'completed_at', $date))
             ->pluck('title');
 
         $subtaskTitles = Subtask::whereHas('task.assignees', fn ($q) => $q->where('user_id', $internId))
             ->where('status', 'completed')
-            ->whereDate('completed_at', $date)
+            ->where(fn ($q) => \App\Support\LocalTime::whereLocalDate($q, 'completed_at', $date))
             ->pluck('title');
 
         $items = $taskTitles->merge($subtaskTitles)->values()->all();
 
-        $clockIn = $attendance->clock_in?->format('h:i A');
-        $clockOut = $attendance->clock_out?->format('h:i A');
+        $clockIn = $attendance->clock_in?->local()?->format('h:i A');
+        $clockOut = $attendance->clock_out?->local()?->format('h:i A');
 
         // AI Portfolio/Reports is a Premium feature — a Basic-plan school
         // still gets the backfilled narrative, just built from the plain

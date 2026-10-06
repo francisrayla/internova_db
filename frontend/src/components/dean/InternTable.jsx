@@ -77,6 +77,7 @@ export default function InternTable({ interns }) {
               </td>
               <td className="max-w-[200px] px-3 py-3">
                 <p className="truncate text-slate-800">{i.company_name ?? "No company"}</p>
+                {i.moved_from && <p className="truncate text-[11px] text-slate-500">Moved from {i.moved_from}</p>}
                 <p className="truncate text-xs text-slate-500">{i.supervisor_name ?? <span className="text-amber-700">No supervisor yet</span>}</p>
               </td>
               <td className="w-36 px-3 py-3">

@@ -1,9 +1,14 @@
 # Subscription & billing
-last_commit: 1b9390d + uncommitted
-updated: 2026-10-05
+last_commit: 5a24cfb + uncommitted
+updated: 2026-10-06
 
 ## Map (where the code lives)
 - backend/app/Http/Controllers/Api/DeanSubscriptionController.php (renamed from CoordinatorSubscriptionController, same logic, line numbers unchanged): Dean self-service. paymongo() L34, createCheckoutSession L50, calculateProration L87, supersedeOtherActive L114, upgradeQuote L126, rejectIfExpired L157, acceptOffer L172, checkout L191, verifyCheckout L290, switchPlan L359, requestUpgrade L425, cancelPendingUpgrade L555, requestPlanChange L584, uploadProof L623.
+- NEW (2026-10-06, uncommitted) backend/app/Services/SubscriptionBreakdown.php: single source of the payable amount + lines (forSubscription, forUpgrade, forPendingUpgrade, prorate). checkout/requestUpgrade/upgradeQuote use it for the PayMongo amount AND the line item name/description. Exposed as `subscription_breakdown` + `pending_upgrade.breakdown` + `scheduled_switch` in AuthController::buildUserPayload, `breakdown`/`scheduled_switch` in SuperadminFullController::schools, `breakdown` in upgrade-quote.
+- NEW backend/app/Services/SubscriptionRollover.php: scheduled switches. switchPlan (non-upgrade) and approvePlanChange (amount <= current) create a `scheduled` row (DeanSubscriptionController::scheduleSwitch, start = end_date+1) instead of replacing the paid term; School::currentSubscription() hands over lazily once the active term ended (old -> expired, scheduled -> accepted, dates cleared, Dean pays through normal checkout). cancelScheduledSwitch route POST /api/dean/schools/{id}/cancel-scheduled-switch. Upgrade is blocked while a switch is scheduled. School::latestBillableSubscription() = newest non-scheduled row (use it, never latest('id'), for payment actions).
+- NEW backend/app/Services/RevenueReportService.php + GET /api/superadmin/revenue: money collected from payment_transactions status=paid (not school_subscriptions). confirmSchoolPayment now creates a paid transaction if none exists.
+- NEW backend/app/Console/Commands/DedupePlansCommand.php (`plans:dedupe {--pretend}`) + SubscriptionPlan::saving guard (no new duplicate names). FKs found via information_schema.
+- Frontend: components/BillingBreakdown.jsx (used in dean/billing offer, checkout, upgrade steps, pending upgrade; SchoolsManagement manage modal); scheduled-switch banner + cancel in SubscriptionBilling.jsx; superadmin/dashboard/RevenuePanel.jsx.
 - backend/app/Services/PlanFeatures.php (28 L): consts SUBTASKS/ATTACHMENTS/TASK_RATINGS/FORMAL_EVALUATIONS/AI_FEATURES; has($school,$feature) = label is in current plan's `features` array.
 - Gate call sites (inline checks, no middleware): InternMonitoringController L315/344/427/857, SupervisorMonitoringController L226/323/665, SuperadminFullController aiUsage L775, Jobs/GenerateNarrativeForAttendance L67.
 - backend/app/Http/Controllers/Api/SuperadminFullController.php (admin side): convertInquiryToSchool L201 (creates school + offer), verifySchoolPayment L314, confirmSchoolPayment L353, resendSchoolOffer L388, toggleSchoolSuspension L437, planChangeRequests L499, approvePlanChange L526, rejectPlanChange L596, plansFeatures L673, updatePlan L699.
@@ -17,9 +22,13 @@ updated: 2026-10-05
 ## How it works (max ~10 lines)
 Inquiry -> superadmin convertInquiryToSchool creates school + subscription offer (offer_expires_at). The school's Dean (not the coordinator any more) acceptOffer, then pays via PayMongo checkout (checkout creates session, verifyCheckout confirms) or uploads manual proof (uploadProof) which superadmin verifies/confirms. Expired active subs are detected lazily (rejectIfExpired). Upgrades: upgradeQuote prorates, requestUpgrade starts a pending payment while the current plan stays active, cancelPendingUpgrade aborts; a confirmed one supersedes others (supersedeOtherActive). Other changes go through requestPlanChange -> superadmin approve/reject. Feature gating is label membership in plan.features via PlanFeatures::has (only Premium-exclusive labels gated; Basic and Premium share the rest). Suspension via toggleSchoolSuspension.
 
+Caveats: switchPlan/approvePlanChange used to create a `paid` row with NO payment_transaction and drop the paid term (PMFTCI case); fixed by scheduling. approvePlanChange for an upgrade/custom rate still creates an active row marked paid with no payment (open). isRenewalExpired is true from the start of end_date. No renewal flow exists besides scheduled hand-over.
+
 ## How to test
+Tests (internova_testing): BillingRevenueTest, BillingBreakdownTest, ScheduledSwitchTest, DedupePlansTest. Never run Schema::getForeignKeys over every table (396 tables in test DB, ~200s hang).
 DeanTest.php covers dean accept-offer + coordinator 403/404 + cross-school dean 403. Manual: submit /inquiry, convert in superadmin Inquiries, log in as the Dean -> /dean/billing, accept offer, pay with PayMongo test keys or upload proof, confirm in superadmin Schools; check a Basic school is blocked on subtasks/AI and a Premium one is not.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-06 5a24cfb + uncommitted — revenue endpoint, price breakdown helper, scheduled switches, plans:dedupe — result: php artisan test 102/102 pass, next build --webpack ok
 - 2026-10-05 1b9390d + uncommitted — billing moved from coordinator to Dean (routes /api/dean, frontend /dean/billing), billing notifications via NotificationService::toSchoolDean; see dean.md — result: tests 23/23 pass (see dean.md)
 - 2026-10-05 cef02dc — first log created (read-only mapping, no code changes) — result: n/a

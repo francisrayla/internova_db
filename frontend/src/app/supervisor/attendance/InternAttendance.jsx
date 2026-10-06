@@ -130,7 +130,7 @@ export default function InternAttendance() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Attendance</h2>
-          <p className="mt-1 text-sm text-slate-600">Log and verify attendance for the interns assigned to you.</p>
+          <p className="mt-1 text-sm text-slate-600">Log and verify attendance for the interns at your company.</p>
         </div>
         <button
           onClick={() => setShowModal(true)}

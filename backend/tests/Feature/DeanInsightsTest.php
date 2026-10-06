@@ -324,7 +324,7 @@ class DeanInsightsTest extends TestCase
         $second = $this->getJson('/api/dean/coordinator/insights')->json('checklist');
         $this->assertSame($first['done'] + 1, $second['done']);
 
-        $this->deployment()->update(['supervisor_id' => null]);
+        User::whereIn('id', \App\Models\SupervisorProfile::where('company_id', $this->deployment()->company_id)->pluck('user_id'))->update(['status' => 'inactive']);
         $items = collect($this->getJson('/api/dean/coordinator/insights')->json('checklist.items'))->keyBy('key');
         $this->assertFalse($items['intern_supervisors']['ok']);
         $this->getJson('/api/dean/overview')->assertJsonPath('setup.total', 6);

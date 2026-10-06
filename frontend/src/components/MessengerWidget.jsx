@@ -134,10 +134,17 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
   useEffect(() => {
     function handleClickOutside(e) {
       if (optionsRef.current && !optionsRef.current.contains(e.target)) setShowOptions(false);
-      if (messageMenuRef.current && !messageMenuRef.current.contains(e.target)) setOpenMenuId(null);
+      if (messageMenuRef.current && !messageMenuRef.current.contains(e.target) && !e.target.closest?.("[data-msg-menu-toggle]")) setOpenMenuId(null);
+    }
+    function handleKey(e) {
+      if (e.key === "Escape") setOpenMenuId(null);
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKey);
+    };
   }, []);
 
   function handleSubmit(e) {
@@ -335,8 +342,11 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
                 <button
                   type="button"
                   onClick={() => setOpenMenuId((v) => (v === m.id ? null : m.id))}
-                  className={`grid h-6 w-6 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600 ${
-                    menuOpen ? "bg-slate-200 text-slate-600" : "opacity-0 group-hover:opacity-100"
+                  data-msg-menu-toggle
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  className={`grid h-7 w-7 place-items-center rounded-full text-slate-500 outline-none hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                    menuOpen ? "bg-slate-200 text-slate-600" : "opacity-70 hover:opacity-100 focus-visible:opacity-100"
                   }`}
                   aria-label="Message actions"
                 >
@@ -345,6 +355,7 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
                 {menuOpen && (
                   <div
                     ref={messageMenuRef}
+                    role="menu"
                     className="absolute top-full left-0 z-20 mt-1 w-36 rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
                   >
                     <button type="button" onClick={() => startReply(m)} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
@@ -661,6 +672,11 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const pickerRef = useRef(null);
+  const panelRef = useRef(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -668,6 +684,38 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Proper modal behaviour: Escape closes, Tab stays inside, the page behind
+  // does not scroll, and focus goes back to what opened it.
+  useEffect(() => {
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeRef.current?.();
+      } else if (e.key === "Tab") {
+        const nodes = Array.from(panelRef.current?.querySelectorAll('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? []);
+        if (nodes.length === 0) return;
+        const first = nodes[0];
+        const last = nodes[nodes.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+      if (previous instanceof HTMLElement && document.contains(previous)) previous.focus();
+    };
   }, []);
 
   const selectedPeople = candidates.filter((c) => selectedIds.includes(c.id));
@@ -707,9 +755,9 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">New group chat</h3>
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="new-group-title" className="max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-5 pb-8 shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl sm:p-6">
+        <h3 id="new-group-title" className="text-lg font-semibold text-slate-900">New group chat</h3>
         <p className="mt-1 text-xs text-slate-500">Add people from your interns, supervisors, or coordinators.</p>
 
         <div className="mt-4 space-y-4">

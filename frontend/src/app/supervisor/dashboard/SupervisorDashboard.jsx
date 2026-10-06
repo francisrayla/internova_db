@@ -36,7 +36,7 @@ export default function SupervisorDashboard() {
     : 0;
 
   const stats = [
-    { label: "Assigned Interns", value: interns.length, note: `${activeInterns.length} active`, href: "/supervisor/interns" },
+    { label: "Company Interns", value: interns.length, note: `${activeInterns.length} active`, href: "/supervisor/interns" },
     { label: "Avg. Hours Progress", value: `${avgHoursProgress}%`, note: "Across active interns", href: "/supervisor/interns" },
     { label: "Attendance To Review", value: pendingAttendance.length, note: pendingAttendance.length > 0 ? "Awaiting your review" : "All caught up", href: "/supervisor/attendance", urgent: pendingAttendance.length > 0 },
   ];
@@ -45,7 +45,7 @@ export default function SupervisorDashboard() {
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-600 to-blue-800 p-6 text-white shadow-sm">
         <h2 className="text-2xl font-bold">Good day, {name} 👋</h2>
-        <p className="mt-1 text-sm text-blue-100">A clear pulse on the interns assigned to you.</p>
+        <p className="mt-1 text-sm text-blue-100">A clear pulse on the interns at your company.</p>
         <div className="mt-5 flex flex-wrap gap-3">
           <Link href="/supervisor/interns" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
             View Interns
@@ -81,7 +81,7 @@ export default function SupervisorDashboard() {
           {loading ? (
             <p className="text-sm text-slate-500">Loading…</p>
           ) : interns.length === 0 ? (
-            <p className="text-sm text-slate-500">No interns are assigned to you yet.</p>
+            <p className="text-sm text-slate-500">No interns are deployed at your company yet.</p>
           ) : (
             interns.slice(0, 5).map((i) => (
               <div key={i.deployment_id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
