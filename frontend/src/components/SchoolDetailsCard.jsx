@@ -128,13 +128,13 @@ export default function SchoolDetailsCard({ role, readOnly = false }) {
     <div className="mt-6 max-w-lg rounded-2xl border border-slate-200 bg-white p-5 text-sm">
       {success && <p className="mb-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{success}</p>}
       {rows.map(([label, value]) => (
-        <div key={label} className="flex justify-between border-b border-slate-100 py-2.5">
-          <span className="text-slate-500">{label}</span>
-          <span className="font-semibold text-slate-900">{value}</span>
+        <div key={label} className="flex justify-between gap-4 border-b border-slate-100 py-2.5">
+          <span className="shrink-0 text-slate-500">{label}</span>
+          <span className="min-w-0 break-words text-right font-semibold text-slate-900">{value}</span>
         </div>
       ))}
-      <div className="flex justify-between py-2.5">
-        <span className="text-slate-500">School Status</span>
+      <div className="flex justify-between gap-4 py-2.5">
+        <span className="shrink-0 text-slate-500">School Status</span>
         <span className="font-semibold capitalize text-slate-900">{school.status}</span>
       </div>
 
