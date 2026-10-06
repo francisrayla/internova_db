@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { clean, inputProps } from "@/lib/inputRules";
+import useResendCooldown, { formatCountdown } from "@/lib/useResendCooldown";
+
 export default function VerifyEmail() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -14,6 +16,7 @@ export default function VerifyEmail() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const [notice, setNotice] = useState("");
+  const cooldown = useResendCooldown("verify", email);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -61,6 +64,7 @@ export default function VerifyEmail() {
         body: JSON.stringify({ email }),
       });
       if (!res.ok) throw new Error();
+      cooldown.start();
       setCode("");
       setNotice(`A new code is on its way to ${email}. Only the newest code works.`);
     } catch {
@@ -125,9 +129,15 @@ export default function VerifyEmail() {
                 {sending ? "Verifying…" : "Verify email"}
               </button>
             </form>
-            <button type="button" onClick={handleResend} disabled={sending} className="text-sm font-medium text-blue-700 hover:underline disabled:opacity-60">
-              Resend code
-            </button>
+            {cooldown.remaining > 0 ? (
+              <p className="text-center text-sm text-slate-500" aria-live="polite">
+                You can request a new code in <span className="font-semibold tabular-nums text-slate-700">{formatCountdown(cooldown.remaining)}</span>
+              </p>
+            ) : (
+              <button type="button" onClick={handleResend} disabled={sending} className="text-sm font-medium text-blue-700 hover:underline disabled:opacity-60">
+                Resend code
+              </button>
+            )}
           </>
         )}
 

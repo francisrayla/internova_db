@@ -27,7 +27,7 @@ class PasswordResetController extends Controller
 
         $user = User::where('email', $data['email'])->first();
 
-        if ($user && $user->password) {
+        if ($user && $user->password && !EmailVerificationController::sentRecently('password_reset_tokens', $user->email)) {
             $code = (string) random_int(100000, 999999);
 
             DB::table('password_reset_tokens')->updateOrInsert(

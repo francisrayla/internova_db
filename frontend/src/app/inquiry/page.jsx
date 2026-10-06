@@ -6,6 +6,7 @@ import PasswordInput from "@/components/PasswordInput";
 import AddressPicker from "@/components/AddressPicker";
 
 import { INPUT_RULES } from "@/lib/inputRules";
+import { markCodeSent } from "@/lib/useResendCooldown";
 // Only school types that actually run OJT/internship programs — basic
 // education (elementary/high school) doesn't, so it's excluded here rather
 // than accepted and rejected later during review.
@@ -165,7 +166,10 @@ export default function InquiryPage() {
         if (!res.ok) throw new Error(data.message || 'Something went wrong. Please try again.');
         return data;
       })
-      .then(() => setSubmitted(true))
+      .then(() => {
+        markCodeSent("verify", form.email);
+        setSubmitted(true);
+      })
       .catch((err) => {
         setSaving(false);
         setError(err.message);

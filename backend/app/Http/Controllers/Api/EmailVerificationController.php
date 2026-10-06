@@ -14,6 +14,9 @@ class EmailVerificationController extends Controller
 {
     private const EXPIRES_IN_MINUTES = 15;
 
+    // Matches the frontend countdown (lib/useResendCooldown.js) before "Resend code" shows again.
+    public const RESEND_COOLDOWN_SECONDS = 60;
+
     /**
      * Shared by storeInquiry() right after account creation and by
      * resend() — generates a fresh code, stores it, and queues the email.
@@ -32,6 +35,14 @@ class EmailVerificationController extends Controller
             code: $code,
             expiresInMinutes: (string) self::EXPIRES_IN_MINUTES,
         ));
+    }
+
+    /** A code went out to this address inside the cooldown window, so don't send another. */
+    public static function sentRecently(string $table, string $email): bool
+    {
+        $sentAt = DB::table($table)->where('email', $email)->value('created_at');
+
+        return $sentAt && now()->subSeconds(self::RESEND_COOLDOWN_SECONDS)->lt($sentAt);
     }
 
     private function findValidCodeRow(string $email, string $code): ?object
@@ -83,7 +94,7 @@ class EmailVerificationController extends Controller
 
         $user = User::where('email', $data['email'])->whereNull('email_verified_at')->first();
 
-        if ($user) {
+        if ($user && !self::sentRecently('email_verification_tokens', $user->email)) {
             self::sendCode($user);
         }
 

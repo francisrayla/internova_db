@@ -6,6 +6,8 @@ import { useState } from "react";
 import PasswordInput from "@/components/PasswordInput";
 
 import { clean, inputProps } from "@/lib/inputRules";
+import useResendCooldown, { formatCountdown } from "@/lib/useResendCooldown";
+
 // email -> code -> password -> done
 const STEPS = { EMAIL: "email", CODE: "code", PASSWORD: "password", DONE: "done" };
 
@@ -17,6 +19,7 @@ export default function ForgotPassword() {
   const [form, setForm] = useState({ password: "", confirmPassword: "" });
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const cooldown = useResendCooldown("reset", email);
 
   async function handleEmailSubmit(event) {
     event.preventDefault();
@@ -38,6 +41,7 @@ export default function ForgotPassword() {
       if (!res.ok || !data.success) throw new Error(data.message || "Something went wrong. Please try again.");
       // Same response either way (see backend) — always move on to the code
       // step so this screen never reveals whether the email is registered.
+      cooldown.start();
       setStep(STEPS.CODE);
     } catch (err) {
       setError(err.message);
@@ -107,12 +111,16 @@ export default function ForgotPassword() {
     setError("");
     setSending(true);
     try {
-      await fetch("/api/auth/forgot-password", {
+      const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
+      if (!res.ok) throw new Error();
+      cooldown.start();
       setCode("");
+    } catch {
+      setError("Couldn't send a new code. Check your connection and try again.");
     } finally {
       setSending(false);
     }
@@ -179,9 +187,15 @@ export default function ForgotPassword() {
               <button type="button" onClick={() => setStep(STEPS.EMAIL)} className="font-medium text-slate-700 hover:underline">
                 ← Use a different email
               </button>
-              <button type="button" onClick={handleResend} disabled={sending} className="font-medium text-blue-700 hover:underline disabled:opacity-60">
-                Resend code
-              </button>
+              {cooldown.remaining > 0 ? (
+                <span className="text-slate-500" aria-live="polite">
+                  Resend in <span className="font-semibold tabular-nums text-slate-700">{formatCountdown(cooldown.remaining)}</span>
+                </span>
+              ) : (
+                <button type="button" onClick={handleResend} disabled={sending} className="font-medium text-blue-700 hover:underline disabled:opacity-60">
+                  Resend code
+                </button>
+              )}
             </div>
           </>
         )}
