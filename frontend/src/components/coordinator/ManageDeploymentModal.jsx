@@ -85,8 +85,8 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-lg rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-base font-semibold text-slate-900">Manage deployment</h3>
         <p className="mt-1 text-sm text-slate-500">{intern.intern_name} — currently at {intern.company_name}</p>
 

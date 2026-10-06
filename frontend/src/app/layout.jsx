@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import PwaRegister from "@/components/PwaRegister";
+import KeyboardAwareSheets from "@/components/KeyboardAwareSheets";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,6 +33,9 @@ export const metadata = {
 
 export const viewport = {
   themeColor: "#2563eb",
+  // Android Chrome shrinks the page for the keyboard instead of covering it,
+  // so modals and forms can scroll the field being typed in into view.
+  interactiveWidget: "resizes-content",
 };
 
 // Runs before paint so the page never flashes light-then-dark (or vice
@@ -59,6 +63,7 @@ export default function RootLayout({ children }) {
       </head>
       <body className="min-h-full flex flex-col">
         <PwaRegister />
+        <KeyboardAwareSheets />
         {children}
       </body>
     </html>

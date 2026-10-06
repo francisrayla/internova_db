@@ -97,8 +97,8 @@ export default function AvatarUploadModal({ user, onClose, onUpdated }) {
   if (!mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-sm overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[70] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-sm rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Profile photo</h3>
         <p className="mt-1 text-xs text-slate-500">This is shown across the app, including in messages.</p>
 

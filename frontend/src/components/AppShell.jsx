@@ -130,7 +130,7 @@ export default function AppShell({
             drawer is open, and doubles as a tap-to-close target. */}
         {mobileNavOpen && (
           <div
-            className="fixed inset-0 z-40 bg-slate-900/40 print:hidden lg:hidden"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm print:hidden lg:hidden"
             onClick={() => setMobileNavOpen(false)}
             aria-hidden="true"
           />

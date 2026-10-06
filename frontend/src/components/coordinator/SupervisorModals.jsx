@@ -47,8 +47,8 @@ export function AddSupervisorModal({ companyId, companyName, onClose, onSaved })
 
   if (created) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-        <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+      <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+        <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
           <h3 className="text-base font-semibold text-slate-900">Supervisor account created</h3>
           <p className="mt-1 text-sm text-slate-600">
             The account is active right away. Share these sign-in details with the supervisor yourself — this password is shown only once and can&apos;t be viewed again after you close this window.
@@ -75,8 +75,8 @@ export function AddSupervisorModal({ companyId, companyName, onClose, onSaved })
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-base font-semibold text-slate-900">Add a supervisor</h3>
         <p className="mt-1 text-sm text-slate-500">At {companyName}</p>
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -127,6 +127,7 @@ export function EditSupervisorModal({ supervisor, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -165,8 +166,8 @@ export function EditSupervisorModal({ supervisor, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-base font-semibold text-slate-900">Edit supervisor</h3>
         <ConfirmDialog open={confirmDelete} title={`Delete ${supervisor.name}?`} confirmLabel="Delete supervisor" busy={saving} error={error} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)}>
           <p>This removes their account for good and can&apos;t be undone. A supervisor who still has interns assigned can&apos;t be deleted.</p>
@@ -222,8 +223,8 @@ export function ChooseCompanyDialog({ companies, onClose, onChoose }) {
   const full = companies.filter((c) => (c.supervisors_count ?? 0) >= MAX_SUPERVISORS);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/40 sm:items-center sm:p-4">
-      <div role="dialog" aria-modal="true" aria-label="Choose a company" className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4">
+      <div role="dialog" aria-modal="true" aria-label="Choose a company" className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-base font-semibold text-slate-900">Which company is this supervisor for?</h3>
         <p className="mt-1 text-sm text-slate-500">Each company can have up to {MAX_SUPERVISORS} supervisors.</p>
 

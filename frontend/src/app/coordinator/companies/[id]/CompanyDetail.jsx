@@ -61,8 +61,8 @@ function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-base font-semibold text-slate-900">Edit company</h3>
         <ConfirmDialog open={confirmDelete} title={`Delete ${company.company_name}?`} confirmLabel="Delete company" busy={saving} error={error} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)}>
           <p>This removes the company for good and can&apos;t be undone. A company that still has supervisors, interns or transfer history can&apos;t be deleted &mdash; mark it inactive instead.</p>

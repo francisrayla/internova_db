@@ -400,3 +400,11 @@ body {
 .role-kanban { grid-template-columns: 1fr; }
 .role-kanban .kanban-header { grid-column: auto; }
 .toast { right: 12px; bottom: 12px; left: 12px; justify-content: space-between; } }
+
+/* Modals stay inside the part of the screen the phone keyboard leaves visible
+   (see components/KeyboardAwareSheets.jsx, which sets --kb and --vv-top).
+   Unlayered on purpose: these must win over the overlay's `inset-0` and the
+   panel's own utilities. */
+.sheet-overlay { top: var(--vv-top, 0px); bottom: var(--kb, 0px); }
+.sheet-panel { max-height: min(92dvh, calc(100% - 0.5rem)); overflow-y: auto; overscroll-behavior: contain; }
+.kb-lift { bottom: var(--kb, 0px); }

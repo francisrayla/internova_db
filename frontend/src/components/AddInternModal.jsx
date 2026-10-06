@@ -68,8 +68,8 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
 
   if (invited) {
     return (
-      <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-        <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+      <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+        <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
           <h3 className="text-lg font-semibold text-slate-900">Invitation sent</h3>
           <p className="mt-1 text-sm text-slate-600">
             We emailed <span className="font-medium text-slate-900">{account.email}</span> a link to set their own password and activate their account.
@@ -83,8 +83,8 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-lg rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900">Add an intern</h3>
           <span className="text-xs font-medium text-slate-400">Step {step} of 2</span>

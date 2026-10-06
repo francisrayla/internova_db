@@ -89,8 +89,8 @@ export default function ProfileMenu({ user, onLogout, fallbackName, links = [] }
       {mounted &&
         showConfirm &&
         createPortal(
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4">
-            <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
+          <div className="sheet-overlay fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="sheet-panel w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
               <h3 className="text-lg font-semibold text-slate-900">Log out?</h3>
               <p className="mt-1.5 text-sm text-slate-600">You&apos;ll need to sign in again to access your account.</p>
               <div className="mt-5 flex justify-end gap-2">

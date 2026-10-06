@@ -106,8 +106,8 @@ export default function ProofUploadModal({ title, onConfirm, onCancel }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-slate-900/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <h3 className="text-lg font-semibold text-slate-900">Mark as done</h3>
         <p className="mt-1 text-sm text-slate-600">
           Attach a photo or file as proof that <span className="font-medium text-slate-800">&quot;{title}&quot;</span> is finished.

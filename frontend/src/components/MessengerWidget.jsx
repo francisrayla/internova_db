@@ -755,8 +755,8 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}>
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="new-group-title" className="max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-3xl bg-white p-5 pb-8 shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-[100] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && !saving && onClose()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="new-group-title" className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-2xl sm:rounded-3xl sm:p-6">
         <h3 id="new-group-title" className="text-lg font-semibold text-slate-900">New group chat</h3>
         <p className="mt-1 text-xs text-slate-500">Add people from your interns, supervisors, or coordinators.</p>
 
@@ -1289,7 +1289,7 @@ export default function MessengerWidget({ currentUser }) {
                 ))}
             </div>
 
-            <div className="no-scrollbar fixed bottom-0 right-4 z-50 flex max-w-[100vw] items-end gap-3 overflow-x-auto sm:right-20">
+            <div className="no-scrollbar kb-lift fixed bottom-0 right-4 z-50 flex max-w-[100vw] items-end gap-3 overflow-x-auto sm:right-20">
               {openChats
                 .filter((c) => !minimizedIds.includes(keyOf(c)))
                 .map((c) => {

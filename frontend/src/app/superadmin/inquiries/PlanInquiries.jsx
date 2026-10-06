@@ -93,8 +93,8 @@ function EmailModal({ inquiry, onClose, onSent }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-2xl rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900">Compose Email</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
@@ -278,8 +278,8 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-2xl rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-lg font-semibold text-slate-900">Approve School & Send Subscription Offer</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
@@ -425,8 +425,8 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
 function NotesModal({ inquiry, onClose, onSave }) {
   const [notes, setNotes] = useState(inquiry.notes ?? "");
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/40 sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-h-[90vh] sm:rounded-3xl sm:p-6">
+    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
+      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900">Internal Notes</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
