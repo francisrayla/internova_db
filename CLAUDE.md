@@ -11,7 +11,7 @@ Laravel API in `backend/`, Next.js app in `frontend/`. Deployed on Railway.
 
 ## Run locally (Windows, Git Bash)
 - MySQL (XAMPP): `cd /c/xampp/mysql && bin/mysqld.exe --defaults-file=bin/my.ini --standalone` (background)
-- Backend: `cd backend && php artisan serve` (:8000), `php artisan reverb:start` (:8080), `php artisan queue:listen` (mail and jobs)
+- Backend: `cd backend && php artisan serve` (:8000), `php artisan reverb:start` (:8080), `php artisan queue:listen --timeout=0` (mail and jobs; without --timeout=0 it exits after the laptop sleeps)
 - Frontend: `cd frontend && npm run dev` (:3000). The service worker is off in dev (it would serve stale scripts); test offline mode with `npm run build && npm start`.
 - Tests: `cd backend && php artisan test` (MySQL database `internova_testing`, which RefreshDatabase wipes on every run; never point tests at `internova_db`); frontend `npm run lint` / `npm run build`
 - Before starting a server, check whether the port is already in use. If an orphaned `next start` holds :3000, kill only that PID.

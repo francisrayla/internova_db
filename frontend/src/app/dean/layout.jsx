@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import FeedbackUnreadWatcher from "@/components/FeedbackUnreadWatcher";
 import Logo from "@/components/Logo";
 import ProfileMenu from "@/components/ProfileMenu";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -58,6 +59,7 @@ export default function DeanLayout({ children }) {
   const router = useRouter();
   // Read once from the cached session; the layout renders nothing until the re-check below finishes.
   const [user, setUser] = useState(readStoredUser);
+  const [feedbackUnread, setFeedbackUnread] = useState(0);
   const [checking, setChecking] = useState(true);
 
   function handleLogout() {
@@ -137,7 +139,7 @@ export default function DeanLayout({ children }) {
   return (
     <AppShell
       section="Dean"
-      navItems={NAV_ITEMS}
+      navItems={NAV_ITEMS.map((item) => (item.href === "/dean/coordinator" ? { ...item, badge: feedbackUnread } : item))}
       user={user}
       onLogout={handleLogout}
       notificationBellProps={{ audienceRole: "dean", schoolId: user.school_id, userId: user.id, historyHref: "/dean/notifications" }}
@@ -145,6 +147,7 @@ export default function DeanLayout({ children }) {
       profileLinks={PROFILE_LINKS}
       fallbackName="Dean"
     >
+      <FeedbackUnreadWatcher role="dean" onCount={setFeedbackUnread} />
       {children}
     </AppShell>
   );

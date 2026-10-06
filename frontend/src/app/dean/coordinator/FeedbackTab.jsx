@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, fetchApiData } from "@/lib/apiFetch";
-import { formatDate, formatTime, timeAgo } from "@/lib/timeAgo";
-import { EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/dean/ui";
+import { FEEDBACK_READ_EVENT } from "@/components/FeedbackUnreadWatcher";
+import FeedbackThread from "@/components/dean/FeedbackThread";
+import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
 
 const MAX = 2000;
 
@@ -16,8 +17,19 @@ export default function FeedbackTab({ coordinator, onSent }) {
   const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(() => {
-    fetchApiData("dean", "coordinator/feedback").then((d) => { setItems(d.items); setLoadError(false); }).catch(() => setLoadError(true));
-  }, []);
+    fetchApiData("dean", "coordinator/feedback")
+      .then(async (d) => {
+        // Keep the "new" markers from this visit, then mark the coordinator's replies as read.
+        setItems(d.items);
+        setLoadError(false);
+        if (d.unread_count > 0) {
+          await apiFetch("/api/dean/coordinator/feedback/read-all", { method: "POST", headers: { Accept: "application/json" } }).catch(() => {});
+          window.dispatchEvent(new Event(FEEDBACK_READ_EVENT));
+          onSent?.();
+        }
+      })
+      .catch(() => setLoadError(true));
+  }, [onSent]);
 
   useEffect(load, [load]);
 
@@ -56,7 +68,7 @@ export default function FeedbackTab({ coordinator, onSent }) {
       <form onSubmit={send} className="rounded-2xl border border-slate-200 bg-white p-5">
         <h3 className="font-semibold text-slate-900">Send feedback to your coordinator</h3>
         <p className="mt-1 text-sm text-slate-500">
-          Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;Dean Feedback&quot;. Replies aren&apos;t available yet, so use this for one-way remarks.
+          Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;Dean Feedback&quot;. They can acknowledge it and reply, and you can mark a conversation resolved when it is dealt with.
         </p>
         {!canSend ? (
           <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -84,21 +96,13 @@ export default function FeedbackTab({ coordinator, onSent }) {
       </form>
 
       <section>
-        <h3 className="mb-3 text-base font-semibold text-slate-900">Feedback you&apos;ve sent</h3>
+        <h3 className="mb-3 text-base font-semibold text-slate-900">Conversations</h3>
         {loadError && <ErrorNote onRetry={load}>We couldn&apos;t load your feedback.</ErrorNote>}
         {!items && !loadError && <SkeletonList rows={2} height="h-20" />}
-        {items?.length === 0 && <EmptyState icon="message" title="No feedback sent yet" text="Messages you send will be listed here, along with whether your coordinator has seen them." />}
+        {items?.length === 0 && <EmptyState icon="message" title="No feedback sent yet" text="Messages you send will be listed here, with your coordinator's replies and whether it is open, acknowledged or resolved." />}
         <ul className="space-y-3">
           {items?.map((f) => (
-            <li key={f.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="whitespace-pre-wrap break-words text-sm text-slate-800">{f.message}</p>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                <span>
-                  Sent {timeAgo(f.created_at)} · {formatDate(f.created_at)} {formatTime(f.created_at)}
-                </span>
-                {f.seen ? <Pill tone="green">Seen {timeAgo(f.read_at)}</Pill> : <Pill tone="amber">Not seen yet</Pill>}
-              </div>
-            </li>
+            <FeedbackThread key={f.id} thread={f} viewer="dean" base="/api/dean/coordinator/feedback" onUpdate={(u) => setItems((list) => list.map((x) => (x.id === u.id ? u : x)))} />
           ))}
         </ul>
       </section>

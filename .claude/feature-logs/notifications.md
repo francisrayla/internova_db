@@ -25,6 +25,7 @@ updated: 2026-10-05
 - Manual: run `php artisan reverb:start` and frontend; trigger an action (coordinator invites, plan change request, task approval); bell should update live for target role; mark read / mark all read; open role's /notifications page. Without Reverb, API still works (warning logged).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-05 1f8447e + uncommitted — new notification types dean_feedback_reply, dean_feedback_ack (to dean), dean_feedback reused for coordinator-bound replies/resolve/reopen — result: pass (see dean log)
 - 2026-10-05 1b9390d + uncommitted — new type `dean_feedback` (toUser coordinator, link /coordinator/feedback) from DeanMonitoringController::feedbackStore; AppShell nav `badge` + FeedbackUnreadWatcher uses useLiveRefresh([dean_feedback]) — result: tests pass (see dean.md)
 - 2026-10-05 1b9390d + uncommitted — audience_role `dean` accepted by NotificationController; billing notices use toSchoolDean; see dean.md — result: tests 23/23 pass (see dean.md)
 - 2026-10-05 cef02dc — initial log created (documentation only) — result: n/a, nothing run

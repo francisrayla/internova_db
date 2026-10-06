@@ -27,6 +27,7 @@ updated: 2026-10-05
 - Manual: as coordinator add a company, a supervisor, and interns (single and import); check list and dashboard counts; reassign an intern; delete a company with deployments (expect 422); coordinator PATCH school-settings (expect 405). As supervisor confirm only own interns appear.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-05 1f8447e + uncommitted — reviewDocument now sets reviewed_at; CoordinatorFeedbackController gained acknowledge/reply (threads) — result: pass (see dean log)
 - 2026-10-05 1b9390d + uncommitted — Phase 2: added ActivityLogService records (updateCompany, updateSupervisor, storeEvaluationCriterion, store(Sub)taskComment) and coordinator "Dean Feedback" nav/page/badge (CoordinatorFeedbackController, FeedbackUnreadWatcher in coordinator/layout.jsx); see dean.md — result: tests 33/33
 - 2026-10-05 1b9390d + uncommitted — removed billing routes and school-settings PATCH, read-only settings, waiting-for-Dean gate; see dean.md — result: tests 23/23 pass (see dean.md)
 - 2026-10-05 cef02dc — initial log created from code read (function-list grep, line ranges approximate), no tests run — result: n/a

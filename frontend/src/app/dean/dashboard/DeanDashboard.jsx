@@ -6,12 +6,21 @@ import { fetchApiData } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
 import { formatDate, greeting, timeAgo } from "@/lib/timeAgo";
 import Icon from "@/components/Icon";
+import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
+import { GROUPS, GROUP_ORDER } from "@/components/dean/monitoring";
 import { Avatar, EmptyState, ErrorNote, MODULE_ICON, Pill, ProgressBar, SectionTitle, Skeleton, SkeletonList } from "@/components/dean/ui";
 
 const ALERT_STYLE = {
   red: { box: "border-red-200 bg-red-50", dot: "bg-red-100 text-red-700", icon: "bell" },
   amber: { box: "border-amber-200 bg-amber-50", dot: "bg-amber-100 text-amber-700", icon: "bell" },
   blue: { box: "border-blue-200 bg-blue-50", dot: "bg-blue-100 text-blue-700", icon: "mail" },
+};
+
+const GROUP_BOX = {
+  red: "border-red-200 bg-red-50 text-red-700",
+  amber: "border-amber-200 bg-amber-50 text-amber-700",
+  green: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  blue: "border-blue-200 bg-blue-50 text-blue-700",
 };
 
 const SUBSCRIPTION_LABELS = {
@@ -63,6 +72,7 @@ export default function DeanDashboard() {
   const { user } = useCurrentUser();
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   const load = useCallback(() => {
     fetchApiData("dean", "overview").then((d) => { setData(d); setError(false); }).catch(() => setError(true));
@@ -126,14 +136,32 @@ export default function DeanDashboard() {
 
           <section>
             <SectionTitle title="School progress" help="How your interns are doing overall." action={<Link href="/dean/interns" className="text-sm font-semibold text-blue-700 hover:underline">See all interns →</Link>} />
+            {downloadError && <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{downloadError}</p>}
             {p.interns_total === 0 ? (
               <EmptyState icon="users" title="No interns yet" text="When your coordinator adds interns and deploys them to partner companies, their progress will show up here." />
             ) : (
+              <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+                {GROUP_ORDER.map((key) => (
+                  <Link key={key} href={`/dean/interns?group=${key}`} className={`min-w-0 rounded-2xl border px-3 py-3 transition hover:shadow-sm ${GROUP_BOX[GROUPS[key].tone]}`}>
+                    <span className="block text-2xl font-bold">{p.groups[key]}</span>
+                    <span className="block truncate text-sm font-semibold">{GROUPS[key].label}</span>
+                  </Link>
+                ))}
+              </div>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <Stat label="Interns" value={p.interns_active} help={`active now, ${p.interns_completed} completed`} />
                 <Stat label="Average hours" value={`${p.average_hours_pct}%`} pct={p.average_hours_pct} help="of the required hours rendered" />
                 <Stat label="Narrative reports ready" value={p.narrative_complete} of={p.interns_total} pct={(p.narrative_complete / p.interns_total) * 100} />
                 <Stat label="Evaluations done" value={p.evaluations_done} of={p.interns_total} pct={(p.evaluations_done / p.interns_total) * 100} />
+              </div>
+              <DownloadDocxButton
+                docxUrl="/api/dean/report/docx"
+                label="Download school report (.docx)"
+                fallbackName="School_Monitoring_Report.docx"
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                onError={setDownloadError}
+              />
               </div>
             )}
           </section>
@@ -165,6 +193,12 @@ export default function DeanDashboard() {
                       <dd className={`mt-1 text-sm font-semibold ${c.pending_count > 0 ? "text-amber-700" : "text-slate-900"}`}>{c.pending_count}</dd>
                     </div>
                   </dl>
+                  {data.setup && (
+                    <Link href="/dean/coordinator" className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                      <span className="text-slate-600">Setup {data.setup.done} of {data.setup.total}</span>
+                      <Pill tone={data.setup.done === data.setup.total ? "green" : "amber"}>{data.setup.done === data.setup.total ? "Ready" : "Needs a look"}</Pill>
+                    </Link>
+                  )}
                   <Link href="/dean/coordinator" className="mt-4 inline-block text-sm font-semibold text-blue-700 hover:underline">View coordinator →</Link>
                 </div>
               ) : (
@@ -172,7 +206,7 @@ export default function DeanDashboard() {
                   icon="user"
                   title="No coordinator yet"
                   text="Invite a coordinator so someone can add companies, supervisors and interns."
-                  action={<Link href="/dean/coordinator?tab=manage" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Invite a coordinator</Link>}
+                  action={<Link href="/dean/coordinator/manage" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Invite a coordinator</Link>}
                 />
               )}
             </section>

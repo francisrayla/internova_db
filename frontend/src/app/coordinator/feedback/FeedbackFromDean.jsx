@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
-import { formatDate, formatTime, timeAgo } from "@/lib/timeAgo";
+import FeedbackThread from "@/components/dean/FeedbackThread";
 import { FEEDBACK_READ_EVENT } from "@/components/FeedbackUnreadWatcher";
-import { EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/dean/ui";
+import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
 
 export default function FeedbackFromDean() {
   const [items, setItems] = useState(null);
@@ -31,7 +31,7 @@ export default function FeedbackFromDean() {
     <div className="space-y-5 sm:p-2 lg:p-6">
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">Feedback from Dean</h1>
-        <p className="mt-1 text-slate-600">Remarks your Dean has sent you. This is one-way for now, so you can&apos;t reply here. Talk to your Dean directly if you need to follow up.</p>
+        <p className="mt-1 text-slate-600">Remarks your Dean has sent you. Tap Acknowledge to let them know you have seen it, or reply to follow up. They mark it resolved once it is dealt with.</p>
       </div>
 
       {error && <ErrorNote onRetry={load}>We couldn&apos;t load your feedback.</ErrorNote>}
@@ -43,16 +43,7 @@ export default function FeedbackFromDean() {
 
       <ul className="space-y-3">
         {items?.map((f) => (
-          <li key={f.id} className={`rounded-2xl border bg-white p-4 ${f.read ? "border-slate-200" : "border-blue-300"}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-900">{f.dean_name}</p>
-              {!f.read && <Pill tone="blue">New</Pill>}
-            </div>
-            <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-800">{f.message}</p>
-            <p className="mt-3 text-xs text-slate-500">
-              {timeAgo(f.created_at)} · {formatDate(f.created_at)} {formatTime(f.created_at)}
-            </p>
-          </li>
+          <FeedbackThread key={f.id} thread={f} viewer="coordinator" base="/api/coordinator/feedback" onUpdate={(u) => setItems((list) => list.map((x) => (x.id === u.id ? u : x)))} />
         ))}
       </ul>
     </div>

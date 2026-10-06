@@ -61,7 +61,7 @@ export default function ActivityTab({ coordinator }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="text-sm text-slate-500">Everything {coordinator?.name?.split(" ")[0] ?? "your coordinator"} has done in Internova, newest first.</p>
         {modules.length > 1 && (
-          <label className="text-sm">
+          <label className="relative text-sm">
             <span className="sr-only">Filter by area</span>
             <select value={module} onChange={(e) => { setItems(null); setModule(e.target.value); }} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
               <option value="">All areas</option>

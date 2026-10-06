@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { fetchApiData } from "@/lib/apiFetch";
+import { useUrlTab } from "@/lib/useUrlTab";
 import { formatDate, timeAgo } from "@/lib/timeAgo";
 import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
+import { AttendanceCalendar, GroupPill, Projection } from "@/components/dean/monitoring";
 import { BackLink, EmptyState, ErrorNote, Pill, ProgressBar, Skeleton, SkeletonList, TabBar } from "@/components/dean/ui";
 
 const TAB_KEYS = ["attendance", "journal", "tasks", "evaluations", "documents", "narrative"];
@@ -177,9 +179,7 @@ function NarrativeTab({ deploymentId }) {
 
 export default function InternDetail() {
   const { deploymentId } = useParams();
-  const params = useSearchParams();
-  const requested = params.get("tab");
-  const [tab, setTab] = useState(TAB_KEYS.includes(requested) ? requested : "attendance");
+  const [tab, setTab] = useUrlTab(TAB_KEYS, "attendance");
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
 
@@ -211,7 +211,7 @@ export default function InternDetail() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-semibold text-slate-900">{i.intern_name}</h1>
-              <Pill tone={status.tone}>{status.label}</Pill>
+              {i.status_group && i.status_group !== "inactive" ? <GroupPill group={i.status_group} /> : <Pill tone={status.tone}>{status.label}</Pill>}
             </div>
             <p className="mt-1 text-sm text-slate-600">
               {[i.course, i.year_level, i.student_number && `Student no. ${i.student_number}`].filter(Boolean).join(" · ")}
@@ -240,6 +240,26 @@ export default function InternDetail() {
             <Stat label="Last clock-in" help={data.summary.latest_evaluation_score ? `Latest evaluation ${Number(data.summary.latest_evaluation_score)}%` : "No evaluation yet"}>
               <span className="text-base">{i.last_clock_in_at ? timeAgo(i.last_clock_in_at) : "Never"}</span>
             </Stat>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
+              <h2 className="text-sm font-semibold text-slate-900">Projected finish</h2>
+              <Projection projection={i.projection} className="mt-1" />
+              <p className="mt-2 text-xs text-slate-500">
+                {i.projection?.pace_hours_per_day ? `Based on about ${i.projection.pace_hours_per_day} hours per working day lately (Mon to Fri). ` : ""}
+                Deployment ends {formatDate(i.end_date)}.
+              </p>
+              {i.status_reasons?.length > 0 && (
+                <ul className="mt-2 list-disc pl-5 text-xs text-slate-600">
+                  {i.status_reasons.map((r) => <li key={r}>{r}</li>)}
+                </ul>
+              )}
+            </section>
+            <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
+              <h2 className="mb-3 text-sm font-semibold text-slate-900">Attendance, last 4 weeks</h2>
+              <AttendanceCalendar calendar={i.calendar} />
+            </section>
           </div>
 
           <TabBar

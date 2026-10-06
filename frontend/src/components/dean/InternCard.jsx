@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Pill, ProgressBar } from "@/components/dean/ui";
+import { CalendarDots, GroupPill, Projection } from "@/components/dean/monitoring";
 import { timeAgo } from "@/lib/timeAgo";
 
 const STATUS = {
@@ -27,7 +28,7 @@ export default function InternCard({ intern }) {
         </div>
         <div className="flex flex-wrap gap-1.5">
           {intern.account_status === "pending" && <Pill tone="amber">Invite not accepted</Pill>}
-          <Pill tone={status.tone}>{status.label}</Pill>
+          {intern.status_group && intern.status_group !== "inactive" ? <GroupPill group={intern.status_group} /> : <Pill tone={status.tone}>{status.label}</Pill>}
         </div>
       </div>
 
@@ -52,6 +53,13 @@ export default function InternCard({ intern }) {
         </div>
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <Projection projection={intern.projection} compact />
+        <span className="flex items-center gap-2 text-xs text-slate-500">
+          <span>Last 2 weeks</span>
+          <CalendarDots calendar={intern.calendar} />
+        </span>
+      </div>
       <p className="mt-2 text-xs text-slate-500">{intern.last_clock_in_at ? `Last clock-in ${timeAgo(intern.last_clock_in_at)}` : "Has not clocked in yet"}</p>
 
       {intern.flags.length > 0 && (

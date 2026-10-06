@@ -191,6 +191,8 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     Route::get('/feedback/unread-count', [CoordinatorFeedbackController::class, 'unreadCount']);
     Route::post('/feedback/read-all', [CoordinatorFeedbackController::class, 'markAllRead']);
     Route::post('/feedback/{id}/read', [CoordinatorFeedbackController::class, 'markRead']);
+    Route::post('/feedback/{id}/acknowledge', [CoordinatorFeedbackController::class, 'acknowledge']);
+    Route::post('/feedback/{id}/reply', [CoordinatorFeedbackController::class, 'reply']);
 });
 
 // The school's Dean / Principal: billing owner, school settings, and the
@@ -218,6 +220,15 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean'])->group(function
     Route::get('/coordinator/pending', [DeanMonitoringController::class, 'coordinatorPending']);
     Route::get('/coordinator/feedback', [DeanMonitoringController::class, 'feedbackIndex']);
     Route::post('/coordinator/feedback', [DeanMonitoringController::class, 'feedbackStore']);
+    Route::get('/coordinator/feedback/unread-count', [DeanMonitoringController::class, 'feedbackUnreadCount']);
+    Route::post('/coordinator/feedback/read-all', [DeanMonitoringController::class, 'feedbackReadAll']);
+    Route::post('/coordinator/feedback/{id}/reply', [DeanMonitoringController::class, 'feedbackReply']);
+    Route::post('/coordinator/feedback/{id}/resolve', [DeanMonitoringController::class, 'feedbackResolve']);
+    Route::post('/coordinator/feedback/{id}/reopen', [DeanMonitoringController::class, 'feedbackReopen']);
+    Route::get('/coordinator/insights', [DeanMonitoringController::class, 'coordinatorInsights']);
+    Route::get('/report/docx', [DeanMonitoringController::class, 'schoolReportDocx']);
+    Route::get('/preferences', [DeanController::class, 'preferences']);
+    Route::patch('/preferences', [DeanController::class, 'updatePreferences']);
     Route::get('/interns', [DeanMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}', [DeanMonitoringController::class, 'internDetail']);
     Route::get('/interns/{deploymentId}/narrative-report', [DeanMonitoringController::class, 'narrativeReport']);

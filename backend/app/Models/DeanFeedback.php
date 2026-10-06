@@ -8,9 +8,13 @@ class DeanFeedback extends Model
 {
     protected $table = 'dean_feedback';
 
-    protected $fillable = ['school_id', 'dean_id', 'coordinator_id', 'message', 'read_at'];
+    public const OPEN = 'open';
+    public const ACKNOWLEDGED = 'acknowledged';
+    public const RESOLVED = 'resolved';
 
-    protected $casts = ['read_at' => 'datetime'];
+    protected $fillable = ['school_id', 'dean_id', 'coordinator_id', 'message', 'read_at', 'status', 'acknowledged_at', 'resolved_at'];
+
+    protected $casts = ['read_at' => 'datetime', 'acknowledged_at' => 'datetime', 'resolved_at' => 'datetime'];
 
     public function dean()
     {
@@ -20,5 +24,10 @@ class DeanFeedback extends Model
     public function coordinator()
     {
         return $this->belongsTo(User::class, 'coordinator_id');
+    }
+
+    public function replies()
+    {
+        return $this->hasMany(DeanFeedbackReply::class)->orderBy('id');
     }
 }

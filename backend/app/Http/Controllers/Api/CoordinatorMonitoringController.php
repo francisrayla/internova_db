@@ -622,7 +622,7 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Document not found.'], 404);
         }
 
-        $document->update(['status' => $data['status'], 'remarks' => $data['remarks'] ?? null]);
+        $document->update(['status' => $data['status'], 'remarks' => $data['remarks'] ?? null, 'reviewed_at' => now()]);
         $document->loadMissing('deployment');
 
         if ($document->deployment) {

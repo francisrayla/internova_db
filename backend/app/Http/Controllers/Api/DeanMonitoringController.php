@@ -16,7 +16,11 @@ use App\Models\School;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\ActivityLogService;
+use App\Services\CoordinatorInsightsService;
+use App\Services\DeanReportDocxService;
 use App\Services\DeploymentSummaryService;
+use App\Services\FeedbackThreadService;
+use App\Services\InternMonitoringService;
 use App\Services\NarrativeProgressService;
 use App\Services\NarrativeReportService;
 use App\Services\NotificationService;
@@ -40,12 +44,12 @@ class DeanMonitoringController extends Controller
 {
     // Alert / flag thresholds (documented in the dean feature log).
     public const STALE_DOCUMENT_DAYS = 3;       // pending review longer than this = neglected
-    public const NO_CLOCK_IN_WORKING_DAYS = 3;  // completed working days without a clock-in
-    public const BEHIND_POINTS = 20;            // hours% this far under time-elapsed%
-    public const BEHIND_MIN_ELAPSED = 15;       // ...only once this much of the deployment has passed
+    public const NO_CLOCK_IN_WORKING_DAYS = InternMonitoringService::NO_CLOCK_IN_WORKING_DAYS;
+    public const BEHIND_POINTS = InternMonitoringService::BEHIND_POINTS;
+    public const BEHIND_MIN_ELAPSED = InternMonitoringService::BEHIND_MIN_ELAPSED;
     public const COORDINATOR_QUIET_DAYS = 3;
     public const INVITE_STALE_DAYS = 3;
-    public const EVALUATION_WINDOW_DAYS = 14;   // evaluation due when the deployment ends within this
+    public const EVALUATION_WINDOW_DAYS = InternMonitoringService::EVALUATION_WINDOW_DAYS;
     public const SUBSCRIPTION_WARN_DAYS = 14;
 
     private function schoolOf(Request $request): School
@@ -129,111 +133,15 @@ class DeanMonitoringController extends Controller
     // Intern rows (one fixed set of queries for the whole school)
     // ---------------------------------------------------------------
 
-    /** Working days (Mon-Fri) strictly after $after and strictly before $before. */
-    private static function workingDaysBetween(Carbon $after, Carbon $before): int
-    {
-        $n = 0;
-        for ($d = $after->copy()->startOfDay()->addDay(); $d->lt($before->copy()->startOfDay()); $d->addDay()) {
-            if ($d->isWeekday()) {
-                $n++;
-            }
-        }
-
-        return $n;
-    }
-
     /** @return Collection<int, array> */
     private function internRows(School $school): Collection
     {
-        $deployments = InternshipDeployment::with(['intern', 'company', 'supervisor'])
-            ->where('school_id', $school->id)->orderByDesc('id')->get();
-        if ($deployments->isEmpty()) {
-            return collect();
-        }
-        $ids = $deployments->pluck('id')->all();
-        $profiles = InternProfile::where('school_id', $school->id)->get()->keyBy('user_id');
-
-        $attendance = Attendance::whereIn('deployment_id', $ids)->whereNotNull('clock_in')
-            ->get(['deployment_id', 'status', 'clock_in', 'clock_out'])->groupBy('deployment_id');
-        $evaluated = Evaluation::whereIn('deployment_id', $ids)->distinct()->pluck('deployment_id')->flip();
-        $narrative = NarrativeProgressService::forDeployments($school, $deployments);
-        $today = Carbon::today();
-
-        return $deployments->map(function (InternshipDeployment $d) use ($attendance, $evaluated, $narrative, $profiles, $today) {
-            $rows = $attendance->get($d->id, collect());
-            $hours = $rows->where('status', 'approved')->filter(fn ($a) => $a->clock_out)
-                ->sum(fn ($a) => max(0, $a->clock_in->diffInMinutes($a->clock_out)) / 60);
-            $required = (int) $d->required_hours;
-            $hoursPct = $required > 0 ? (int) min(100, round($hours / $required * 100)) : 0;
-            $last = $rows->max('clock_in');
-            $lastClockIn = $last ? Carbon::parse($last) : null;
-
-            $elapsed = null;
-            if ($d->start_date && $d->end_date && $d->end_date->gt($d->start_date)) {
-                $elapsed = (int) max(0, min(100, round($d->start_date->diffInDays($today, false) / $d->start_date->diffInDays($d->end_date) * 100)));
-            }
-            $isActive = $d->status === 'active';
-            $started = $d->start_date && $d->start_date->lte($today);
-
-            $flags = [];
-            if ($isActive && $started) {
-                $ref = $lastClockIn?->copy()->startOfDay() ?? $d->start_date->copy()->subDay();
-                $missed = self::workingDaysBetween($ref, $today);
-                if ($missed >= self::NO_CLOCK_IN_WORKING_DAYS) {
-                    $flags[] = ['key' => 'no_clock_in', 'level' => 'red', 'label' => $lastClockIn ? "No clock-in for {$missed} working days" : "Has not clocked in yet ({$missed} working days)"];
-                }
-            }
-            if ($isActive && $elapsed !== null && $elapsed >= self::BEHIND_MIN_ELAPSED && $hoursPct < $elapsed - self::BEHIND_POINTS) {
-                $flags[] = ['key' => 'behind_hours', 'level' => 'amber', 'label' => "Behind on hours ({$hoursPct}% done, {$elapsed}% of time passed)"];
-            }
-            $prog = $narrative[$d->id] ?? ['done' => 0, 'total' => 0, 'missing_documents' => 0];
-            if ($prog['missing_documents'] > 0 && $d->status !== 'inactive' && ($d->status === 'completed' || ($elapsed !== null && $elapsed >= 50))) {
-                $flags[] = ['key' => 'missing_documents', 'level' => 'amber', 'label' => "{$prog['missing_documents']} required " . self::plural($prog['missing_documents'], 'document', 'documents') . ' missing'];
-            }
-            $hasEval = isset($evaluated[$d->id]);
-            $evalDue = $isActive && !$hasEval && $d->end_date && $d->end_date->lte($today->copy()->addDays(self::EVALUATION_WINDOW_DAYS));
-            if ($evalDue) {
-                $ended = $d->end_date->lt($today);
-                $flags[] = ['key' => 'evaluation_due', 'level' => $ended ? 'red' : 'amber', 'label' => $ended ? 'Deployment ended, no evaluation yet' : 'No evaluation yet, deployment ends soon'];
-            }
-
-            $profile = $profiles->get($d->intern_id);
-
-            return [
-                'deployment_id' => $d->id,
-                'intern_id' => $d->intern_id,
-                'intern_name' => $this->nameOf($d->intern),
-                'intern_email' => $d->intern?->email,
-                'student_number' => $profile?->student_number,
-                'course' => $profile?->course,
-                'year_level' => $profile?->year_level,
-                'company_id' => $d->company_id,
-                'company_name' => $d->company?->company_name,
-                'supervisor_name' => $this->nameOf($d->supervisor),
-                'status' => $d->status,
-                'account_status' => SchoolStaff::accountState($d->intern),
-                'start_date' => $d->start_date?->toDateString(),
-                'end_date' => $d->end_date?->toDateString(),
-                'required_hours' => $required,
-                'hours_completed' => round($hours, 1),
-                'hours_progress_pct' => $hoursPct,
-                'elapsed_pct' => $elapsed,
-                'narrative_done' => $prog['done'],
-                'narrative_total' => $prog['total'],
-                'has_evaluation' => $hasEval,
-                'last_clock_in_at' => $lastClockIn?->toIso8601String(),
-                'flags' => $flags,
-                'needs_attention' => count($flags) > 0,
-                '_eval_due' => $evalDue,
-                '_ended_days' => ($isActive && $d->end_date && $d->end_date->lt($today)) ? (int) $d->end_date->diffInDays($today) : null,
-                '_created_at' => $d->created_at,
-            ];
-        })->values();
+        return InternMonitoringService::rows($school);
     }
 
     private static function publicRow(array $row): array
     {
-        return array_filter($row, fn ($k) => !str_starts_with($k, '_'), ARRAY_FILTER_USE_KEY);
+        return InternMonitoringService::publicRow($row);
     }
 
     // ---------------------------------------------------------------
@@ -363,11 +271,11 @@ class DeanMonitoringController extends Controller
 
         // Coordinator
         if (!$coordinator || $coordinator->status === 'inactive') {
-            $add('no_coordinator', 'amber', 'Your school has no coordinator', 'Invite a coordinator so someone can manage interns, documents and evaluations.', '/dean/coordinator?tab=manage');
+            $add('no_coordinator', 'amber', 'Your school has no coordinator', 'Invite a coordinator so someone can manage interns, documents and evaluations.', '/dean/coordinator/manage');
         } elseif ($coordinator->status === 'pending_activation') {
             $age = (int) $coordinator->updated_at->diffInDays(now());
             if ($age >= self::INVITE_STALE_DAYS || $brief['invitation_expired']) {
-                $add('coordinator_invite', 'amber', "Coordinator hasn't accepted the invitation", 'Sent ' . self::daysText($age) . ' ago. You can resend it or correct the email.', '/dean/coordinator?tab=manage');
+                $add('coordinator_invite', 'amber', "Coordinator hasn't accepted the invitation", 'Sent ' . self::daysText($age) . ' ago. You can resend it or correct the email.', '/dean/coordinator/manage');
             }
         } else {
             $last = $brief['last_active_at'] ? Carbon::parse($brief['last_active_at']) : null;
@@ -420,11 +328,13 @@ class DeanMonitoringController extends Controller
                 'interns_active' => $live->where('status', 'active')->count(),
                 'interns_completed' => $live->where('status', 'completed')->count(),
                 'interns_total' => $totalInterns,
+                'groups' => InternMonitoringService::groupCounts($rows),
                 'average_hours_pct' => $totalInterns ? (int) round($live->avg('hours_progress_pct')) : 0,
                 'narrative_complete' => $live->filter(fn ($r) => $r['narrative_total'] > 0 && $r['narrative_done'] >= $r['narrative_total'])->count(),
                 'evaluations_done' => $live->where('has_evaluation', true)->count(),
             ],
             'coordinator' => $brief,
+            'setup' => collect(CoordinatorInsightsService::checklist($school, $rows))->only(['done', 'total']),
             'recent_activity' => $recent->values(),
             'subscription' => [
                 'status' => $subStatus,
@@ -447,7 +357,8 @@ class DeanMonitoringController extends Controller
         return response()->json([
             'success' => true,
             'coordinator' => $this->coordinatorBrief($coordinator, $pending),
-            'unseen_feedback' => $coordinator ? DeanFeedback::where('coordinator_id', $coordinator->id)->whereNull('read_at')->count() : 0,
+            'unseen_feedback' => $coordinator ? FeedbackThreadService::coordinatorUnread($coordinator) : 0,
+            'unread_replies' => FeedbackThreadService::deanUnread($school->id),
         ]);
     }
 
@@ -500,23 +411,102 @@ class DeanMonitoringController extends Controller
         ]);
     }
 
-    private function feedbackPayload(DeanFeedback $f): array
+    private function thread(Request $request, int $id): ?DeanFeedback
     {
-        return [
-            'id' => $f->id,
-            'message' => $f->message,
-            'created_at' => $f->created_at->toIso8601String(),
-            'read_at' => $f->read_at?->toIso8601String(),
-            'seen' => $f->read_at !== null,
-            'dean_name' => $this->nameOf($f->dean),
-        ];
+        return DeanFeedback::with(['dean', 'coordinator', 'replies.user'])->where('school_id', $request->user()->school_id)->find($id);
     }
 
     public function feedbackIndex(Request $request): JsonResponse
     {
-        $items = DeanFeedback::with('dean')->where('school_id', $request->user()->school_id)->latest('id')->limit(100)->get();
+        $items = DeanFeedback::with(['dean', 'coordinator', 'replies.user'])->where('school_id', $request->user()->school_id)->latest('id')->limit(100)->get();
 
-        return response()->json(['success' => true, 'items' => $items->map(fn ($f) => $this->feedbackPayload($f))->values()]);
+        return response()->json([
+            'success' => true,
+            'items' => $items->map(fn ($f) => FeedbackThreadService::payload($f, 'dean'))->values(),
+            'unread_count' => FeedbackThreadService::deanUnread($request->user()->school_id),
+        ]);
+    }
+
+    public function feedbackUnreadCount(Request $request): JsonResponse
+    {
+        return response()->json(['unread_count' => FeedbackThreadService::deanUnread($request->user()->school_id)]);
+    }
+
+    public function feedbackReadAll(Request $request): JsonResponse
+    {
+        DeanFeedback::where('school_id', $request->user()->school_id)->get()->each(fn ($f) => FeedbackThreadService::markReadFor('dean', $f));
+
+        return response()->json(['success' => true]);
+    }
+
+    public function feedbackReply(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['message' => 'required|string|max:2000']);
+        $f = $this->thread($request, $id);
+        if (!$f) {
+            return self::notFound('Feedback');
+        }
+        FeedbackThreadService::reply($f, $request->user(), 'dean', $data['message']);
+
+        return response()->json(['success' => true, 'feedback' => FeedbackThreadService::payload($f->fresh(), 'dean')], 201);
+    }
+
+    public function feedbackResolve(Request $request, int $id): JsonResponse
+    {
+        $f = $this->thread($request, $id);
+        if (!$f) {
+            return self::notFound('Feedback');
+        }
+        FeedbackThreadService::resolve($f);
+
+        return response()->json(['success' => true, 'feedback' => FeedbackThreadService::payload($f->fresh(), 'dean')]);
+    }
+
+    public function feedbackReopen(Request $request, int $id): JsonResponse
+    {
+        $f = $this->thread($request, $id);
+        if (!$f) {
+            return self::notFound('Feedback');
+        }
+        FeedbackThreadService::reopen($f);
+
+        return response()->json(['success' => true, 'feedback' => FeedbackThreadService::payload($f->fresh(), 'dean')]);
+    }
+
+    public function coordinatorInsights(Request $request): JsonResponse
+    {
+        $school = $this->schoolOf($request);
+        $rows = $this->internRows($school);
+
+        return response()->json([
+            'success' => true,
+            'scorecard' => CoordinatorInsightsService::scorecard($school, $rows),
+            'checklist' => CoordinatorInsightsService::checklist($school, $rows),
+            'activity_chart' => CoordinatorInsightsService::activityChart($school, $this->currentCoordinator($school->id)),
+        ]);
+    }
+
+    public function schoolReportDocx(Request $request): BinaryFileResponse
+    {
+        @set_time_limit(120);
+        $school = $this->schoolOf($request);
+        $rows = $this->internRows($school);
+        $coordinator = $this->currentCoordinator($school->id);
+        $path = DeanReportDocxService::build([
+            'school' => $school,
+            'generated_at' => now(),
+            'rows' => $rows,
+            'groups' => InternMonitoringService::groupCounts($rows),
+            'scorecard' => CoordinatorInsightsService::scorecard($school, $rows),
+            'checklist' => CoordinatorInsightsService::checklist($school, $rows),
+            'activity' => CoordinatorInsightsService::activityChart($school, $coordinator),
+            'coordinator' => $this->nameOf($coordinator),
+        ]);
+        $name = 'School_Monitoring_Report_' . now()->format('Y-m-d') . '.docx';
+
+        return response()->download($path, $name, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ])->deleteFileAfterSend(true);
     }
 
     public function feedbackStore(Request $request): JsonResponse
@@ -539,6 +529,7 @@ class DeanMonitoringController extends Controller
             'dean_id' => $dean->id,
             'coordinator_id' => $coordinator->id,
             'message' => $message,
+            'status' => DeanFeedback::OPEN,
         ]);
 
         NotificationService::toUser('coordinator', $coordinator->id, $school->id, 'dean_feedback',
@@ -552,7 +543,7 @@ class DeanMonitoringController extends Controller
             request: $request
         );
 
-        return response()->json(['success' => true, 'message' => 'Feedback sent.', 'feedback' => $this->feedbackPayload($feedback->load('dean'))], 201);
+        return response()->json(['success' => true, 'message' => 'Feedback sent.', 'feedback' => FeedbackThreadService::payload($feedback->fresh(), 'dean')], 201);
     }
 
     // ---------------------------------------------------------------
@@ -563,6 +554,7 @@ class DeanMonitoringController extends Controller
     {
         $school = $this->schoolOf($request);
         $rows = $this->internRows($school);
+        $summary = InternMonitoringService::groupCounts($rows);
 
         $companies = $rows->filter(fn ($r) => $r['company_id'])->unique('company_id')
             ->map(fn ($r) => ['id' => $r['company_id'], 'name' => $r['company_name']])->sortBy('name')->values();
@@ -576,6 +568,9 @@ class DeanMonitoringController extends Controller
         if ($company = $request->query('company_id')) {
             $rows = $rows->where('company_id', (int) $company);
         }
+        if ($group = $request->query('group')) {
+            $rows = $rows->where('status_group', $group);
+        }
         if ($request->boolean('attention')) {
             $rows = $rows->where('needs_attention', true);
         }
@@ -583,6 +578,7 @@ class DeanMonitoringController extends Controller
         return response()->json([
             'success' => true,
             'interns' => $rows->map(fn ($r) => self::publicRow($r))->values(),
+            'summary' => $summary,
             'companies' => $companies,
         ]);
     }
@@ -664,6 +660,7 @@ class DeanMonitoringController extends Controller
         return response()->json([
             'success' => true,
             'intern' => self::publicRow($row),
+            'calendar_days' => InternMonitoringService::expandCalendar($row['calendar']),
             'summary' => [
                 'tasks_total' => $summary['tasks_total'],
                 'tasks_completed' => $summary['tasks_completed'],

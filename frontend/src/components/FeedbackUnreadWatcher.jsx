@@ -6,27 +6,29 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 
 export const FEEDBACK_READ_EVENT = "internova:feedback-read";
-const LIVE_TYPES = ["dean_feedback"];
+const COORDINATOR_TYPES = ["dean_feedback"];
+const DEAN_TYPES = ["dean_feedback_reply", "dean_feedback_ack"];
 
 /**
- * Renders nothing; keeps the coordinator sidebar's "Dean Feedback" badge in
- * sync: on every page change, when a feedback notification arrives live, and
+ * Renders nothing; keeps the sidebar badge for Dean feedback (coordinator: "Dean Feedback",
+ * Dean: "Coordinator") in sync: on every page change, when a feedback notification arrives live, and
  * when the feedback page marks everything read.
  */
-export default function FeedbackUnreadWatcher({ onCount }) {
+export default function FeedbackUnreadWatcher({ onCount, role = "coordinator" }) {
+  const endpoint = role === "dean" ? "/api/dean/coordinator/feedback/unread-count" : "/api/coordinator/feedback/unread-count";
   const pathname = usePathname();
 
   const refresh = useCallback(() => {
-    apiFetch("/api/coordinator/feedback/unread-count", { headers: { Accept: "application/json" } })
+    apiFetch(endpoint, { headers: { Accept: "application/json" } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) onCount(data.unread_count ?? 0);
       })
       .catch(() => {});
-  }, [onCount]);
+  }, [onCount, endpoint]);
 
   useEffect(refresh, [refresh, pathname]);
-  useLiveRefresh(LIVE_TYPES, refresh);
+  useLiveRefresh(role === "dean" ? DEAN_TYPES : COORDINATOR_TYPES, refresh);
 
   useEffect(() => {
     const clear = () => onCount(0);

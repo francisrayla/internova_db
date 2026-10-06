@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/apiFetch";
  * "Download Word (.docx)": fetched with the Bearer token, then saved via a
  * temporary <a download>. Shared by ReportToolbar and the Dean's intern page.
  */
-export default function DownloadDocxButton({ docxUrl, className, label = "Download Word (.docx)", onError }) {
+export default function DownloadDocxButton({ docxUrl, className, label = "Download Word (.docx)", fallbackName = "Narrative_Report.docx", onError }) {
   const [busy, setBusy] = useState(false);
 
   async function downloadDocx() {
@@ -20,7 +20,7 @@ export default function DownloadDocxButton({ docxUrl, className, label = "Downlo
       if (!response.ok) throw new Error("failed");
       const disposition = response.headers.get("content-disposition") || "";
       const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
-      const filename = match ? decodeURIComponent(match[1]) : "Narrative_Report.docx";
+      const filename = match ? decodeURIComponent(match[1]) : fallbackName;
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");

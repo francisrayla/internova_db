@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CoordinatorProfile;
+use App\Models\DeanProfile;
 use App\Models\InternshipDeployment;
 use App\Models\School;
 use App\Models\User;
@@ -336,5 +337,25 @@ class DeanController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'School settings updated.', 'school' => $this->settingsPayload($school->fresh())]);
+    }
+
+    // ---------------------------------------------------------------
+    // Email preferences
+    // ---------------------------------------------------------------
+
+    public function preferences(Request $request): JsonResponse
+    {
+        $profile = DeanProfile::firstOrCreate(['user_id' => $request->user()->id], ['school_id' => $request->user()->school_id]);
+
+        return response()->json(['success' => true, 'weekly_summary_email' => (bool) $profile->fresh()->weekly_summary_email]);
+    }
+
+    public function updatePreferences(Request $request): JsonResponse
+    {
+        $data = $request->validate(['weekly_summary_email' => 'required|boolean']);
+        $profile = DeanProfile::firstOrCreate(['user_id' => $request->user()->id], ['school_id' => $request->user()->school_id]);
+        $profile->update(['weekly_summary_email' => $data['weekly_summary_email']]);
+
+        return response()->json(['success' => true, 'weekly_summary_email' => (bool) $profile->weekly_summary_email]);
     }
 }
