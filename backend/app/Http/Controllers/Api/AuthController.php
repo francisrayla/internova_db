@@ -189,6 +189,7 @@ class AuthController extends Controller
         // plan they're already paying for (see School::currentSubscription()).
         $subscription = $user->school?->currentSubscription();
         $pendingUpgrade = $user->school?->pendingUpgrade();
+        $approvedChange = $user->school?->approvedChange();
 
         return [
             'id'         => $user->id,
@@ -224,6 +225,12 @@ class AuthController extends Controller
             'scheduled_switch'    => $user->school ? \App\Services\SubscriptionRollover::summary(\App\Services\SubscriptionRollover::scheduledFor($user->school)) : null,
             'subscription_breakdown' => $subscription ? \App\Services\SubscriptionBreakdown::forSubscription($subscription) : null,
             'plan_features'       => $subscription?->plan?->features ?? [],
+            'approved_change'     => $approvedChange ? [
+                'plan'           => $approvedChange->plan?->name,
+                'billing_period' => $approvedChange->billing_period,
+                'amount'         => (float) $approvedChange->amount,
+                'breakdown'      => \App\Services\SubscriptionBreakdown::forSubscription($approvedChange),
+            ] : null,
             'pending_upgrade'     => $pendingUpgrade ? [
                 'plan'            => $pendingUpgrade->plan?->name,
                 'billing_period'  => $pendingUpgrade->billing_period,

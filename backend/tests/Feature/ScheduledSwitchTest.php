@@ -175,7 +175,7 @@ class ScheduledSwitchTest extends TestCase
         $this->postJson("/api/dean/schools/{$this->school->id}/upgrade-plan", ['plan_name' => 'Premium', 'billing_period' => 'yearly', 'payment_method' => 'gcash'])->assertStatus(422);
     }
 
-    public function test_approved_custom_downgrade_is_scheduled_but_an_upgrade_stays_immediate(): void
+    public function test_approved_custom_downgrade_is_scheduled_but_an_upgrade_awaits_payment(): void
     {
         $down = PlanChangeRequest::create([
             'school_id' => $this->school->id, 'requested_plan' => 'Basic', 'requested_billing_period' => 'monthly', 'note' => 'cheaper please', 'status' => 'pending',
@@ -188,12 +188,15 @@ class ScheduledSwitchTest extends TestCase
         $this->assertSame('2027-10-01', $scheduled->start_date->toDateString());
         $this->assertSame('approved', $down->fresh()->status);
 
-        // Upgrade at a custom rate keeps today's behaviour: immediate, old row superseded.
+        // Upgrade at a custom rate is NOT paid by approving it: awaiting payment, paid term untouched.
         $up = PlanChangeRequest::create([
             'school_id' => $this->school->id, 'requested_plan' => 'Premium', 'requested_billing_period' => 'yearly', 'status' => 'pending',
         ]);
-        $this->postJson("/api/superadmin/plan-change-requests/{$up->id}/approve", [])->assertOk();
-        $this->assertSame('superseded', $this->yearly->fresh()->status);
-        $this->assertSame('Premium', $this->school->currentSubscription()->plan->name);
+        $this->postJson("/api/superadmin/plan-change-requests/{$up->id}/approve", [])->assertOk()->assertJsonPath('awaiting_payment', true);
+        $this->assertSame('active', $this->yearly->fresh()->status);
+        $this->assertSame('Basic', $this->school->currentSubscription()->plan->name);
+        $this->assertSame('accepted', $this->school->latestBillableSubscription()->status);
+        // The earlier scheduled switch is replaced by the approved change.
+        $this->assertSame(0, SchoolSubscription::where('status', 'scheduled')->count());
     }
 }

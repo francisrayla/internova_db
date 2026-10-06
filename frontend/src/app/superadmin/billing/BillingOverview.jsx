@@ -121,7 +121,7 @@ function PlanChangeRequests({ showToast, reloadKey }) {
                   {req.note && <p className="mt-1.5 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">&ldquo;{req.note}&rdquo;</p>}
                   <p className="mt-1 text-xs text-slate-400">{req.submitted_at}</p>
                 </div>
-                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${REQUEST_STATUS_STYLE[req.status]}`}>{req.status}</span>
+                <span className={`max-w-full rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${req.awaiting_payment ? "bg-amber-100 text-amber-700" : REQUEST_STATUS_STYLE[req.status]}`}>{req.awaiting_payment ? "Approved — awaiting payment" : req.status}</span>
               </div>
 
               {req.status === "pending" && (

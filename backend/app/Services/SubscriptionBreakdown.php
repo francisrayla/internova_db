@@ -27,6 +27,10 @@ class SubscriptionBreakdown
     /** Payable breakdown of an offer / a subscription as stored (initial payment). */
     public static function forSubscription(SchoolSubscription $s): array
     {
+        if (self::isPeriodUpgrade($s)) {
+            return self::periodShape($s);
+        }
+
         $total = round((float) $s->amount, 2);
         $planPrice = round((float) ($s->list_price ?: ($total + (float) $s->discount_amount)), 2);
         $discount = max(0, round($planPrice - $total, 2));
@@ -104,6 +108,11 @@ class SubscriptionBreakdown
     public static function forPendingUpgrade(SchoolSubscription $pending): array
     {
         $txn = PaymentTransaction::where('subscription_id', $pending->id)->where('payment_type', 'upgrade')->latest('id')->first();
+        // A monthly -> yearly switch, or an approved custom-rate change paid through
+        // the normal checkout (no upgrade transaction): its own stored numbers are the truth.
+        if (self::isPeriodUpgrade($pending) || !$txn) {
+            return self::forSubscription($pending);
+        }
         $total = round((float) ($txn?->amount ?? $pending->amount), 2);
         $period = $pending->billing_period;
         $previous = $txn?->previousPlan;
@@ -112,6 +121,84 @@ class SubscriptionBreakdown
         return self::upgradeShape(
             $pending->plan?->name ?? 'Plan', $period, (float) $pending->amount, $oldPrice, $total, $previous?->name, null, null
         );
+    }
+
+    /** Marker stored in agreement_note on a monthly -> yearly (same plan) payment row. */
+    public const PERIOD_UPGRADE_NOTE = 'Credit for the unused part of your current monthly term';
+
+    public static function isPeriodUpgrade(SchoolSubscription $s): bool
+    {
+        return $s->agreement_note !== null && str_starts_with($s->agreement_note, self::PERIOD_UPGRADE_NOTE);
+    }
+
+    /**
+     * Same plan, monthly -> yearly: the yearly price minus a credit for the unused
+     * days of the monthly term already paid (same day-count proration as upgrades).
+     * The yearly term starts when the payment is confirmed.
+     */
+    public static function forPeriodUpgrade(SchoolSubscription $current, SubscriptionPlan $plan): array
+    {
+        $yearly = round($plan->priceFor('yearly'), 2);
+        $totalDays = max(1, $current->start_date->diffInDays($current->end_date));
+        $remaining = min($totalDays, max(0, now()->startOfDay()->diffInDays($current->end_date->copy()->startOfDay())));
+        $credit = min($yearly, round((float) $current->amount * $remaining / $totalDays, 2));
+        $total = round(max(0, $yearly - $credit), 2);
+        $note = self::PERIOD_UPGRADE_NOTE . " ({$remaining} of {$totalDays} days left).";
+
+        $lines = [
+            ['key' => 'plan', 'label' => "{$plan->name} plan (yearly)", 'amount' => $yearly],
+            ['key' => 'credit', 'label' => 'Credit for your unused monthly term', 'amount' => -$credit, 'note' => $note],
+        ];
+
+        return [
+            'kind'                 => 'period_upgrade',
+            'plan_name'            => $plan->name,
+            'billing_period'       => 'yearly',
+            'plan_price'           => $yearly,
+            'discount'             => 0.0,
+            'discount_reason'      => null,
+            'credit'               => $credit,
+            'proration_adjustment' => 0.0,
+            'remaining_days'       => $remaining,
+            'total_days'           => $totalDays,
+            'total'                => $total,
+            'agreement_note'       => $note,
+            'monthly_paid'         => round((float) $current->amount, 2),
+            'new_term_ends'        => now()->addYear()->format('F d, Y'),
+            'lines'                => $lines,
+            'line_item_name'       => "{$plan->name} Plan (yearly) — " . self::money($yearly) . ' less ' . self::money($credit) . ' credit for unused monthly term',
+            'description'          => self::describe($lines, $total),
+        ];
+    }
+
+    /** Re-renders a stored monthly -> yearly row (list_price = yearly, discount_amount = credit, amount = payable). */
+    private static function periodShape(SchoolSubscription $s): array
+    {
+        $total = round((float) $s->amount, 2);
+        $yearly = round((float) $s->list_price, 2);
+        $credit = round((float) $s->discount_amount, 2);
+        $name = $s->plan?->name ?? 'Subscription';
+        $lines = [
+            ['key' => 'plan', 'label' => "{$name} plan (yearly)", 'amount' => $yearly],
+            ['key' => 'credit', 'label' => 'Credit for your unused monthly term', 'amount' => -$credit, 'note' => $s->agreement_note],
+        ];
+
+        return [
+            'kind'                 => 'period_upgrade',
+            'plan_name'            => $name,
+            'billing_period'       => 'yearly',
+            'plan_price'           => $yearly,
+            'discount'             => 0.0,
+            'discount_reason'      => null,
+            'credit'               => $credit,
+            'proration_adjustment' => 0.0,
+            'remaining_days'       => null,
+            'total_days'           => null,
+            'total'                => $total,
+            'lines'                => $lines,
+            'line_item_name'       => "{$name} Plan (yearly) — " . self::money($yearly) . ' less ' . self::money($credit) . ' credit for unused monthly term',
+            'description'          => self::describe($lines, $total),
+        ];
     }
 
     private static function upgradeShape(string $planName, string $period, float $newPrice, float $oldPrice, float $total, ?string $oldName, ?int $remaining, ?int $totalDays): array

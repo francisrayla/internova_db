@@ -68,6 +68,7 @@ class SuperadminFullController extends Controller
                     'amount'        => $subscription?->amount,
                     'scheduled_switch' => \App\Services\SubscriptionRollover::summary($school->subscriptions->firstWhere('status', 'scheduled')),
                     'breakdown'     => $subscription ? \App\Services\SubscriptionBreakdown::forSubscription($subscription) : null,
+                    'awaiting_payment_change' => $this->awaitingChange($school, $subscription),
                     'payment'       => $subscription?->paid_at ? 'paid' : 'unpaid',
                     'payment_method' => $subscription?->payment_method,
                     'payment_status' => $subscription?->payment_status,
@@ -92,6 +93,37 @@ class SuperadminFullController extends Controller
             });
 
         return response()->json(['schools' => $schools]);
+    }
+
+    /** An approved plan change (offer row newer than the active plan) that is still unpaid. */
+    private function awaitingChange($school, $active): ?array
+    {
+        if (!$active || $active->status !== 'active') {
+            return null;
+        }
+
+        $row = $school->subscriptions
+            ->where('id', '>', $active->id)
+            ->whereIn('status', ['accepted', 'pending_payment'])
+            ->sortByDesc('id')
+            ->first();
+
+        if (!$row) {
+            return null;
+        }
+
+        return [
+            'id'             => $row->id,
+            'plan'           => $row->plan?->name,
+            'billing_period' => $row->billing_period,
+            'amount'         => (float) $row->amount,
+            'status'         => $row->status,
+            'payment_status' => $row->payment_status,
+            'payment_method' => $row->payment_method,
+            'waived'         => (float) $row->amount <= 0,
+            'proof_of_payment_url' => $row->proof_of_payment_path ? Storage::url($row->proof_of_payment_path) : null,
+            'breakdown'      => \App\Services\SubscriptionBreakdown::forSubscription($row),
+        ];
     }
 
     public function planInquiries(): JsonResponse
@@ -379,9 +411,27 @@ class SuperadminFullController extends Controller
             return response()->json(['success' => false, 'message' => 'This subscription is already active.'], 422);
         }
 
+        $waived = (float) $subscription->amount <= 0;
+
         $subscription->activate();
         $school->update(['status' => 'active']);
         $school->subscriptions()->where('status', 'active')->where('id', '!=', $subscription->id)->update(['status' => 'superseded']);
+
+        // A fully discounted (₱0) plan has nothing to collect: record it clearly as waived.
+        if ($waived) {
+            PaymentTransaction::where('subscription_id', $subscription->id)->whereIn('status', ['pending', 'pending_verification'])->delete();
+            PaymentTransaction::create([
+                'school_id'       => $school->id,
+                'subscription_id' => $subscription->id,
+                'payment_type'    => 'initial',
+                'new_plan_id'     => $subscription->plan_id,
+                'payment_method'  => 'waived',
+                'amount'          => 0,
+                'status'          => 'paid',
+                'paid_at'         => now(),
+            ]);
+            $subscription->update(['payment_method' => 'waived']);
+        }
 
         // A manual confirmation may happen with no checkout ever started (no
         // transaction row yet) — record one so revenue reports count the money.
@@ -670,6 +720,10 @@ class SuperadminFullController extends Controller
                     'list_price'                => SubscriptionPlan::where('name', $r->requested_plan)->first()?->priceFor($r->requested_billing_period),
                     'note'                      => $r->note,
                     'status'                    => $r->status,
+                    'awaiting_payment'          => $r->status === 'approved'
+                        && in_array($r->school?->latestBillableSubscription()?->status, ['accepted', 'pending_payment'], true)
+                        && $r->school->latestBillableSubscription()->plan?->name === $r->requested_plan
+                        && $r->school->latestBillableSubscription()->billing_period === $r->requested_billing_period,
                     'submitted_at'              => $r->created_at?->local()?->format('M d, Y · g:i A'),
                 ];
             });
@@ -702,7 +756,7 @@ class SuperadminFullController extends Controller
         // A change that is not an upgrade must not cut short a term the school already
         // paid for: schedule it for the day after that term ends (billed then).
         $running = $school->currentSubscription();
-        if ($running && $running->status === 'active' && !$running->isRenewalExpired() && $amount <= (float) $running->amount) {
+        if ($running && $running->status === 'active' && !$running->isRenewalExpired() && $amount <= (float) $running->amount && $listPrice <= (float) ($running->list_price ?: $running->amount)) {
             $scheduled = DeanSubscriptionController::scheduleSwitch(
                 $school, $running, $plan, $planChangeRequest->requested_billing_period, $listPrice, $discount, $data['agreement_note'] ?? null
             );
@@ -728,28 +782,42 @@ class SuperadminFullController extends Controller
             return response()->json(['success' => true, 'scheduled' => true, 'message' => "{$school->school_name} will switch to {$planChangeRequest->requested_plan} on {$startsOn}."]);
         }
 
-        $end = $planChangeRequest->requested_billing_period === 'monthly' ? now()->addMonth() : now()->addYear();
+        // Upgrade / custom rate: the approval is NOT a payment. It creates the new
+        // subscription as an accepted offer awaiting payment (dates are set when it is
+        // paid). The current plan keeps governing access until then.
+        if ($school->pendingUpgrade()) {
+            return response()->json(['success' => false, 'message' => "{$school->school_name} has a payment in progress. Wait for it to finish or have the Dean cancel it first."], 422);
+        }
+
         $previousPayment = $school->latestBillableSubscription();
+        $stillRunning = $running && $running->status === 'active' && !$running->isRenewalExpired();
+
+        // Replace an earlier approved-but-unpaid change and any waiting scheduled switch.
+        $school->subscriptions()->whereIn('status', ['scheduled', 'accepted'])
+            ->where('id', '>', $running?->id ?? 0)
+            ->update(['status' => 'cancelled']);
+
+        if ($running && $running->status === 'active' && !$stillRunning) {
+            $running->update(['status' => 'expired']);
+        }
 
         $newSubscription = $school->subscriptions()->create([
             'plan_id'         => $plan->id,
-            'status'          => 'active',
+            'status'          => 'accepted',
             'list_price'      => $listPrice,
             'discount_amount' => $discount,
             'amount'          => $amount,
             'agreement_note'  => $data['agreement_note'] ?? null,
             'billing_period'  => $planChangeRequest->requested_billing_period,
-            'payment_method'  => $previousPayment?->payment_method,
-            'payment_status'  => 'paid',
-            'paid_at'         => now(),
-            'start_date'      => now()->toDateString(),
-            'end_date'        => $end->toDateString(),
+            'payment_method'  => null,
+            'payment_status'  => null,
             'offer_sent_at'   => now(),
             'accepted_at'     => now(),
         ]);
 
-        $school->update(['status' => 'active']);
-        $school->subscriptions()->where('status', 'active')->where('id', '!=', $newSubscription->id)->update(['status' => 'superseded']);
+        if (!$stillRunning) {
+            $school->update(['status' => 'accepted']);
+        }
 
         $planChangeRequest->update([
             'status'          => 'approved',
@@ -757,23 +825,35 @@ class SuperadminFullController extends Controller
             'reviewed_at'     => now(),
         ]);
 
+        $label = "{$planChangeRequest->requested_plan} ({$planChangeRequest->requested_billing_period})";
+        $waived = $amount <= 0;
         NotificationService::toSchoolDean(
             $school->id,
             'plan_change_approved',
             'Plan change approved',
-            "You're now on {$planChangeRequest->requested_plan} ({$planChangeRequest->requested_billing_period}).",
+            $waived
+                ? "Your change to {$label} is approved at no charge. The Super Admin will activate it for you."
+                : "Your change to {$label} is approved. Pay " . \App\Services\SubscriptionBreakdown::money((float) $amount) . ' to start it.',
             '/dean/billing'
         );
 
         ActivityLogService::record(
             module: 'Subscription',
-            action: 'Approved plan change',
-            description: "{$school->school_name} switched to {$planChangeRequest->requested_plan} ({$planChangeRequest->requested_billing_period}).",
+            action: 'Approved plan change (awaiting payment)',
+            description: "{$school->school_name}'s change to {$label} was approved at " . \App\Services\SubscriptionBreakdown::money((float) $amount) . ' and is waiting for payment.',
             schoolId: $school->id,
             request: $request
         );
 
-        return response()->json(['success' => true, 'message' => "{$school->school_name} switched to {$planChangeRequest->requested_plan}."]);
+        return response()->json([
+            'success'          => true,
+            'awaiting_payment' => true,
+            'amount'           => (float) $amount,
+            'subscription_id'  => $newSubscription->id,
+            'message'          => $waived
+                ? "{$school->school_name}'s change to {$planChangeRequest->requested_plan} is approved at no charge. Activate it from the Schools page."
+                : "Approved. {$school->school_name} must pay before {$planChangeRequest->requested_plan} starts.",
+        ]);
     }
 
     public function rejectPlanChange(Request $request, int $id): JsonResponse

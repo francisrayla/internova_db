@@ -68,6 +68,26 @@ class School extends Model
     }
 
     /**
+     * A Super Admin-approved plan change (custom rate / upgrade) waiting for the Dean
+     * to pay, while the current plan is still active. Becomes pendingUpgrade() once a
+     * bank transfer is started.
+     */
+    public function approvedChange()
+    {
+        $current = $this->currentSubscription();
+
+        if (!$current || $current->status !== 'active') {
+            return null;
+        }
+
+        return $this->subscriptions()
+            ->where('id', '>', $current->id)
+            ->where('status', 'accepted')
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * An upgrade payment in progress while the current plan is still active —
      * null once it's confirmed (it becomes the new currentSubscription) or if
      * no upgrade has been started.

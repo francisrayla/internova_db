@@ -105,6 +105,14 @@ class DeanSubscriptionController extends Controller
             ->update(['status' => 'superseded']);
     }
 
+    /** Same plan, monthly term -> yearly term (self-service, paid now with a credit for the unused days). */
+    private function isPeriodUpgrade($current, array $data): bool
+    {
+        return $current->billing_period === 'monthly'
+            && $data['billing_period'] === 'yearly'
+            && $current->plan?->name === $data['plan_name'];
+    }
+
     /**
      * Preview the prorated cost of upgrading before the coordinator commits to a
      * payment method — shown on the "Upgrade to X" confirmation screen.
@@ -122,6 +130,26 @@ class DeanSubscriptionController extends Controller
             'plan_name'      => 'required|string|in:Basic,Premium',
             'billing_period' => 'required|string|in:monthly,yearly',
         ]);
+
+        if ($this->isPeriodUpgrade($current, $data)) {
+            $plan = SubscriptionPlan::activeOrFail($data['plan_name']);
+            $breakdown = SubscriptionBreakdown::forPeriodUpgrade($current, $plan);
+
+            return response()->json([
+                'success'   => true,
+                'kind'      => 'period_upgrade',
+                'quote'     => [
+                    'old_price'          => (float) $current->amount,
+                    'new_price'          => $breakdown['plan_price'],
+                    'remaining_days'     => $breakdown['remaining_days'],
+                    'total_days'         => $breakdown['total_days'],
+                    'amount_now'         => $breakdown['total'],
+                    'next_renewal_price' => $breakdown['plan_price'],
+                    'current_end_date'   => $breakdown['new_term_ends'],
+                ],
+                'breakdown' => $breakdown,
+            ]);
+        }
 
         if ($data['billing_period'] !== $current->billing_period) {
             return response()->json(['success' => false, 'message' => 'An upgrade keeps your current billing period. Switch billing period separately once your current cycle ends.'], 422);
@@ -195,6 +223,13 @@ class DeanSubscriptionController extends Controller
         $data = $request->validate([
             'payment_method' => 'required|string|in:gcash,maya,card,bank_transfer',
         ]);
+
+        if ((float) $subscription->amount <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Nothing to pay for this plan. The Super Admin will activate it for you.',
+            ], 422);
+        }
 
         if ($data['payment_method'] === 'bank_transfer') {
             $reference = 'INTERNOVA-' . strtoupper(Str::random(8));
@@ -483,6 +518,10 @@ class DeanSubscriptionController extends Controller
             return response()->json(['success' => false, 'message' => 'You already have an upgrade payment in progress.'], 422);
         }
 
+        if ($school->approvedChange()) {
+            return response()->json(['success' => false, 'message' => 'You have an approved plan change waiting for payment. Pay for it or cancel it first.'], 422);
+        }
+
         if (SubscriptionRollover::scheduledFor($school)) {
             return response()->json(['success' => false, 'message' => 'You have a plan switch scheduled for the end of your current term. Cancel it first if you want to upgrade now.'], 422);
         }
@@ -493,35 +532,49 @@ class DeanSubscriptionController extends Controller
             'payment_method' => 'required|string|in:gcash,maya,card,bank_transfer',
         ]);
 
-        if ($data['billing_period'] !== $current->billing_period) {
+        $periodUpgrade = $this->isPeriodUpgrade($current, $data);
+
+        if (!$periodUpgrade && $data['billing_period'] !== $current->billing_period) {
             return response()->json(['success' => false, 'message' => 'An upgrade keeps your current billing period.'], 422);
         }
 
         $plan = SubscriptionPlan::activeOrFail($data['plan_name']);
         $price = $plan->priceFor($data['billing_period']);
 
-        if ($price <= (float) $current->amount) {
+        if (!$periodUpgrade && $price <= (float) $current->amount) {
             return response()->json(['success' => false, 'message' => 'That is not an upgrade — use the Switch Plan option instead.'], 422);
+        }
+
+        // Monthly -> yearly on the same plan: a new 12-month term (dates are set when the
+        // payment is confirmed) at the yearly price less credit for the unused monthly days.
+        // The stored row carries the numbers so every screen shows the same breakdown.
+        $breakdown = $periodUpgrade
+            ? SubscriptionBreakdown::forPeriodUpgrade($current, $plan)
+            : SubscriptionBreakdown::forUpgrade($current, $plan, $data['billing_period']);
+
+        if ($periodUpgrade && $breakdown['total'] <= 0) {
+            return response()->json(['success' => false, 'message' => 'Nothing to pay for this change. Contact the Super Admin.'], 422);
         }
 
         // Same formula as upgradeQuote() — the coordinator is charged this exact
         // amount, not the quote they saw, in case time passed between the two calls.
-        $breakdown = SubscriptionBreakdown::forUpgrade($current, $plan, $data['billing_period']);
         $amountNow = $breakdown['total'];
 
-        // The cycle itself doesn't change — same start/end date as the plan being
-        // upgraded from, so activate() won't recompute a fresh period for it.
+        // The cycle itself doesn't change for a plan upgrade — same start/end date as the
+        // plan being upgraded from, so activate() won't recompute a fresh period for it.
+        // A period upgrade has no dates yet: activate() starts the yearly term on payment.
         $pending = $school->subscriptions()->create([
             'plan_id'         => $plan->id,
             'status'          => 'pending_payment',
             'list_price'      => $price,
-            'discount_amount' => 0,
-            'amount'          => $price,
+            'discount_amount' => $periodUpgrade ? $breakdown['credit'] : 0,
+            'amount'          => $periodUpgrade ? $amountNow : $price,
+            'agreement_note'  => $periodUpgrade ? $breakdown['agreement_note'] : null,
             'billing_period'  => $data['billing_period'],
             'payment_method'  => $data['payment_method'],
             'payment_status'  => 'pending',
-            'start_date'      => $current->start_date,
-            'end_date'        => $current->end_date,
+            'start_date'      => $periodUpgrade ? null : $current->start_date,
+            'end_date'        => $periodUpgrade ? null : $current->end_date,
         ]);
 
         if ($data['payment_method'] === 'bank_transfer') {
@@ -602,7 +655,7 @@ class DeanSubscriptionController extends Controller
     public function cancelPendingUpgrade(int $schoolId): JsonResponse
     {
         $school = School::findOrFail($schoolId);
-        $pending = $school->pendingUpgrade();
+        $pending = $school->pendingUpgrade() ?? $school->approvedChange();
 
         if (!$pending) {
             return response()->json(['success' => true, 'message' => 'No pending upgrade to cancel.']);

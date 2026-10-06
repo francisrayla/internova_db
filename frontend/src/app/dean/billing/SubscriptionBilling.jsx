@@ -230,8 +230,8 @@ export default function SubscriptionPage() {
         if (!res.ok || !data.success) throw new Error(data.message || "Could not calculate the upgrade price.");
         return data;
       })
-      .then(({ quote, breakdown }) => {
-        setUpgradeFlow({ plan: planName, period, step: "confirm", quote, breakdown, loading: false });
+      .then(({ quote, breakdown, kind }) => {
+        setUpgradeFlow({ plan: planName, period, step: "confirm", quote, breakdown, kind, loading: false });
       })
       .catch((err) => {
         setError(err.message);
@@ -300,6 +300,51 @@ export default function SubscriptionPage() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setUpgradeBusy(false));
+  }
+
+  // Pay for a Super Admin-approved plan change: the normal checkout (PayMongo or bank transfer).
+  function handlePayApprovedChange(method) {
+    setBusy(true);
+    setError("");
+    apiFetch(`/api/dean/schools/${user.school_id}/checkout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payment_method: method }),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || "Checkout failed.");
+        return data;
+      })
+      .then((data) => {
+        if (data.method === "bank_transfer") {
+          // Becomes a pending upgrade (bank details + proof upload) - refetch the session for it.
+          return apiFetch(`/api/auth/session/${user.id}`)
+            .then((r) => r.json())
+            .then((sessionData) => {
+              if (sessionData.success) persistUser(sessionData.user);
+              setBusy(false);
+            });
+        }
+        window.location.href = data.checkout_url;
+      })
+      .catch((err) => {
+        setError(err.message);
+        setBusy(false);
+      });
+  }
+
+  function handleCancelApprovedChange() {
+    setBusy(true);
+    setError("");
+    apiFetch(`/api/dean/schools/${user.school_id}/cancel-pending-upgrade`, { method: "POST" })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || "Could not cancel the approved change.");
+        persistUser({ approved_change: null });
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
   }
 
   function handleSwitchPlan(planName, period) {
@@ -478,9 +523,13 @@ export default function SubscriptionPage() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">⏳</span>
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Upgrade to {user.pending_upgrade.plan} — Payment Pending</h2>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {user.pending_upgrade.breakdown?.kind === "period_upgrade" ? `Switch to ${user.pending_upgrade.plan} yearly` : `Upgrade to ${user.pending_upgrade.plan}`} — Payment Pending
+                </h2>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  Basic features stay usable. {user.pending_upgrade.plan} features unlock once payment is confirmed.
+                  {user.pending_upgrade.breakdown?.kind === "period_upgrade"
+                    ? "Your monthly plan stays active. The yearly term starts once payment is confirmed."
+                    : `Basic features stay usable. ${user.pending_upgrade.plan} features unlock once payment is confirmed.`}
                 </p>
               </div>
             </div>
@@ -544,29 +593,88 @@ export default function SubscriptionPage() {
 
             {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700">{error}</p>}
           </div>
+        ) : user.approved_change ? (
+          <div className="rounded-3xl bg-white p-6 shadow-xl sm:p-8">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">✅</span>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-slate-900">Approved — awaiting payment</h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  The Super Admin approved your change to <strong>{user.approved_change.plan} ({user.approved_change.billing_period})</strong>.
+                  You keep {user.subscription_plan} until you pay.
+                </p>
+              </div>
+            </div>
+            <BillingBreakdown breakdown={user.approved_change.breakdown} className="mt-4" />
+            {Number(user.approved_change.amount) > 0 ? (
+              <>
+                <p className="mt-4 text-sm font-semibold text-slate-700">Choose Payment Method</p>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  {PAYMENT_METHODS.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => handlePayApprovedChange(m.id)}
+                      disabled={busy}
+                      className="relative rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
+                    >
+                      {m.icon} {m.label}
+                      {m.testMode && (
+                        <span className="absolute -top-2 -right-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">TEST MODE</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="mt-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">Nothing to pay. The Super Admin will activate this plan for you.</p>
+            )}
+            {error && <p className="mt-3 rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p>}
+            <button onClick={handleCancelApprovedChange} disabled={busy} className="mt-3 text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-60">
+              Decline this change
+            </button>
+          </div>
         ) : upgradeFlow ? (
           <div className="rounded-3xl bg-white p-6 shadow-xl sm:p-8">
             {upgradeFlow.loading ? (
               <p className="text-sm text-slate-500">Calculating your prorated upgrade price…</p>
             ) : upgradeFlow.step === "confirm" ? (
               <>
-                <h2 className="text-lg font-bold text-slate-900">Upgrade to {upgradeFlow.plan}</h2>
-                <p className="mt-1 text-sm text-slate-500">New features you will unlock:</p>
-                <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
-                  {PLAN_FEATURES[upgradeFlow.plan].map((f) => (
-                    <li key={f} className="flex items-start gap-2"><span className="text-blue-600">✓</span><span>{f}</span></li>
-                  ))}
-                </ul>
+                {upgradeFlow.kind === "period_upgrade" ? (
+                  <>
+                    <h2 className="text-lg font-bold text-slate-900">Switch to yearly</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Your {upgradeFlow.plan} yearly term starts as soon as you pay and runs for 12 months. You get credit for the unused days of your monthly term.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-lg font-bold text-slate-900">Upgrade to {upgradeFlow.plan}</h2>
+                    <p className="mt-1 text-sm text-slate-500">New features you will unlock:</p>
+                    <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
+                      {PLAN_FEATURES[upgradeFlow.plan].map((f) => (
+                        <li key={f} className="flex items-start gap-2"><span className="text-blue-600">✓</span><span>{f}</span></li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {upgradeFlow.kind !== "period_upgrade" && (
                 <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-left text-sm space-y-1.5">
                   <div className="flex justify-between"><span className="text-slate-500">{user.subscription_plan} price</span><span className="font-semibold text-slate-900">₱{upgradeFlow.quote.old_price.toLocaleString()}/{upgradeFlow.period === "monthly" ? "mo" : "yr"}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">{upgradeFlow.plan} price</span><span className="font-semibold text-slate-900">₱{upgradeFlow.quote.new_price.toLocaleString()}/{upgradeFlow.period === "monthly" ? "mo" : "yr"}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Remaining period</span><span className="font-semibold text-slate-900">{upgradeFlow.quote.remaining_days} of {upgradeFlow.quote.total_days} days</span></div>
                   <div className="flex justify-between border-t border-slate-200 pt-1.5"><span className="text-slate-500">Upgrade amount today</span><span className="font-bold text-blue-700">₱{upgradeFlow.quote.amount_now.toLocaleString()}</span></div>
                 </div>
+                )}
                 <BillingBreakdown breakdown={upgradeFlow.breakdown} className="mt-3" />
+                {upgradeFlow.kind === "period_upgrade" ? (
+                  <p className="mt-3 text-xs text-slate-400">
+                    Your yearly term would run until about {upgradeFlow.quote.current_end_date}, then renews at ₱{upgradeFlow.quote.next_renewal_price.toLocaleString()}/yr. Your monthly term ends once the payment is confirmed.
+                  </p>
+                ) : (
                 <p className="mt-3 text-xs text-slate-400">
                   Starting next renewal: ₱{upgradeFlow.quote.next_renewal_price.toLocaleString()}/{upgradeFlow.period === "monthly" ? "mo" : "yr"}. Your renewal date stays {upgradeFlow.quote.current_end_date}.
                 </p>
+                )}
                 <div className="mt-5 flex gap-3">
                   <button
                     onClick={() => setUpgradeFlow((f) => ({ ...f, step: "payment" }))}
@@ -586,7 +694,7 @@ export default function SubscriptionPage() {
               <>
                 <h2 className="text-lg font-bold text-slate-900">Checkout</h2>
                 <div className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Plan Upgrade</span><span className="font-semibold text-slate-900">{user.subscription_plan} → {upgradeFlow.plan}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">{upgradeFlow.kind === "period_upgrade" ? "Billing change" : "Plan Upgrade"}</span><span className="font-semibold text-slate-900">{upgradeFlow.kind === "period_upgrade" ? `${upgradeFlow.plan} monthly → yearly` : `${user.subscription_plan} → ${upgradeFlow.plan}`}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Amount Due Today</span><span className="font-bold text-blue-700">₱{upgradeFlow.quote.amount_now.toLocaleString()}</span></div>
                 </div>
                 <BillingBreakdown breakdown={upgradeFlow.breakdown} className="mt-3" />
@@ -663,7 +771,15 @@ export default function SubscriptionPage() {
                       Upgrade to {planName}
                     </button>
                   )}
-                  {!isCurrent && isUpgrade && !samePeriodAsCurrent && (
+                  {!isCurrent && isUpgrade && !samePeriodAsCurrent && user.subscription_plan === planName && user.subscription_billing_period === "monthly" && billingToggle === "yearly" && (
+                    <button
+                      onClick={() => handleOpenUpgrade(planName, "yearly")}
+                      className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                    >
+                      Switch to yearly
+                    </button>
+                  )}
+                  {!isCurrent && isUpgrade && !samePeriodAsCurrent && !(user.subscription_plan === planName && user.subscription_billing_period === "monthly" && billingToggle === "yearly") && (
                     <p className="mt-4 text-xs text-slate-400">Switch to your {user.subscription_billing_period} tab to upgrade.</p>
                   )}
                   {!isCurrent && !isUpgrade && (

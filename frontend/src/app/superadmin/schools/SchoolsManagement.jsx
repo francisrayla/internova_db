@@ -546,6 +546,38 @@ export default function SchoolsPage() {
                   </button>
                 )}
 
+                {manageSchool.awaiting_payment_change && (
+                  <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-xs font-semibold text-amber-800">
+                      Approved — awaiting payment: {manageSchool.awaiting_payment_change.plan} ({manageSchool.awaiting_payment_change.billing_period}),
+                      ₱{Number(manageSchool.awaiting_payment_change.amount ?? 0).toLocaleString()}. The current plan stays active until it is paid.
+                    </p>
+                    <BillingBreakdown breakdown={manageSchool.awaiting_payment_change.breakdown} title="Approved change" />
+                    {manageSchool.awaiting_payment_change.proof_of_payment_url && (
+                      <a href={manageSchool.awaiting_payment_change.proof_of_payment_url} target="_blank" rel="noreferrer" className="inline-block text-xs font-semibold text-blue-700 underline">
+                        View Uploaded Proof →
+                      </a>
+                    )}
+                    {manageSchool.awaiting_payment_change.payment_status === "pending_verification" ? (
+                      <button
+                        onClick={() => handleVerifyPayment(manageSchool)}
+                        disabled={confirming}
+                        className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        {confirming ? "Verifying…" : "✓ Verify & Activate Change"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleConfirmPayment(manageSchool)}
+                        disabled={confirming}
+                        className="w-full rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                      >
+                        {confirming ? "Working…" : manageSchool.awaiting_payment_change.waived ? "Activate without payment (₱0, waived)" : "✓ Confirm Payment Received (manual override)"}
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {manageSchool.status === "active" && (
                   <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
                     This school is fully active. Premium/Basic features are enabled per their plan.
