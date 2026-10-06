@@ -7,7 +7,7 @@ export const PLAN_FEATURES = {
   ATTACHMENTS: "Attachments",
   TASK_RATINGS: "Per-task Rating + Comments",
   FORMAL_EVALUATIONS: "Formal Evaluations",
-  AI_FEATURES: "AI Portfolio / Reports",
+  AI_FEATURES: "AI Narrative Writing",
 };
 
 export function hasPlanFeature(user, feature) {

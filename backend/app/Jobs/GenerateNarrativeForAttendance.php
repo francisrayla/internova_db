@@ -61,7 +61,7 @@ class GenerateNarrativeForAttendance implements ShouldQueue
         $clockIn = $attendance->clock_in?->local()?->format('h:i A');
         $clockOut = $attendance->clock_out?->local()?->format('h:i A');
 
-        // AI Portfolio/Reports is a Premium feature — a Basic-plan school
+        // AI Narrative Writing is a Premium feature — a Basic-plan school
         // still gets the backfilled narrative, just built from the plain
         // template below rather than phrased by Gemini.
         $narrative = PlanFeatures::has($deployment->school, PlanFeatures::AI_FEATURES)

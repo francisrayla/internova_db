@@ -12,14 +12,16 @@ const PLAN_FEATURES = {
   Basic: [
     "GPS + Selfie Attendance",
     "Task Management (Pending / Ongoing / Done)",
+    "Formal Evaluations (school's own criteria)",
+    "Portfolio & Narrative Report (auto-generated, no AI)",
+    "Messaging & Group Chat",
     "Basic Monitoring & Reports",
   ],
   Premium: [
-    "GPS + Selfie Attendance",
-    "Subtasks, Attachments, Task Comments",
-    "Real-time Chat",
-    "Per-task Rating & Formal Evaluations",
-    "AI Portfolio & Reports",
+    "Everything in Basic",
+    "Subtasks and Attachments (proof of work)",
+    "Task Comments and Per-task Rating",
+    "AI Narrative Writing (AI-written and polished)",
   ],
 };
 

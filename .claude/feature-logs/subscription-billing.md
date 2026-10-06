@@ -31,6 +31,7 @@ Tests (internova_testing): PlanChangePaymentTest (approve awaiting payment, waiv
 DeanTest.php covers dean accept-offer + coordinator 403/404 + cross-school dean 403. Manual: submit /inquiry, convert in superadmin Inquiries, log in as the Dean -> /dean/billing, accept offer, pay with PayMongo test keys or upload proof, confirm in superadmin Schools; check a Basic school is blocked on subtasks/AI and a Premium one is not.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-06 9642298 + uncommitted — plan features reorganized: core (always) vs optional list in frontend/src/lib/planCatalog.js, Formal Evaluations now in Basic, 'AI Portfolio / Reports' renamed 'AI Narrative Writing' (PlanFeatures::AI_FEATURES), migration 2026_10_10_000000_reorganize_plan_features — result: 109/109 tests
 - 2026-10-06 a0e19d5 + uncommitted — approvePlanChange no longer marks paid (accepted offer, waived 0 txn); self-service monthly->yearly with credit; Dean/superadmin UI — result: php artisan test 107/107, eslint clean in touched files (2 pre-existing set-state-in-effect), next build ok
 - 2026-10-06 5a24cfb + uncommitted — revenue endpoint, price breakdown helper, scheduled switches, plans:dedupe — result: php artisan test 102/102 pass, next build --webpack ok
 - 2026-10-05 1b9390d + uncommitted — billing moved from coordinator to Dean (routes /api/dean, frontend /dean/billing), billing notifications via NotificationService::toSchoolDean; see dean.md — result: tests 23/23 pass (see dean.md)

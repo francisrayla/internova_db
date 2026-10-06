@@ -25,8 +25,8 @@ const FEATURES = [
   },
   {
     icon: "🎓",
-    title: "AI Portfolio & Reports",
-    description: "Interns build a shareable portfolio automatically, generated from their tasks, hours, and evaluations.",
+    title: "Portfolio & Narrative Report",
+    description: "Interns get a portfolio and narrative report generated from their attendance and tasks, with a Word download. Premium adds AI-written narratives.",
   },
   {
     icon: "💬",
@@ -53,6 +53,9 @@ const PLANS = [
     features: [
       "GPS + Selfie Attendance",
       "Task Management (Pending / Ongoing / Done)",
+      "Formal Evaluations (school's own criteria)",
+      "Portfolio & Narrative Report (auto-generated, no AI)",
+      "Messaging & Group Chat",
       "Basic Monitoring & Reports",
     ],
   },
@@ -62,10 +65,9 @@ const PLANS = [
     highlighted: true,
     features: [
       "Everything in Basic",
-      "Subtasks, Attachments, Task Comments",
-      "Real-time Chat",
-      "Per-task Rating & Formal Evaluations",
-      "AI Portfolio & Reports",
+      "Subtasks and Attachments (proof of work)",
+      "Task Comments and Per-task Rating",
+      "AI Narrative Writing (AI-written and polished)",
     ],
   },
 ];

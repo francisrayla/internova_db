@@ -18,7 +18,7 @@ class PlanFeatures
     const ATTACHMENTS = 'Attachments';
     const TASK_RATINGS = 'Per-task Rating + Comments';
     const FORMAL_EVALUATIONS = 'Formal Evaluations';
-    const AI_FEATURES = 'AI Portfolio / Reports';
+    const AI_FEATURES = 'AI Narrative Writing';
 
     public static function has(?School $school, string $feature): bool
     {

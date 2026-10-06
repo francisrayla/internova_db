@@ -7,23 +7,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { clampOnBlur } from "@/lib/clampNumber";
 
 import { inputProps, cleanNumber } from "@/lib/inputRules";
-// Canonical feature catalog — the checkboxes in the Edit modal are built from
-// this list, but a plan's actual entitlements are whatever's saved in its
-// `features` column, not this list itself.
-const ALL_FEATURES = [
-  "GPS + Selfie Attendance",
-  "Parent Task Management",
-  "Pending / Ongoing / Done tracking",
-  "Basic Monitoring",
-  "Subtasks",
-  "Attachments",
-  "Task Comments",
-  "Real-time Chat",
-  "Per-task Rating + Comments",
-  "Formal Evaluations",
-  "AI Portfolio / Reports",
-];
-
+import { CORE_FEATURES, CORE_LABELS, OPTIONAL_FEATURES } from "@/lib/planCatalog";
 function peso(amount) {
   return "₱" + Number(amount ?? 0).toLocaleString();
 }
@@ -97,7 +81,7 @@ export default function PlansPage() {
       description: plan.description ?? "",
       monthly_price: String(plan.monthly_price ?? 0),
       yearly_price: String(plan.yearly_price ?? 0),
-      features: [...(plan.features ?? [])],
+      features: [...new Set([...CORE_LABELS, ...(plan.features ?? [])])],
       is_active: Boolean(plan.is_active),
     });
   }
@@ -261,17 +245,29 @@ export default function PlansPage() {
               </div>
             </div>
             <div>
-              <p className="mb-2 text-xs font-semibold text-slate-600">Features</p>
-              <div className="space-y-2">
-                {ALL_FEATURES.map((feat) => (
-                  <label key={feat} className="flex cursor-pointer items-center gap-3">
+              <p className="mb-1 text-xs font-semibold text-slate-600">Included in every plan</p>
+              <ul className="mb-4 space-y-1.5 rounded-xl bg-slate-50 p-3">
+                {CORE_FEATURES.map((f) => (
+                  <li key={f.label} className="text-sm text-slate-700">
+                    <span className="mr-1.5 text-emerald-600">✓</span>{f.label}
+                    <span className="block pl-5 text-xs text-slate-500">{f.hint}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mb-2 text-xs font-semibold text-slate-600">Optional features: tick what this plan includes</p>
+              <div className="space-y-3">
+                {OPTIONAL_FEATURES.map((f) => (
+                  <label key={f.label} className="flex cursor-pointer items-start gap-3">
                     <input
                       type="checkbox"
-                      checked={editing.features.includes(feat)}
-                      onChange={() => toggleFeature(feat)}
-                      className="h-4 w-4 accent-blue-600"
+                      checked={editing.features.includes(f.label)}
+                      onChange={() => toggleFeature(f.label)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
                     />
-                    <span className="text-sm text-slate-700">{feat}</span>
+                    <span className="min-w-0 text-sm text-slate-700">
+                      {f.label}
+                      <span className="block text-xs text-slate-500">{f.hint}</span>
+                    </span>
                   </label>
                 ))}
               </div>
