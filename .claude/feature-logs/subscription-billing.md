@@ -1,5 +1,5 @@
 # Subscription & billing
-last_commit: a0e19d5 + uncommitted
+last_commit: 6bc841a
 updated: 2026-10-06
 
 ## Map (where the code lives)

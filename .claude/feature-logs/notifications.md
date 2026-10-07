@@ -1,5 +1,5 @@
 # Notifications (in-app bell, history, realtime)
-last_commit: a45b3e4 + uncommitted
+last_commit: 6bc841a
 updated: 2026-10-07
 
 ## Map (where the code lives)

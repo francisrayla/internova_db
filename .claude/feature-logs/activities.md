@@ -1,5 +1,5 @@
 # Activities (intern narrative entries / supervisor approval)
-last_commit: 5a24cfb + uncommitted
+last_commit: 6bc841a
 updated: 2026-10-06
 
 ## Map (where the code lives)
