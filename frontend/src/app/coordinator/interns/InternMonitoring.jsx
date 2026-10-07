@@ -16,20 +16,19 @@ import useInternActions from "@/components/coordinator/useInternActions";
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "active", label: "Active" },
-  { key: "invitation_pending", label: "Invitation pending" },
   { key: "needs_attention", label: "Needs attention" },
   { key: "completed", label: "Completed" },
 ];
 
 const TILES = [
   { key: "active", label: "Active", help: "Working with an account", tone: "text-emerald-700" },
-  { key: "invitation_pending", label: "Invitation pending", help: "Account not set up yet", tone: "text-amber-700" },
+  { key: "invitation_pending", label: "Pending accounts", help: "Not set up yet. Tap to fix emails", tone: "text-amber-700", href: "/coordinator/interns/pending" },
   { key: "needs_attention", label: "Needs attention", help: "Company has no supervisor, no clock-in, or behind", tone: "text-red-700" },
   { key: "completed", label: "Completed", help: "Finished their hours", tone: "text-blue-700" },
 ];
 
 function matches(i, filter) {
-  if (filter === "all") return true;
+  if (filter === "all") return i.display_status !== "invitation_pending";
   if (filter === "needs_attention") return (i.attention ?? []).length > 0;
   return i.display_status === filter;
 }
@@ -135,9 +134,29 @@ export default function InternMonitoring() {
         <p className="mt-1 text-sm text-slate-600">Every intern deployed under your school: hours, tasks and evaluation progress at a glance.</p>
       </div>
 
+      {(summary?.invitation_pending ?? 0) > 0 && (
+        <Link href="/coordinator/interns/pending" className="flex items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 hover:bg-amber-100">
+          <span className="min-w-0">
+            <span className="font-semibold">{summary.invitation_pending} {summary.invitation_pending === 1 ? "intern has" : "interns have"} not set up an account yet.</span>{" "}
+            They are not on this list and cannot get tasks. Wrong email? Fix it there.
+          </span>
+          <span className="shrink-0 font-semibold underline">Review</span>
+        </Link>
+      )}
+
       {summary && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {TILES.map((t) => (
+          {TILES.map((t) => t.href ? (
+            <Link
+              key={t.key}
+              href={t.href}
+              className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm outline-none transition hover:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <span className={`block text-xl font-bold ${t.tone}`}>{summary[t.key] ?? 0}</span>
+              <span className="mt-0.5 block truncate text-sm font-semibold text-slate-800">{t.label}</span>
+              <span className="mt-0.5 hidden truncate text-xs text-slate-500 sm:block">{t.help}</span>
+            </Link>
+          ) : (
             <button
               key={t.key}
               type="button"

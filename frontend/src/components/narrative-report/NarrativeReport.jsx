@@ -202,18 +202,31 @@ function DocumentBody({ section, doc }) {
   );
 }
 
+// Daily Time Record: one line per day. Companies that record morning and afternoon
+// separately get the four-column layout; a single time in/out gets the short one.
 function LedgerBody({ ledger }) {
   if (ledger.rows.length === 0) return <Note>No approved attendance yet</Note>;
+  const split = !!ledger.split;
   return (
     <>
       <table className="nr-table">
         <thead>
-          <tr><th>DATE</th><th>TIME IN</th><th>TIME OUT</th><th>HOURS</th><th>TOTAL HOURS</th>{ledger.multi_company && <th>COMPANY</th>}</tr>
+          {split ? (
+            <tr><th>DATE</th><th>AM IN</th><th>AM OUT</th><th>PM IN</th><th>PM OUT</th><th>HOURS</th><th>TOTAL HOURS</th>{ledger.multi_company && <th>COMPANY</th>}</tr>
+          ) : (
+            <tr><th>DATE</th><th>TIME IN</th><th>TIME OUT</th><th>HOURS</th><th>TOTAL HOURS</th>{ledger.multi_company && <th>COMPANY</th>}</tr>
+          )}
         </thead>
         <tbody>
           {ledger.rows.map((r, i) => (
             <tr key={i} style={{ textAlign: "center" }}>
-              <td>{r.date}</td><td>{r.time_in}</td><td>{r.time_out}</td><td>{r.hours}</td><td>{r.running_total}</td>{ledger.multi_company && <td style={{ textAlign: "left" }}>{r.company}</td>}
+              <td>{r.date}</td>
+              {split ? (
+                <><td>{r.am_in}</td><td>{r.am_out}</td><td>{r.pm_in}</td><td>{r.pm_out}</td></>
+              ) : (
+                <><td>{r.time_in}</td><td>{r.time_out}</td></>
+              )}
+              <td>{r.hours}</td><td>{r.running_total}</td>{ledger.multi_company && <td style={{ textAlign: "left" }}>{r.company}</td>}
             </tr>
           ))}
         </tbody>
@@ -222,21 +235,6 @@ function LedgerBody({ ledger }) {
         Total hours rendered: {ledger.total_hours}{ledger.required_hours ? ` of ${ledger.required_hours} required hours` : ""}
       </p>
     </>
-  );
-}
-
-function AttendanceBody({ photos }) {
-  if (photos.length === 0) return <Note>No attendance photos yet</Note>;
-  return (
-    <div className="nr-grid">
-      {photos.map((p, i) => (
-        <div key={i} className="nr-fig">
-          <img src={p.url} alt="" />
-          <div>{p.date} · {p.time}</div>
-          <div>{p.kind}</div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -261,12 +259,9 @@ function DutiesBody({ duties, company }) {
   );
 }
 
-// Work photos (task proofs). Selfies already fill Proof of Attendance, so they
-// only stand in here when the intern has no task photos at all.
+// Work photos (task proofs). Attendance selfies are not part of the report.
 function PhotosBody({ data }) {
-  const photos = data.task_photos.length
-    ? data.task_photos.map((p) => ({ url: p.url, caption: p.caption }))
-    : data.attendance_photos.map((p) => ({ url: p.url, caption: `${p.kind} — ${p.date}, ${p.time}` }));
+  const photos = data.task_photos.map((p) => ({ url: p.url, caption: p.caption }));
   if (photos.length === 0) return <Note>No photos yet</Note>;
   return (
     <div className="nr-grid">
@@ -423,7 +418,7 @@ function SectionBody({ section, data, template }) {
     case "auto_ledger":
       return <LedgerBody ledger={data.ledger} />;
     case "auto_attendance":
-      return <AttendanceBody photos={data.attendance_photos} />;
+      return null; // attendance selfies were removed from the report; the DTR table covers attendance
     case "auto_duties":
       return <DutiesBody duties={data.duties} company={data.company} />;
     case "auto_photos":

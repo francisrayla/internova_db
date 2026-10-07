@@ -14,7 +14,7 @@ import { readStoredUser } from "@/lib/roleDashboard";
 
 const PROFILE_LINKS = [
   { href: "/dean/profile", icon: "user", label: "My Profile" },
-  { href: "/dean/account", icon: "gear", label: "Account Settings" },
+  { href: "/dean/settings", icon: "gear", label: "Settings" },
   { href: "/dean/support", icon: "message", label: "Contact Support" },
 ];
 
@@ -23,7 +23,6 @@ const NAV_ITEMS = [
   { label: "Coordinator", href: "/dean/coordinator", icon: "🧑‍🏫" },
   { label: "Interns", href: "/dean/interns", icon: "👥" },
   { label: "Billing", href: "/dean/billing", icon: "💳" },
-  { label: "School Settings", href: "/dean/settings", icon: "⚙️" },
 ];
 
 // Reachable before the subscription is active — billing itself plus small utility screens.

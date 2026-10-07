@@ -9,6 +9,7 @@ import { useCurrentUser } from "@/lib/UserContext";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { fetchInternData } from "@/lib/internApi";
 import DeploymentHistory from "@/components/DeploymentHistory";
+import { initialsOf } from "@/lib/format";
 
 const LIVE_TYPES = [
   "task_evaluated",
@@ -17,15 +18,6 @@ const LIVE_TYPES = [
   "evaluation_submitted",
   "activity_reviewed",
 ];
-
-function initialsOf(name) {
-  return (name || "?")
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function ProgressBar({ pct, tone = "bg-blue-600" }) {
   return (

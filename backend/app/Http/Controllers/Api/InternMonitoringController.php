@@ -20,10 +20,10 @@ use App\Models\TaskComment;
 use App\Models\TaskProof;
 use App\Jobs\GenerateNarrativeForAttendance;
 use App\Services\ActivityLogService;
+use App\Services\AttendanceSessions;
 use App\Services\DeploymentHistoryService;
 use App\Services\DeploymentSummaryService;
 use App\Services\NarrativeAiService;
-use App\Services\NotificationService;
 use App\Services\PlanFeatures;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -367,15 +367,9 @@ class InternMonitoringController extends Controller
             'assignee_ids.*' => 'integer',
         ]);
 
-        // A subtask can go to several members of a group task at once —
-        // default to the sole assignee when the task isn't a group task.
-        $requestedIds = $data['assignee_ids'] ?? [];
-        if (empty($requestedIds) && $task->assignees->count() === 1) {
-            $requestedIds = [$task->assignees->first()->user_id];
-        }
-        $validIds = $task->assignees->pluck('user_id')->intersect($requestedIds)->values();
-        if ($validIds->count() !== count(array_unique($requestedIds))) {
-            return response()->json(['success' => false, 'message' => 'One or more selected interns are not assigned to this task.'], 422);
+        [$validIds, $problem] = $task->resolveSubtaskAssignees($data['assignee_ids'] ?? []);
+        if ($problem) {
+            return response()->json(['success' => false] + $problem, 422);
         }
 
         $subtask = $task->subtasks()->create([
@@ -486,6 +480,8 @@ class InternMonitoringController extends Controller
         return [
             'id' => $a->id,
             'attendance_date' => $a->attendance_date?->format('M d, Y'),
+            'session' => $a->session ?: Attendance::FULL,
+            'session_label' => match ($a->session) { Attendance::AM => 'Morning', Attendance::PM => 'Afternoon', default => null },
             'clock_in' => $a->clock_in?->local()?->format('h:i A'),
             'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
             'clock_in_location' => $a->clock_in_latitude !== null ? ['lat' => $a->clock_in_latitude, 'lng' => $a->clock_in_longitude] : null,
@@ -496,6 +492,7 @@ class InternMonitoringController extends Controller
             'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
             'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
             'auto_clocked_out' => (bool) $a->auto_clocked_out,
+            'edited' => $a->edited_at !== null,
             'status' => $a->status,
         ];
     }
@@ -507,6 +504,7 @@ class InternMonitoringController extends Controller
 
         $records = Attendance::whereIn('deployment_id', $deploymentIds)
             ->orderByDesc('attendance_date')
+            ->orderByDesc('id')
             ->paginate(20);
 
         return response()->json([
@@ -536,15 +534,23 @@ class InternMonitoringController extends Controller
             return response()->json(['record' => null, 'next_action' => null, 'day_ends_at' => $dayEndsAt]);
         }
 
-        $record = Attendance::where('deployment_id', $deployment->id)
+        $rows = Attendance::where('deployment_id', $deployment->id)
             ->whereDate('attendance_date', LocalTime::today())
-            ->first();
-
-        $nextAction = !$record || !$record->clock_in ? 'clock_in' : (!$record->clock_out ? 'clock_out' : null);
+            ->orderBy('id')
+            ->get();
+        $companyMode = AttendanceSessions::modeFor($deployment->company);
+        $next = AttendanceSessions::next($companyMode, $rows);
+        $record = $rows->last();
 
         return response()->json([
             'record' => $record ? $this->mapAttendance($record) : null,
-            'next_action' => $nextAction,
+            'rows' => $rows->map(fn (Attendance $a) => $this->mapAttendance($a))->values(),
+            'next_action' => $next['action'] ?? null,
+            // Which punch it is (full day, morning or afternoon) and what to call it on screen.
+            'session' => $next['session'] ?? null,
+            'label' => $next['label'] ?? null,
+            'mode' => AttendanceSessions::dayMode($companyMode, $rows),
+            'steps' => AttendanceSessions::steps($companyMode, $rows),
             'day_ends_at' => $dayEndsAt,
         ]);
     }
@@ -633,17 +639,37 @@ class InternMonitoringController extends Controller
         // happened to sync on — an offline clock-in at 11pm that only
         // reaches the server the next morning still belongs to that first day.
         $today = LocalTime::date($clockTime);
-        $existing = Attendance::where('deployment_id', $deployment->id)
+        $rows = Attendance::where('deployment_id', $deployment->id)
             ->whereDate('attendance_date', $today)
-            ->first();
+            ->orderBy('id')
+            ->get();
+
+        // Which part of the day this is. An offline entry says so itself (the
+        // phone knew what it was waiting to send); otherwise the server works it out.
+        $request->validate(['session' => 'nullable|in:full,am,pm']);
+        $companyMode = AttendanceSessions::modeFor($deployment->company);
+        $next = AttendanceSessions::next($companyMode, $rows);
+        $session = $request->input('session') ?: (($next['action'] ?? null) === 'clock_in' ? $next['session'] : null);
+        if (!$session) {
+            return response()->json(['success' => false, 'message' => $next ? 'Clock out first before you clock in again.' : 'You already clocked in today.'], 422);
+        }
+
+        $dayMode = AttendanceSessions::dayMode($companyMode, $rows);
+        if (($session === Attendance::FULL) !== ($dayMode === AttendanceSessions::SINGLE) && $rows->isNotEmpty()) {
+            return response()->json(['success' => false, 'message' => 'Today is already being recorded in a different format.'], 422);
+        }
+        $existing = $rows->firstWhere('session', $session);
         if ($existing && $existing->clock_in) {
-            return response()->json(['success' => false, 'message' => 'You already clocked in today.'], 422);
+            return response()->json(['success' => false, 'message' => $session === Attendance::FULL ? 'You already clocked in today.' : 'You already did this for ' . strtolower($session === Attendance::AM ? 'the morning' : 'the afternoon') . '.'], 422);
+        }
+        if ($session === Attendance::PM && $rows->contains(fn ($r) => $r->session === Attendance::AM && $r->clock_in && !$r->clock_out)) {
+            return response()->json(['success' => false, 'message' => 'Time out of your morning first.'], 422);
         }
 
         $data = $this->selfieAndLocation($request);
         $selfiePath = $request->file('selfie')->store("attendance-selfies/deployment-{$deployment->id}", 'public');
 
-        $attendance = $existing ?? new Attendance(['deployment_id' => $deployment->id, 'attendance_date' => $today]);
+        $attendance = $existing ?? new Attendance(['deployment_id' => $deployment->id, 'attendance_date' => $today, 'session' => $session]);
         $attendance->fill([
             'clock_in' => $clockTime,
             'clock_in_selfie_path' => $selfiePath,
@@ -655,12 +681,12 @@ class InternMonitoringController extends Controller
         ]);
         $attendance->save();
 
-        $deployment->notifySupervisors('attendance_logged', 'Attendance logged', "{$request->user()->name} clocked in for {$attendance->attendance_date->format('M d, Y')}.", '/supervisor/attendance');
+        $what = $session === Attendance::FULL ? 'clocked in' : 'recorded ' . strtolower(AttendanceSessions::label($session, 'clock_in'));
 
         ActivityLogService::record(
             module: 'Attendance',
             action: 'Clocked in',
-            description: "{$request->user()->name} clocked in on {$attendance->attendance_date->format('M d, Y')}.",
+            description: "{$request->user()->name} {$what} on {$attendance->attendance_date->format('M d, Y')}.",
             schoolId: $deployment->school_id,
             request: $request
         );
@@ -680,11 +706,14 @@ class InternMonitoringController extends Controller
         // Clocking out always closes whichever day's record is still open —
         // an offline clock-out syncing after midnight still belongs to the
         // shift it ended, not to today.
-        $attendance = Attendance::where('deployment_id', $deployment->id)
+        $request->validate(['session' => 'nullable|in:full,am,pm']);
+        $open = Attendance::where('deployment_id', $deployment->id)
             ->whereNotNull('clock_in')
-            ->whereNull('clock_out')
-            ->orderByDesc('attendance_date')
-            ->first();
+            ->whereNull('clock_out');
+        if ($request->filled('session')) {
+            $open->where('session', $request->input('session'));
+        }
+        $attendance = $open->orderByDesc('attendance_date')->orderByDesc('id')->first();
         if (!$attendance) {
             return response()->json(['success' => false, 'message' => 'Clock in first.'], 422);
         }
@@ -702,17 +731,21 @@ class InternMonitoringController extends Controller
             'status' => 'approved',
         ]);
 
-        $deployment->notifySupervisors('attendance_logged', 'Attendance completed', "{$request->user()->name} clocked out for {$attendance->attendance_date->format('M d, Y')}.", '/supervisor/attendance');
+        $what = $attendance->session === Attendance::FULL ? 'clocked out' : 'recorded ' . strtolower(AttendanceSessions::label($attendance->session, 'clock_out'));
 
         ActivityLogService::record(
             module: 'Attendance',
             action: 'Clocked out',
-            description: "{$request->user()->name} clocked out on {$attendance->attendance_date->format('M d, Y')}.",
+            description: "{$request->user()->name} {$what} on {$attendance->attendance_date->format('M d, Y')}.",
             schoolId: $deployment->school_id,
             request: $request
         );
 
-        GenerateNarrativeForAttendance::dispatch($attendance->id);
+        // The morning half of a split day is not the end of the day; the daily
+        // summary is written once the afternoon (or a full day) is closed.
+        if ($attendance->session !== Attendance::AM) {
+            GenerateNarrativeForAttendance::dispatch($attendance->id);
+        }
 
         return response()->json(['success' => true, 'message' => 'Clocked out.', 'record' => $this->mapAttendance($attendance)]);
     }

@@ -600,12 +600,16 @@ class DeanMonitoringController extends Controller
             ->map(fn (Attendance $a) => [
                 'id' => $a->id,
                 'date' => $a->attendance_date?->toDateString(),
+                'session' => $a->session ?: Attendance::FULL,
+                'session_label' => match ($a->session) { Attendance::AM => 'Morning', Attendance::PM => 'Afternoon', default => null },
                 'clock_in' => $a->clock_in?->local()?->format('h:i A'),
                 'clock_out' => $a->clock_out?->local()?->format('h:i A'),
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, $a->clock_in->diffInMinutes($a->clock_out)) / 60, 1) : null,
                 'status' => $a->status,
                 'auto_clocked_out' => (bool) $a->auto_clocked_out,
                 'clock_in_selfie_url' => $a->clock_in_selfie_path ? $disk->url($a->clock_in_selfie_path) : null,
+                'clock_out_selfie_url' => $a->clock_out_selfie_path ? $disk->url($a->clock_out_selfie_path) : null,
+                'edited' => $a->edited_at !== null,
             ]);
 
         $activities = DailyActivity::where('deployment_id', $d->id)->orderByDesc('activity_date')->orderByDesc('id')->limit(40)->get()

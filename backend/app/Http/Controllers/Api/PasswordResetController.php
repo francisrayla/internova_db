@@ -16,10 +16,10 @@ class PasswordResetController extends Controller
     private const EXPIRES_IN_MINUTES = 15;
 
     /**
-     * Always responds the same way whether or not the email exists — telling
-     * someone "no account found" would let them fish for which emails are
-     * registered. The frontend advances to the code-entry step regardless,
-     * for the same reason.
+     * Sends a recovery code, but only to an email that really has an account that can sign in:
+     * anything else is told so, so a mistyped address is noticed instead of waiting for a code
+     * that will never come. (This does reveal which emails are registered; the route is
+     * throttled to 10 requests a minute to keep guessing slow.)
      */
     public function forgotPassword(Request $request): JsonResponse
     {
@@ -27,25 +27,34 @@ class PasswordResetController extends Controller
 
         $user = User::where('email', $data['email'])->first();
 
-        if ($user && $user->password && !EmailVerificationController::sentRecently('password_reset_tokens', $user->email)) {
-            $code = (string) random_int(100000, 999999);
-
-            DB::table('password_reset_tokens')->updateOrInsert(
-                ['email' => $user->email],
-                ['token' => hash('sha256', $code), 'created_at' => now()]
-            );
-
-            Mail::to($user->email, $user->name)->queue(new PasswordResetMail(
-                recipientName: trim("{$user->first_name} {$user->last_name}") ?: $user->name,
-                code: $code,
-                expiresInMinutes: (string) self::EXPIRES_IN_MINUTES,
-            ));
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => "We couldn't find an account with that email. Check the spelling, or ask your school."], 422);
+        }
+        if ($user->status === 'inactive') {
+            return response()->json(['success' => false, 'message' => 'This account has been deactivated. Please contact your school.'], 422);
+        }
+        if (!$user->password) {
+            return response()->json(['success' => false, 'message' => "This account isn't active yet. Open the invitation email we sent you to set your password."], 422);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'If that email is registered, a recovery code has been sent.',
-        ]);
+        if (EmailVerificationController::sentRecently('password_reset_tokens', $user->email)) {
+            return response()->json(['success' => true, 'message' => 'A code was just sent. Please check your inbox, including Spam.']);
+        }
+
+        $code = (string) random_int(100000, 999999);
+
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $user->email],
+            ['token' => hash('sha256', $code), 'created_at' => now()]
+        );
+
+        Mail::to($user->email, $user->name)->queue(new PasswordResetMail(
+            recipientName: trim("{$user->first_name} {$user->last_name}") ?: $user->name,
+            code: $code,
+            expiresInMinutes: (string) self::EXPIRES_IN_MINUTES,
+        ));
+
+        return response()->json(['success' => true, 'message' => 'A recovery code has been sent to your email.']);
     }
 
     private function findValidCodeRow(string $email, string $code): ?object

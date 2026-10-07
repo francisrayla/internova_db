@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Icon from "@/components/Icon";
+import FileLink from "@/components/FileViewer";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
@@ -130,9 +131,9 @@ export default function MyDocuments() {
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900">{d.document_type}</p>
-                    <a href={d.file_url} target="_blank" rel="noreferrer" className="block truncate text-xs text-blue-600 hover:underline">
+                    <FileLink url={d.file_url} name={d.file_name} subtitle={d.document_type} className="block max-w-full truncate text-left text-xs text-blue-600 hover:underline">
                       {d.file_name}
-                    </a>
+                    </FileLink>
                     <p className="mt-0.5 text-xs text-slate-400">{d.uploaded_at}</p>
                     {d.remarks && <p className="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{d.remarks}</p>}
                   </div>

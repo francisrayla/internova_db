@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import FileLink from "@/components/FileViewer";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -127,9 +128,9 @@ export default function InternActivities() {
                   min-w-0 down to a sliver, wrapping one word per line. */}
               <div className="flex min-w-0 flex-1 gap-3">
                 {a.photo_url && (
-                  <a href={a.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
+                  <FileLink url={a.photo_url} name={a.title} type="image/jpeg" subtitle={`${a.intern_name} · ${a.activity_date}`} className="shrink-0 cursor-zoom-in">
                     <img src={a.photo_url} alt="" className="h-14 w-14 rounded-xl object-cover" />
-                  </a>
+                  </FileLink>
                 )}
                 <div className="min-w-0">
                   <p className="font-medium text-slate-900">{a.title}</p>

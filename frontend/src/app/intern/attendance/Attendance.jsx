@@ -87,8 +87,10 @@ function cameraErrorMessage(err) {
 /** Full-screen, like a device's built-in camera app, rather than a small
  * boxed-in preview — the live feed fills the screen and the shutter/controls
  * dock at the bottom. */
-function ClockCamera({ mode, onClose, onDone }) {
+function ClockCamera({ mode, session, label, onClose, onDone }) {
   const isIn = mode === "clock_in";
+  // A normal day keeps the original wording; the morning and afternoon punches say which one they are.
+  const title = !session || session === "full" ? (isIn ? "Clock In" : "Clock Out") : label;
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -278,6 +280,7 @@ function ClockCamera({ mode, onClose, onDone }) {
   async function saveOffline() {
     await enqueueAttendance({
       mode,
+      session,
       selfie,
       lat: location.lat,
       lng: location.lng,
@@ -300,6 +303,7 @@ function ClockCamera({ mode, onClose, onDone }) {
       formData.append("selfie", selfie, "selfie.jpg");
       formData.append("latitude", String(location.lat));
       formData.append("longitude", String(location.lng));
+      if (session) formData.append("session", session);
       const res = await apiFetch(`/api/intern/attendance/${isIn ? "clock-in" : "clock-out"}`, {
         method: "POST",
         body: formData,
@@ -332,7 +336,7 @@ function ClockCamera({ mode, onClose, onDone }) {
         <button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-2 hover:bg-white/10">
           <Icon name="x" size={22} />
         </button>
-        <p className="text-sm font-semibold">{isIn ? "Clock In" : "Clock Out"}</p>
+        <p className="text-sm font-semibold">{title}</p>
         <div className="w-9" />
       </div>
 
@@ -392,7 +396,7 @@ function ClockCamera({ mode, onClose, onDone }) {
               disabled={saving}
               className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {saving ? "Saving…" : isIn ? "Clock In" : "Clock Out"}
+              {saving ? "Saving…" : title}
             </button>
           </div>
         ) : (
@@ -417,31 +421,61 @@ function formatPendingTime(iso) {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: DISPLAY_TIME_ZONE });
 }
 
+const SINGLE_STEPS = [
+  { session: "full", action: "clock_in", label: "Time in" },
+  { session: "full", action: "clock_out", label: "Time out" },
+];
+const SPLIT_STEPS = [
+  { session: "am", action: "clock_in", label: "Morning time in" },
+  { session: "am", action: "clock_out", label: "Morning time out" },
+  { session: "pm", action: "clock_in", label: "Afternoon time in" },
+  { session: "pm", action: "clock_out", label: "Afternoon time out" },
+];
+
 /** What the today-card should show, combining the server's answer (possibly
  * a cached copy from an earlier day, if offline) with anything still sitting
- * in the offline queue — an offline clock-in has to flip the card to
- * "Clock Out" right away, not after it eventually syncs. */
+ * in the offline queue — an offline time in has to move the card on to the
+ * next step right away, not after it eventually syncs. The steps are one
+ * time in and out, or morning and afternoon, depending on the company. */
 function resolveTodayView(today, pending, online) {
-  const lastPending = pending[pending.length - 1];
-  if (lastPending?.mode === "clock_in") {
-    return { action: "clock_out", clockIn: formatPendingTime(lastPending.anchoredTime ?? lastPending.deviceTime), waitingToSync: true };
-  }
-  if (lastPending?.mode === "clock_out") {
-    return { action: "done", clockOut: formatPendingTime(lastPending.anchoredTime ?? lastPending.deviceTime), waitingToSync: true };
-  }
-
   // A cached response whose day is already over says nothing about today.
   const stale = today?.day_ends_at && trustedNow().date.getTime() > Date.parse(today.day_ends_at);
-  if (!today || stale) {
+  let steps;
+  if (today && !stale && today.steps?.length) {
+    steps = today.steps.map((st) => ({ ...st }));
+  } else if (today || !online) {
     // Nothing usable loaded (offline, never cached here) — still let them
     // clock in; the server sorts out duplicates when the entry syncs.
-    return today || !online ? { action: "clock_in" } : null;
+    steps = (today?.mode === "split" ? SPLIT_STEPS : SINGLE_STEPS).map((st) => ({ ...st, time: null }));
+  } else {
+    return null;
   }
 
-  if (today.next_action === "clock_in") return { action: "clock_in" };
-  if (today.next_action === "clock_out") return { action: "clock_out", clockIn: today.record.clock_in };
-  if (today.record) return { action: "done", record: today.record };
-  return null;
+  let waitingToSync = false;
+  for (const entry of pending) {
+    const i = steps.findIndex((st) => !st.time);
+    if (i < 0) break;
+    steps[i] = { ...steps[i], time: formatPendingTime(entry.anchoredTime ?? entry.deviceTime), pending: true };
+    waitingToSync = true;
+  }
+
+  const split = steps.length > 2;
+  const next = steps.find((st) => !st.time);
+  if (next) {
+    const i = steps.indexOf(next);
+    return {
+      steps, split, waitingToSync, action: next.action, session: next.session, label: next.label,
+      clockIn: next.action === "clock_out" ? steps[i - 1]?.time : null,
+      started: steps.some((st) => st.time),
+    };
+  }
+  const rows = (today && !stale ? today.rows : null) ?? [];
+  return {
+    steps, split, waitingToSync, action: "done",
+    clockOut: steps[steps.length - 1]?.time,
+    record: !waitingToSync && today && !stale ? today.record : null,
+    hours: rows.reduce((sum, r) => sum + (r.hours ?? 0), 0),
+  };
 }
 
 export default function Attendance() {
@@ -451,7 +485,7 @@ export default function Attendance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [modalMode, setModalMode] = useState(null);
+  const [modalMode, setModalMode] = useState(null); // { mode, session, label } of the punch being captured
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
 
   function load() {
@@ -508,14 +542,35 @@ export default function Attendance() {
 
       {view && (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          {view.split && (
+            <ol className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {view.steps.map((st) => (
+                <li
+                  key={`${st.session}-${st.action}`}
+                  className={`rounded-xl border px-3 py-2 ${st.time ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{st.label}</p>
+                  <p className="mt-0.5 text-sm font-semibold text-slate-900">
+                    {st.time ?? "—"}
+                    {st.pending && <span className="ml-1 text-[10px] font-semibold text-amber-700">· waiting to sync</span>}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+
           {view.action === "clock_in" && (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-slate-900">You haven&apos;t clocked in today.</p>
-                <p className="mt-0.5 text-sm text-slate-500">Log your arrival to start today&apos;s attendance.</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  {view.split ? `Next: ${view.label}` : "You haven't clocked in today."}
+                </p>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  {view.split ? "Take a selfie and log it when you are ready." : "Log your arrival to start today's attendance."}
+                </p>
               </div>
-              <button onClick={() => setModalMode("clock_in")} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
-                Clock In
+              <button onClick={() => setModalMode({ mode: "clock_in", session: view.session, label: view.label })} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+                {view.split ? view.label : "Clock In"}
               </button>
             </div>
           )}
@@ -523,20 +578,22 @@ export default function Attendance() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-900">
-                  Clocked in at {view.clockIn}
-                  {view.waitingToSync && syncNote}
+                  {view.split ? `Next: ${view.label}` : `Clocked in at ${view.clockIn}`}
+                  {!view.split && view.waitingToSync && syncNote}
                 </p>
-                <p className="mt-0.5 text-sm text-slate-500">Clock out when you&apos;re done for the day.</p>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  {view.split ? `Timed in at ${view.clockIn}.` : "Clock out when you're done for the day."}
+                </p>
               </div>
-              <button onClick={() => setModalMode("clock_out")} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
-                Clock Out
+              <button onClick={() => setModalMode({ mode: "clock_out", session: view.session, label: view.label })} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+                {view.split ? view.label : "Clock Out"}
               </button>
             </div>
           )}
           {view.action === "done" && view.waitingToSync && (
             <div>
               <p className="text-sm font-semibold text-slate-900">
-                Clocked out at {view.clockOut}
+                {view.split ? "Today's attendance is complete" : `Clocked out at ${view.clockOut}`}
                 {syncNote}
               </p>
               <p className="mt-0.5 text-sm text-slate-500">Saved on this device — it&apos;ll be sent automatically once you&apos;re back online.</p>
@@ -547,7 +604,9 @@ export default function Attendance() {
               <div>
                 <p className="text-sm font-semibold text-slate-900">Today&apos;s attendance complete</p>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  {view.record.clock_in} to {view.record.clock_out} {view.record.hours != null && `(${view.record.hours}h)`}
+                  {view.split
+                    ? `${view.steps[0].time} to ${view.clockOut} (${Math.round(view.hours * 10) / 10}h)`
+                    : `${view.record.clock_in} to ${view.record.clock_out} ${view.record.hours != null ? `(${view.record.hours}h)` : ""}`}
                 </p>
               </div>
               <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[view.record.status] ?? "bg-slate-100 text-slate-700"}`}>
@@ -578,7 +637,9 @@ export default function Attendance() {
 
       {modalMode && (
         <ClockCamera
-          mode={modalMode}
+          mode={modalMode.mode}
+          session={modalMode.session}
+          label={modalMode.label}
           onClose={() => setModalMode(null)}
           onDone={(result) => {
             setModalMode(null);

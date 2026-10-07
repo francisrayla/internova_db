@@ -61,6 +61,31 @@ class Task extends Model
     }
 
     /**
+     * Who a new subtask goes to. A subtask always has an owner: a solo task gives it to its one
+     * intern, a group task needs at least one chosen member, every member must be on the task and
+     * must have set up their account. Returns [user ids, null] or [[], error payload].
+     */
+    public function resolveSubtaskAssignees(array $requestedIds): array
+    {
+        $this->loadMissing('assignees');
+        if (empty($requestedIds) && $this->assignees->count() === 1) {
+            $requestedIds = [$this->assignees->first()->user_id];
+        }
+        if (empty($requestedIds)) {
+            return [collect(), ['message' => 'Choose who this subtask is for. A subtask needs at least one member.', 'errors' => ['assignee_ids' => ['Choose at least one member.']]]];
+        }
+        $validIds = $this->assignees->pluck('user_id')->intersect($requestedIds)->values();
+        if ($validIds->count() !== count(array_unique($requestedIds))) {
+            return [collect(), ['message' => 'One or more selected interns are not assigned to this task.']];
+        }
+        if (User::whereIn('id', $validIds)->where('status', 'pending_activation')->exists()) {
+            return [collect(), ['message' => 'A member who has not set up their account yet cannot be given a subtask.']];
+        }
+
+        return [$validIds, null];
+    }
+
+    /**
      * Once a task has subtasks, its own status tracks how far they've
      * gotten — but only up through "in_progress". Every subtask being done
      * does NOT auto-complete the parent: the task leader still has to

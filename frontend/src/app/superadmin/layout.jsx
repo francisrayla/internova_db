@@ -19,8 +19,7 @@ const navItems = [
 
 const PROFILE_LINKS = [
   { href: "/superadmin/profile", icon: "user", label: "My Profile" },
-  { href: "/superadmin/account", icon: "gear", label: "Account Settings" },
-  { href: "/superadmin/system-settings", icon: "list", label: "System Settings" },
+  { href: "/superadmin/settings", icon: "gear", label: "Settings" },
 ];
 
 export default function SuperadminLayout({ children }) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import FileLink from "@/components/FileViewer";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { shrinkImage } from "@/lib/imageCompress";
@@ -152,7 +153,7 @@ export default function DocumentMonitoring() {
             <div key={d.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 last:border-b-0">
               <div className="min-w-0">
                 <p className="font-medium text-slate-900">{d.document_type}</p>
-                <a href={d.file_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">{d.file_name}</a>
+                <FileLink url={d.file_url} name={d.file_name} subtitle={`${d.document_type} · ${d.intern_name}`} className="block max-w-full truncate text-left text-xs text-blue-600 hover:underline">{d.file_name}</FileLink>
                 <p className="mt-1 text-xs text-slate-400">{d.intern_name} · Uploaded {d.uploaded_at}</p>
                 {d.remarks && <p className="mt-1 text-xs text-slate-500">Remarks: {d.remarks}</p>}
               </div>

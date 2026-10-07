@@ -83,7 +83,7 @@ class DeanWeeklySummaryService
                 'overview' => $base . '/dean/dashboard',
                 'interns' => $base . '/dean/interns',
                 'coordinator' => $base . '/dean/coordinator',
-                'settings' => $base . '/dean/account',
+                'settings' => $base . '/dean/settings/notifications',
             ],
         ];
     }

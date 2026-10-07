@@ -7,6 +7,7 @@ import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { validateImageFile } from "@/lib/imageValidation";
 import { shrinkImage } from "@/lib/imageCompress";
 import Icon from "@/components/Icon";
+import FileLink from "@/components/FileViewer";
 import { useCurrentUser } from "@/lib/UserContext";
 import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
 
@@ -376,9 +377,9 @@ export default function DailyActivities() {
             {activities.map((a) => (
               <li key={a.id} className="flex gap-3 rounded-2xl border border-slate-100 p-4">
                 {a.photo_url && (
-                  <a href={a.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
+                  <FileLink url={a.photo_url} name={a.title} type="image/jpeg" className="shrink-0 cursor-zoom-in">
                     <img src={a.photo_url} alt="" className="h-16 w-16 rounded-xl object-cover" />
-                  </a>
+                  </FileLink>
                 )}
                 <div className="min-w-0 flex-1">
                   {editingId === a.id ? (

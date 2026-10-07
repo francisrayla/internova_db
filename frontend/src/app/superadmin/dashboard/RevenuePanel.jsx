@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { EmptyState, Pill, SectionTitle, Skeleton } from "@/components/ui";
-
-const peso = (n) => `₱${Number(n ?? 0).toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+import { peso } from "@/lib/format";
 
 const STATUS_TONE = { active: "green", superseded: "slate", scheduled: "blue", expired: "red", cancelled: "slate" };
 

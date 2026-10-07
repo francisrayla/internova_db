@@ -169,7 +169,8 @@ class NarrativeReportTest extends TestCase
         Sanctum::actingAs($intern);
         $res = $this->getJson('/api/intern/portfolio/narrative-report')->assertOk();
 
-        $this->assertCount(16, $res->json('template.sections'));
+        // 15: the attendance-selfie section (Proof of Attendance) is gone, the DTR table covers attendance.
+        $this->assertCount(15, $res->json('template.sections'));
         $this->assertSame('ABC Technologies', $res->json('company.name'));
         $this->assertSame('Maria Lopez', $res->json('coordinator.name'));
         // Approved resume wins over the newer pending one; type match ignores case.
@@ -246,7 +247,7 @@ class NarrativeReportTest extends TestCase
         [$path, $zip] = $this->openDocx($res);
         $doc = $zip->getFromName('word/document.xml');
         $this->assertStringContainsString($name, $doc);
-        foreach (['TABLE OF CONTENTS', 'APPRENTICE LEDGER', 'JOURNAL', 'PROOF OF ATTENDANCE'] as $title) {
+        foreach (['TABLE OF CONTENTS', 'APPRENTICE LEDGER', 'JOURNAL'] as $title) {
             $this->assertStringContainsString($title, $doc);
         }
         $this->assertStringContainsString('Attached separately: ', $doc);
@@ -255,9 +256,10 @@ class NarrativeReportTest extends TestCase
         $this->assertStringContainsString('PMFTCI Test College', $zip->getFromName('word/header1.xml'));
         $this->assertStringContainsString('w:w="12240" w:h="18720"', $doc);
 
-        // waiver image + selfie + CHED seal were embedded; the missing file was skipped.
+        // waiver image + CHED seal were embedded; the attendance selfie is no longer part of the report;
+        // the missing file was skipped.
         $media = collect(range(0, $zip->numFiles - 1))->map(fn ($i) => $zip->getNameIndex($i))->filter(fn ($n) => str_starts_with($n, 'word/media/'));
-        $this->assertGreaterThanOrEqual(3, $media->count());
+        $this->assertGreaterThanOrEqual(2, $media->count());
         $zip->close();
         @unlink($path);
     }

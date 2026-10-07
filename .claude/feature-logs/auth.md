@@ -23,7 +23,7 @@ updated: 2026-10-06
 - Login: email+password -> 401 generic on failure; 403 `needsVerification` if email_verified_at null; 503 `maintenance` for non-superadmin (role_id 1) when Setting maintenance_mode=1. Success deletes old tokens, issues a new Sanctum token + user payload.
 - Signup (inquiry form) -> 6-digit code (sha256 stored) emailed -> /verify-email -> email_verified_at set. Resend always returns the same message (anti-enumeration). Commit 85e28de: VerifyEmail shows Spam/Promotions hint and a confirmation after resend that only the newest code works.
 - Resend cooldown: after a code is sent, VerifyEmail and ForgotPassword show "Resend in m:ss" instead of the Resend button for 60s (survives refresh). Backend skips a second email inside 60s but returns the same response (no enumeration).
-- Password reset: forgot -> code emailed (only if user has password) -> verify code -> reset; same response whether or not email exists.
+- Password reset: forgot -> 422 with a clear message if the email has no account / is deactivated / was never activated (no code sent, owner's choice 2026-10-07 — it reveals which emails exist; route throttled 10/min); otherwise code emailed -> verify code -> reset.
 - Invitations: coordinator invites supervisor/intern; token hashed in users; accept sets password (email considered verified). EmailDeliverability pre-checks address; Resend webhook records bounces.
 - Roles: superadmin / dean / coordinator / supervisor / intern, route groups use auth:sanctum + role:X (dean group also dean.school middleware on billing). Login returns 403 for status `inactive` (deactivated coordinator). Invitations are now also used by the Dean (coordinator invite) and superadmin (dean invite) via AccountInvitationService; accept works for any role.
 
@@ -32,6 +32,7 @@ updated: 2026-10-06
 - Manual: login with unverified account (expect 403 needsVerification); submit inquiry, check mail (log/queue worker needed for queued mail), verify code, login; forgot-password flow; coordinator invites intern, open /accept-invite/<token>; click Resend code on /verify-email and see confirmation + Spam hint.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-07 uncommitted — forgot-password now warns instead of pretending when the email has no account (PasswordResetController::forgotPassword, ForgotPassword.jsx text); ForgotPasswordTest 5/5
 - 2026-10-06 661ce49 + uncommitted — 60s resend countdown on verify-email and forgot-password + backend cooldown; tests/Feature/ResendCooldownTest.php — result: 109/109 tests, lint ok, headless 390px check ok
 - 2026-10-05 1b9390d + uncommitted — AuthController::login stores users.last_login_at (migration 2026_10_07_000000) for the Dean's "last active" — result: tests pass
 - 2026-10-05 1b9390d + uncommitted — added dean role, inactive-login block, dean_position in payload, shared AccountInvitationService; see dean.md — result: tests 23/23 pass (see dean.md)

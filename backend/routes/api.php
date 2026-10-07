@@ -15,6 +15,7 @@ use App\Http\Controllers\MessageController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\SuperadminFullController;
+use App\Http\Controllers\Api\SupervisorCertificateController;
 use App\Http\Controllers\Api\SupervisorMonitoringController;
 use Illuminate\Support\Facades\Route;
 
@@ -92,6 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications/history', [NotificationController::class, 'history']);
     Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
+    Route::post('/notifications/seen', [NotificationController::class, 'markSeen']);
 
     // Direct messages — coordinator/supervisor/intern only, scoped server-side
     // per role by MessageController::eligibleContacts (never trust a
@@ -258,9 +260,20 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::get('/interns', [SupervisorMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}/portfolio', [SupervisorMonitoringController::class, 'internPortfolio']);
 
+    // How this company records attendance (one time in/out, or morning and afternoon).
+    Route::get('/attendance-settings', [SupervisorMonitoringController::class, 'attendanceSettings']);
+    Route::put('/attendance-settings', [SupervisorMonitoringController::class, 'updateAttendanceSettings']);
     Route::get('/attendance', [SupervisorMonitoringController::class, 'attendance']);
     Route::post('/attendance', [SupervisorMonitoringController::class, 'storeAttendance']);
     Route::patch('/attendance/{id}', [SupervisorMonitoringController::class, 'reviewAttendance']);
+    Route::patch('/attendance/{id}/times', [SupervisorMonitoringController::class, 'updateAttendanceTimes']);
+
+    // OJT certificate of completion: one PowerPoint template per company, filled in per intern.
+    Route::get('/certificates', [SupervisorCertificateController::class, 'show']);
+    Route::post('/certificates/template', [SupervisorCertificateController::class, 'upload']);
+    Route::delete('/certificates/template', [SupervisorCertificateController::class, 'destroy']);
+    Route::get('/certificates/sample', [SupervisorCertificateController::class, 'sample']);
+    Route::post('/certificates/generate', [SupervisorCertificateController::class, 'generate']);
 
     Route::get('/activities', [SupervisorMonitoringController::class, 'activities']);
     Route::post('/activities/approve', [SupervisorMonitoringController::class, 'approveActivities']);

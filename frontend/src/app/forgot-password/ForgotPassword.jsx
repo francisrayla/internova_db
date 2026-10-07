@@ -39,8 +39,8 @@ export default function ForgotPassword() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.message || "Something went wrong. Please try again.");
-      // Same response either way (see backend) — always move on to the code
-      // step so this screen never reveals whether the email is registered.
+      // An email with no account (or one that cannot sign in) is answered with an error
+      // above, so only a real account reaches the code step.
       cooldown.start();
       setStep(STEPS.CODE);
     } catch (err) {
@@ -161,7 +161,7 @@ export default function ForgotPassword() {
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Password recovery</p>
               <h1 className="mt-2 text-2xl font-semibold text-slate-900">Enter your code</h1>
               <p className="mt-2 text-sm text-slate-600">
-                If <strong>{email}</strong> is registered, we sent a 6-digit code there. It expires in 15 minutes.
+                We sent a 6-digit code to <strong>{email}</strong>. It expires in 15 minutes. Check Spam or Promotions if you don&apos;t see it.
               </p>
             </div>
             <form className="space-y-4" onSubmit={handleCodeSubmit}>

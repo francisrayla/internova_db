@@ -1,12 +1,13 @@
 "use client";
 
+import { plural } from "@/lib/format";
+
 // Requirements checklist for one intern's narrative report, built from the
 // same payload the report itself renders (GET .../narrative-report), in the
 // school template's section order. Shared by the intern's portfolio page and
 // the coordinator's intern pages so both see the same status.
 
 const titleCase = (title) => title.charAt(0) + title.slice(1).toLowerCase();
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // Returns { done, detail } for a section, or null for sections that need
 // nothing from the intern (fixed text and blank pages are signed on paper).
@@ -25,10 +26,6 @@ function sectionStatus(section, report) {
     case "auto_ledger": {
       const { total_hours: total = 0, required_hours: required } = report.ledger ?? {};
       return { done: required ? total >= required : total > 0, detail: `${total} of ${required ?? "—"} hours rendered` };
-    }
-    case "auto_attendance": {
-      const n = report.attendance_photos?.length ?? 0;
-      return { done: n > 0, detail: n ? plural(n, "attendance photo") : "No approved attendance yet" };
     }
     case "auto_duties": {
       const n = report.duties?.tasks?.length ?? 0;

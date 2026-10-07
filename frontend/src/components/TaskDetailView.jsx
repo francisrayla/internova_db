@@ -129,7 +129,7 @@ function SubtaskAssigneePicker({ candidates, selected, onChange }) {
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
-          placeholder={selectedPeople.length === 0 ? "Whole group (or pick people)…" : "Add another…"}
+          placeholder={selectedPeople.length === 0 ? "Pick who this is for…" : "Add another…"}
           className="min-w-[100px] flex-1 border-none px-1 py-0.5 text-xs outline-none"
         />
       </div>
@@ -159,10 +159,14 @@ function AddSubtaskForm({ assignees, onAdd }) {
       setError("Enter a title.");
       return;
     }
+    if (assignees.length > 1 && assigneeIds.length === 0) {
+      setError("Choose at least one member for this subtask.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      await onAdd({ ...form, assignee_ids: assigneeIds });
+      await onAdd({ ...form, assignee_ids: assignees.length > 1 ? assigneeIds : assignees.map((a) => a.user_id) });
       setForm({ title: "", description: "", due_date: "" });
       setAssigneeIds([]);
       setOpen(false);
@@ -205,7 +209,12 @@ function AddSubtaskForm({ assignees, onAdd }) {
       />
       {assignees.length > 1 && (
         <div>
-          <span className="mb-1 block text-[11px] font-semibold text-slate-500">Assign to (leave blank for the whole group)</span>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold text-slate-500">Assign to <span className="text-red-500">*</span></span>
+            <button type="button" onClick={() => setAssigneeIds(assignees.map((a) => a.user_id))} className="text-[11px] font-semibold text-blue-600 hover:underline">
+              Select everyone
+            </button>
+          </div>
           <SubtaskAssigneePicker candidates={assignees} selected={assigneeIds} onChange={setAssigneeIds} />
         </div>
       )}

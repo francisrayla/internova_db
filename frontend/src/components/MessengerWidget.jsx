@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getEcho } from "@/lib/echo";
 import Icon from "@/components/Icon";
+import FileLink from "@/components/FileViewer";
 import { apiFetch } from "@/lib/apiFetch";
 import { MAX_ATTACHMENT_BYTES, validateAttachmentFile } from "@/lib/imageValidation";
 
 import { inputProps } from "@/lib/inputRules";
+import { initialsOf, formatBytes } from "@/lib/format";
 const ROLE_LABELS = { coordinator: "Coordinator", supervisor: "Supervisor", intern: "Intern" };
 const MAX_OPEN_CHATS = 3;
 // Only a coordinator/supervisor starts a group (see backend
@@ -26,13 +28,6 @@ const CHAT_COLORS = [
   { label: "Slate", value: "#475569" },
 ];
 
-function formatBytes(bytes) {
-  if (!bytes && bytes !== 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 // Mirrors the backend's previewLabel() — a one-line stand-in for a message
 // with no text of its own, used for the reply banner and the quoted strip
 // above a reply.
@@ -43,15 +38,6 @@ function messagePreview(m) {
     return m.attachment_type?.startsWith("image/") ? "📷 Photo" : `📎 ${m.attachment_name || "File"}`;
   }
   return "";
-}
-
-function initialsOf(name) {
-  return (name || "?")
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 // A DM shows the other person's real photo when they have one; a group
@@ -403,16 +389,15 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
                       </div>
                     )}
                     {isImageAttachment && (
-                      <a href={m.attachment_url} target="_blank" rel="noreferrer" className="-mx-3 -mt-1.5 block overflow-hidden rounded-t-2xl first:rounded-t-2xl">
+                      <FileLink url={m.attachment_url} name={m.attachment_name} type="image/jpeg" className="-mx-3 -mt-1.5 block cursor-zoom-in overflow-hidden rounded-t-2xl first:rounded-t-2xl">
                         <img src={m.attachment_url} alt={m.attachment_name || "Attachment"} className="max-h-48 w-full object-cover" />
-                      </a>
+                      </FileLink>
                     )}
                     {m.attachment_url && !isImageAttachment && (
-                      <a
-                        href={m.attachment_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-xs ${
+                      <FileLink
+                        url={m.attachment_url}
+                        name={m.attachment_name}
+                        className={`flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-xs ${
                           mine ? "border-white/30 bg-white/10" : "border-slate-200 bg-slate-50"
                         }`}
                       >
@@ -421,7 +406,7 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
                           <span className="block truncate font-medium">{m.attachment_name || "File"}</span>
                           {m.attachment_size != null && <span className="block opacity-75">{formatBytes(m.attachment_size)}</span>}
                         </span>
-                      </a>
+                      </FileLink>
                     )}
                     {m.message && <div>{m.message}</div>}
                   </div>
@@ -561,9 +546,9 @@ function MediaGallery({ messages, onBack }) {
                 <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Photos</p>
                 <div className="grid grid-cols-3 gap-1.5">
                   {photos.map((m) => (
-                    <a key={m.id} href={m.attachment_url} target="_blank" rel="noreferrer" className="block aspect-square overflow-hidden rounded-lg">
+                    <FileLink key={m.id} url={m.attachment_url} name={m.attachment_name} type="image/jpeg" className="block aspect-square cursor-zoom-in overflow-hidden rounded-lg">
                       <img src={m.attachment_url} alt={m.attachment_name || "Shared photo"} className="h-full w-full object-cover" />
-                    </a>
+                    </FileLink>
                   ))}
                 </div>
               </div>
@@ -573,19 +558,18 @@ function MediaGallery({ messages, onBack }) {
                 <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Files</p>
                 <div className="space-y-1.5">
                   {files.map((m) => (
-                    <a
+                    <FileLink
                       key={m.id}
-                      href={m.attachment_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs hover:bg-slate-50"
+                      url={m.attachment_url}
+                      name={m.attachment_name}
+                      className="flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left text-xs hover:bg-slate-50"
                     >
                       <Icon name="file" size={16} className="shrink-0 text-slate-500" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium text-slate-700">{m.attachment_name || "File"}</span>
                         {m.attachment_size != null && <span className="block text-slate-400">{formatBytes(m.attachment_size)}</span>}
                       </span>
-                    </a>
+                    </FileLink>
                   ))}
                 </div>
               </div>

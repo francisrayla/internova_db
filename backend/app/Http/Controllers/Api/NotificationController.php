@@ -56,8 +56,22 @@ class NotificationController extends Controller
                 'read'       => $n->read_at !== null,
                 'created_at' => $n->created_at->local()->format('F d, Y \a\t g:i A'),
             ]),
+            // Every unread one (drives "Mark all read" and the blue dots).
             'unread_count' => (clone $query)->whereNull('read_at')->count(),
+            // Only those that arrived since the bell was last opened: this is the red number on
+            // the bell, so peeking at the list clears it even before a single one is clicked.
+            'new_count' => (clone $query)->whereNull('read_at')
+                ->when($request->user()?->notifications_seen_at, fn ($q, $seen) => $q->where('created_at', '>', $seen))
+                ->count(),
         ]);
+    }
+
+    /** The person opened the bell: what is in it now has been seen. */
+    public function markSeen(Request $request): JsonResponse
+    {
+        $request->user()->forceFill(['notifications_seen_at' => now()])->saveQuietly();
+
+        return response()->json(['success' => true]);
     }
 
     /**

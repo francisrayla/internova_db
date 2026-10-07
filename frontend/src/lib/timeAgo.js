@@ -1,10 +1,10 @@
 // Friendly time helpers for the Dean screens (relative times, day headings, greeting).
 
+import { plural } from "@/lib/format";
+
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function timeAgo(iso, now = Date.now()) {
   if (!iso) return null;

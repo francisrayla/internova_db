@@ -55,9 +55,17 @@ export default function AttendanceCard({ record }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">{record.attendance_date}</p>
+        <p className="text-sm font-semibold text-slate-900">
+          {record.attendance_date}
+          {record.session_label && <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{record.session_label}</span>}
+        </p>
         <div className="flex items-center gap-1.5">
           <OfflineEntryBadge record={record} />
+          {record.edited && (
+            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title="Your supervisor corrected the time because you did not time out">
+              Time corrected
+            </span>
+          )}
           {record.auto_clocked_out && (
             <span
               className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700"

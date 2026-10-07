@@ -66,9 +66,9 @@ export function isNetworkError(err) {
 
 /** deviceTime: the phone's own clock at capture. anchoredTime: the
  *  server-anchored clock (lib/trustedClock) when available, else null. */
-export async function enqueueAttendance({ mode, selfie, lat, lng, deviceTime, anchoredTime = null }) {
+export async function enqueueAttendance({ mode, session = null, selfie, lat, lng, deviceTime, anchoredTime = null }) {
   await run("readwrite", (store) =>
-    store.add({ userId: currentUserId(), mode, selfie, lat, lng, deviceTime, anchoredTime, createdAt: Date.now() })
+    store.add({ userId: currentUserId(), mode, session, selfie, lat, lng, deviceTime, anchoredTime, createdAt: Date.now() })
   );
   notifyChanged();
 }
@@ -103,6 +103,8 @@ export async function syncPendingAttendance() {
       formData.append("latitude", String(entry.lat));
       formData.append("longitude", String(entry.lng));
       formData.append("is_offline", "1");
+      // Which part of the day this was (full day, morning or afternoon), as the phone knew it.
+      if (entry.session) formData.append("session", entry.session);
       formData.append("device_time", entry.deviceTime);
       if (entry.anchoredTime) formData.append("anchored_time", entry.anchoredTime);
       // The phone's clock right now: lets the server measure how far off it

@@ -20,7 +20,7 @@ export default function FixEmailModal({ userId, name, currentEmail, onClose, onF
       return;
     }
     if (email === currentEmail) {
-      setError("This is the same address that bounced — check it with the intern first.");
+      setError("This is the same email. Change it, or close this and use Resend invitation.");
       return;
     }
     setSaving(true);
@@ -43,10 +43,10 @@ export default function FixEmailModal({ userId, name, currentEmail, onClose, onF
   return (
     <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4">
       <form onSubmit={handleSubmit} className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Fix email &amp; resend invite</h3>
+        <h3 className="text-lg font-semibold text-slate-900">Edit email &amp; resend invite</h3>
         <p className="mt-1 text-sm text-slate-600">
-          The invitation to <span className="font-medium text-slate-800">{currentEmail}</span> couldn&apos;t be delivered — the
-          address may be misspelled or no longer exist. Confirm {name}&apos;s correct email and we&apos;ll send it again.
+          {name} has not set up their account yet. The invitation went to <span className="font-medium text-slate-800">{currentEmail}</span>.
+          If that is a mistake, enter the correct email and a new link is sent there. The old link stops working.
         </p>
         <label className="mt-4 block text-sm">
           <span className="mb-1.5 block font-semibold text-slate-700">Correct email</span>

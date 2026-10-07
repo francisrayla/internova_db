@@ -37,7 +37,7 @@ class NarrativeProgressService
         $internIds = $deployments->pluck('intern_id')->unique()->all();
         $sections = collect(NarrativeTemplateService::resolve($school)['sections'])
             // Fixed text / blank pages need nothing from the intern.
-            ->filter(fn ($s) => in_array($s['source'] ?? null, ['document', 'intern_text', 'auto_ledger', 'auto_attendance', 'auto_duties', 'auto_photos', 'auto_work_samples', 'auto_journal', 'auto_evaluation'], true))
+            ->filter(fn ($s) => in_array($s['source'] ?? null, ['document', 'intern_text', 'auto_ledger', 'auto_duties', 'auto_photos', 'auto_work_samples', 'auto_journal', 'auto_evaluation'], true))
             ->values();
 
         $attendance = Attendance::whereIn('deployment_id', $ids)->where('status', 'approved')
@@ -64,8 +64,7 @@ class NarrativeProgressService
         $out = [];
         foreach ($deployments as $d) {
             $rows = $attendance->get($d->id, collect());
-            $hours = $rows->filter(fn ($a) => $a->clock_in && $a->clock_out)
-                ->sum(fn ($a) => max(0, $a->clock_in->diffInMinutes($a->clock_out)) / 60);
+            $hours = $rows->sum(fn ($a) => $a->workedMinutes()) / 60;
             $types = $documents->get($d->id, collect())->map(fn ($x) => mb_strtolower(trim($x->document_type)))->all();
             $portfolio = $portfolios->get($d->intern_id);
             $texts = $portfolio?->report_texts ?? [];
@@ -77,7 +76,6 @@ class NarrativeProgressService
                     'document' => in_array(mb_strtolower(trim($s['document_type'] ?? $s['title'])), $types, true),
                     'intern_text' => trim((string) ($texts[$s['key']] ?? '')) !== '',
                     'auto_ledger' => $d->required_hours ? $hours >= $d->required_hours : $hours > 0,
-                    'auto_attendance' => $rows->contains(fn ($a) => $a->clock_in_selfie_path || $a->clock_out_selfie_path),
                     'auto_duties' => ($taskCounts[$d->id] ?? 0) > 0,
                     'auto_photos' => ($photos[$d->id] ?? 0) > 0,
                     'auto_work_samples' => ($portfolio?->items_count ?? 0) > 0,

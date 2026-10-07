@@ -1,5 +1,5 @@
-import AccountSettings from "@/components/AccountSettings";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <AccountSettings />;
+  redirect("/intern/settings/account");
 }

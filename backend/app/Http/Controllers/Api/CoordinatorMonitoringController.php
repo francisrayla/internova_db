@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Mail\AccountInvitation;
 use App\Models\Attendance;
 use App\Models\Company;
 use App\Models\DeploymentTransfer;
@@ -251,6 +250,7 @@ class CoordinatorMonitoringController extends Controller
             $pending = $row['account_status'] === 'pending_activation';
             $m = $monitor->get($d->id);
 
+            $row['invitation_expired'] = $pending && $d->intern?->invitation_expires_at !== null && \Illuminate\Support\Carbon::parse($d->intern->invitation_expires_at)->isPast();
             $row['display_status'] = match (true) {
                 $d->status === 'inactive' => 'inactive',
                 $d->status === 'completed' => 'completed',
@@ -384,9 +384,12 @@ class CoordinatorMonitoringController extends Controller
                 'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
                 'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
                 'auto_clocked_out' => (bool) $a->auto_clocked_out,
+                'edited' => $a->edited_at !== null,
                 'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
                 'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
                 'attendance_date' => $a->attendance_date?->format('M d, Y'),
+                'session' => $a->session ?: Attendance::FULL,
+                'session_label' => match ($a->session) { Attendance::AM => 'Morning', Attendance::PM => 'Afternoon', default => null },
                 'clock_in' => $a->clock_in?->local()?->format('h:i A'),
                 'clock_out' => $a->clock_out?->local()?->format('h:i A'),
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,

@@ -198,19 +198,13 @@ class NarrativeDocxService
                 $this->ledger($section, $data['ledger']);
                 break;
             case 'auto_attendance':
-                $this->imageGrid($section, array_map(
-                    fn ($p) => ['url' => $p['url'], 'lines' => [trim("{$p['date']} · {$p['time']}"), $p['kind']]],
-                    $data['attendance_photos']
-                ));
+                // Attendance selfies are not part of the report any more; the DTR table covers attendance.
                 break;
             case 'auto_duties':
                 $this->duties($section, $data);
                 break;
             case 'auto_photos':
-                $photos = count($data['task_photos'])
-                    ? array_map(fn ($p) => ['url' => $p['url'], 'lines' => [$p['caption']]], $data['task_photos'])
-                    : array_map(fn ($p) => ['url' => $p['url'], 'lines' => ["{$p['kind']} — {$p['date']}, {$p['time']}"]], $data['attendance_photos']);
-                $this->imageGrid($section, $photos);
+                $this->imageGrid($section, array_map(fn ($p) => ['url' => $p['url'], 'lines' => [$p['caption']]], $data['task_photos']));
                 break;
             case 'auto_work_samples':
                 $this->workSamples($section, $data['work_samples']);
@@ -273,19 +267,35 @@ class NarrativeDocxService
         }
     }
 
+    /**
+     * Daily Time Record. One line per day: time in and time out when every day was a single
+     * session, or morning and afternoon in/out when the company records them separately.
+     */
     private function ledger($section, array $ledger): void
     {
         if (!$ledger['rows']) {
             return;
         }
         $multi = !empty($ledger['multi_company']);
-        $w = $multi ? [1400, 1300, 1300, 900, 1240, 2500] : [1900, 1700, 1700, 1500, 1840];
+        $split = !empty($ledger['split']);
+        if ($split) {
+            $w = $multi ? [1250, 900, 900, 900, 900, 800, 900, 2090] : [1560, 1130, 1130, 1130, 1130, 1260, 1300];
+            $labels = ['DATE', 'AM IN', 'AM OUT', 'PM IN', 'PM OUT', 'HOURS', 'TOTAL HOURS'];
+            $cells = fn ($r) => [$r['date'], $r['am_in'] ?? '', $r['am_out'] ?? '', $r['pm_in'] ?? '', $r['pm_out'] ?? '', $r['hours'], $r['running_total']];
+        } else {
+            $w = $multi ? [1400, 1300, 1300, 900, 1240, 2500] : [1900, 1700, 1700, 1500, 1840];
+            $labels = ['DATE', 'TIME IN', 'TIME OUT', 'HOURS', 'TOTAL HOURS'];
+            $cells = fn ($r) => [$r['date'], $r['time_in'], $r['time_out'], $r['hours'], $r['running_total']];
+        }
+        if ($multi) {
+            $labels[] = 'COMPANY';
+        }
         $table = $section->addTable($this->tableStyle());
-        $this->headerRow($table, $w, array_merge(['DATE', 'TIME IN', 'TIME OUT', 'HOURS', 'TOTAL HOURS'], $multi ? ['COMPANY'] : []));
+        $this->headerRow($table, $w, $labels);
         foreach ($ledger['rows'] as $r) {
             $table->addRow(null, ['cantSplit' => true]);
-            foreach (array_merge([$r['date'], $r['time_in'], $r['time_out'], $r['hours'], $r['running_total']], $multi ? [$r['company'] ?? ''] : []) as $i => $v) {
-                $table->addCell($w[$i])->addText((string) $v, ['size' => 11], ['alignment' => Jc::CENTER]);
+            foreach (array_merge($cells($r), $multi ? [$r['company'] ?? ''] : []) as $i => $v) {
+                $table->addCell($w[$i])->addText((string) $v, ['size' => $split ? 10 : 11], ['alignment' => Jc::CENTER]);
             }
         }
         $total = "Total hours rendered: {$ledger['total_hours']}" . ($ledger['required_hours'] ? " of {$ledger['required_hours']} required hours" : '');

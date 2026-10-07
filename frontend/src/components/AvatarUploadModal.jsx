@@ -6,15 +6,7 @@ import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
 import { validateImageFile } from "@/lib/imageValidation";
 import { shrinkImage } from "@/lib/imageCompress";
-
-function initialsOf(name) {
-  return (name || "?")
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
+import { initialsOf } from "@/lib/format";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 

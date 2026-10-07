@@ -486,7 +486,7 @@ class DeanInsightsTest extends TestCase
         $this->assertStringContainsString($this->dean()->school->school_name, $html);
         $this->assertStringContainsString('At risk', $html);
         $this->assertStringContainsString('/dean/interns', $html);
-        $this->assertStringContainsString('/dean/account', $html);
+        $this->assertStringContainsString('/dean/settings/notifications', $html);
     }
 
     public function test_schedule_is_registered_for_monday_7am_manila(): void

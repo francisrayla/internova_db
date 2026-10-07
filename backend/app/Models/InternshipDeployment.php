@@ -30,6 +30,15 @@ class InternshipDeployment extends Model
         return $query->where("{$table}.company_id", $companyId)->where("{$table}.school_id", $user->school_id);
     }
 
+    /**
+     * Interns who finished setting up their account. An invited intern who never opened the link
+     * (status pending_activation) cannot be given tasks yet - nobody could see or do them.
+     */
+    public function scopeAccountSetUp($query)
+    {
+        return $query->whereHas('intern', fn ($q) => $q->where('status', '!=', 'pending_activation'));
+    }
+
     /** Active supervisor users of this deployment's company (all of them). */
     public function companySupervisors()
     {

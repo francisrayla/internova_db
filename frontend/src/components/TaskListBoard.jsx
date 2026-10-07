@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, DragOverlay, pointerWithin, useDraggable, useDroppable } from "@dnd-kit/core";
+import { DRAG_ROW_CLASS, blockTouchContextMenu, useDragSensors } from "@/lib/useDragSensors";
 import { useState } from "react";
 import DueDateBadge from "@/components/DueDateBadge";
 
@@ -73,15 +74,15 @@ function StaticRow({ task, detailBasePath, subLabel }) {
   );
 }
 
-// Press and hold to pick this card up (see the PointerSensor delay below) —
-// a quick tap still navigates normally, since dnd-kit only starts a drag
-// once the hold duration is met.
+// Drag it with the mouse, or press and hold on a touch screen (see useDragSensors) —
+// a plain click or tap still opens the task.
 function HoldableRow({ task, detailBasePath, subLabel, isBeingDragged }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: String(task.id) });
 
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={isBeingDragged ? "opacity-30" : ""}>
-      <Link href={`${detailBasePath}/${task.id}`} className="flex cursor-grab items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow active:cursor-grabbing">
+    <div ref={setNodeRef} {...listeners} {...attributes} onContextMenu={blockTouchContextMenu} className={`${DRAG_ROW_CLASS} ${isBeingDragged ? "opacity-30" : ""}`}>
+      {/* draggable={false}: a link is natively draggable, and the browser's own drag would cancel ours */}
+      <Link draggable={false} href={`${detailBasePath}/${task.id}`} className="flex cursor-grab items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow active:cursor-grabbing">
         <div className="flex-1 space-y-2">
           <CardBody task={task} subLabel={subLabel} />
         </div>
@@ -118,10 +119,7 @@ function DropColumn({ status, label }) {
  */
 export default function TaskListBoard({ tasks, detailBasePath, onStatusChange, onRequestComplete, subLabelFor }) {
   const [activeId, setActiveId] = useState(null);
-  // tolerance needs real slack — a genuinely still hand can't hold a mouse
-  // perfectly steady for 350ms, and too tight a tolerance silently cancels
-  // the long-press the moment natural hand tremor exceeds it.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { delay: 350, tolerance: 25 } }));
+  const sensors = useDragSensors();
 
   const activeTask = tasks.find((t) => t.id === activeId) ?? null;
 

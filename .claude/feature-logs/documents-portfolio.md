@@ -31,6 +31,8 @@ updated: 2026-10-06
 
 - Supervisor portfolio view uses visibleToSupervisor; narrative report supervisor_name = company supervisors (DeploymentHistoryService::supervisorNamesByCompany resolves per segment company, transfer from/to_supervisor ids no longer used). (see coordinator-monitoring log for the shared rule)
 
+- DTR (2026-10-07): NarrativeReportService ledger is now one line per day (am_in/am_out/pm_in/pm_out + time_in/time_out + `split` flag); report no longer has attendance_photos or the PROOF OF ATTENDANCE section (NarrativeTemplateService drops any saved auto_attendance section; NarrativeDocxService + NarrativeReport.jsx/NarrativeChecklist.jsx updated; split layout when any day has am/pm rows).
+
 ## How it works (max ~10 lines)
 - Documents: intern (needs current deployment, else 422) or coordinator uploads; jpg/jpeg/png/pdf/doc/docx, max 5 MB, public disk at documents/{schoolId}; status starts pending. Coordinator approves/rejects (+remarks); intern notified, ActivityLogService records.
 - Coordinator document list scoped to the school's deployment ids; dashboard uses documents?status=pending.
@@ -47,8 +49,8 @@ updated: 2026-10-06
 - Manual: intern uploads a PDF at /intern/documents -> coordinator sees it at /coordinator/documents, approves -> intern notified. Add a portfolio item with image; view it from supervisor and coordinator portfolio pages (unassigned intern -> 404 for supervisor). Open the coordinator intern report and print. Request /api/download with a bad path (expect 400).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-07 uncommitted — files now open in an in-app viewer with an X and Close button instead of a new tab: components/FileViewer.jsx (FileViewer + FileLink, portal) used by intern/coordinator/Dean documents, activity photos, ticket and messenger attachments, Super Admin proof links; ProofPreviewModal delegates to it; PhotoViewer X is larger — result: headless intern(390)/coordinator/Dean open + close ok, no JS/API errors
+- 2026-10-07 uncommitted — DTR table (split layout), attendance selfies removed from the narrative report, docx ledger split layout — result: backend 118/118
 - 2026-10-06 5a24cfb + uncommitted — uploads: new frontend/src/lib/imageCompress.js `shrinkImage` (JPEG/PNG/WEBP over ~900 KB or 1600 px → 1600 px JPEG q0.82, EXIF-orientation aware, returns original on failure; GIF/PDF/DOC untouched) used in portfolio work samples, activity photos, avatar, task proofs, intern + coordinator documents. Limits raised to 10 MB (frontend + backend: portfolio image, activity photo, avatar, documents). Chrome test: 11.44 MB photo → 0.67 MB. Note: check Railway PHP upload_max_filesize/post_max_size on deploy (local is 10M/12M) — result: pass (tests 87/87)
 - 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
 - 2026-10-06 5a24cfb + uncommitted — narrative report: ledger.multi_company + per-row company (ledger, journal) from deployment_transfers via DeploymentHistoryService::companyOn; deployment.previous[] = 'Previously deployed at X, range' on title page (screen NarrativeReport.jsx + NarrativeDocxService: COMPANY column, 'At X' line, italic previous line) — result: pass (DeploymentTransferTest)
-- 2026-10-05 1f8447e + uncommitted — documents.reviewed_at added (migration 2026_10_08), stamped in CoordinatorMonitoringController::reviewDocument; Document model fillable/cast — result: pass (see dean log)
-- 2026-10-05 1b9390d + uncommitted — NarrativeReportController::docxResponse now public (reused by DeanMonitoringController); ReportToolbar download logic extracted to components/narrative-report/DownloadDocxButton.jsx; added logging of template/logo changes (module Reports); NarrativeProgressService (batched checklist) added — result: tests 33/33

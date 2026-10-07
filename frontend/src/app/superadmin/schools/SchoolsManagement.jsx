@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import FileLink from "@/components/FileViewer";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
@@ -517,14 +518,9 @@ export default function SchoolsPage() {
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
                     <p className="text-xs font-semibold text-amber-800">Bank transfer proof submitted — review before verifying.</p>
                     {manageSchool.proof_of_payment_url && (
-                      <a
-                        href={manageSchool.proof_of_payment_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-block text-xs font-semibold text-blue-700 underline"
-                      >
+                      <FileLink url={manageSchool.proof_of_payment_url} name="Proof of payment" className="inline-block text-xs font-semibold text-blue-700 underline">
                         View Uploaded Proof →
-                      </a>
+                      </FileLink>
                     )}
                     <button
                       onClick={() => handleVerifyPayment(manageSchool)}
@@ -554,9 +550,9 @@ export default function SchoolsPage() {
                     </p>
                     <BillingBreakdown breakdown={manageSchool.awaiting_payment_change.breakdown} title="Approved change" />
                     {manageSchool.awaiting_payment_change.proof_of_payment_url && (
-                      <a href={manageSchool.awaiting_payment_change.proof_of_payment_url} target="_blank" rel="noreferrer" className="inline-block text-xs font-semibold text-blue-700 underline">
+                      <FileLink url={manageSchool.awaiting_payment_change.proof_of_payment_url} name="Proof of payment" className="inline-block text-xs font-semibold text-blue-700 underline">
                         View Uploaded Proof →
-                      </a>
+                      </FileLink>
                     )}
                     {manageSchool.awaiting_payment_change.payment_status === "pending_verification" ? (
                       <button

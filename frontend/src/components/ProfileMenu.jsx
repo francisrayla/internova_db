@@ -5,15 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import Icon from "@/components/Icon";
 import { useMounted } from "@/lib/useMounted";
-
-function initialsOf(name, fallback) {
-  return (name || fallback || "?")
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
+import { initialsOf } from "@/lib/format";
 
 /**
  * The single header account menu used by every role — avatar/name trigger,

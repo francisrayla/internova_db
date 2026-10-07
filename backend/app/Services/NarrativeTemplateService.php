@@ -36,7 +36,6 @@ class NarrativeTemplateService
             ['key' => 'waiver', 'title' => 'WAIVER', 'source' => 'document', 'document_type' => 'Waiver'],
             ['key' => 'resume', 'title' => 'RESUME', 'source' => 'document', 'document_type' => 'Resume'],
             ['key' => 'apprentice_ledger', 'title' => 'APPRENTICE LEDGER', 'source' => 'auto_ledger'],
-            ['key' => 'proof_of_attendance', 'title' => 'PROOF OF ATTENDANCE', 'source' => 'auto_attendance'],
             ['key' => 'duties', 'title' => 'DESCRIPTION OF DUTIES AND RESPONSIBILITIES', 'source' => 'auto_duties'],
             ['key' => 'apprenticeship_in_action', 'title' => 'APPRENTICESHIP IN ACTION', 'source' => 'auto_photos'],
             ['key' => 'work_samples', 'title' => 'SAMPLES OF WORK DONE/OUTPUTS', 'source' => 'auto_work_samples'],
@@ -130,7 +129,9 @@ class NarrativeTemplateService
         $letterhead = $merge($defaults['letterhead'], $row?->letterhead);
         $cover = $merge($defaults['cover'], $row?->cover);
         $cover['school_year'] = $cover['school_year'] ?: self::deriveSchoolYear($start);
-        $sections = $row?->sections ?: $defaults['sections'];
+        // The attendance selfies no longer go in the report (the DTR table covers attendance),
+        // including in templates a school saved before that.
+        $sections = collect($row?->sections ?: $defaults['sections'])->reject(fn ($s) => ($s['source'] ?? null) === 'auto_attendance')->values()->all();
 
         $vars = array_merge([
             'school_name' => $letterhead['school_name'],

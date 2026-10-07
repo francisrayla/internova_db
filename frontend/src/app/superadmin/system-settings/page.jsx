@@ -1,5 +1,5 @@
-import SystemSettings from "./SystemSettings";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <SystemSettings />;
+  redirect("/superadmin/settings/system");
 }

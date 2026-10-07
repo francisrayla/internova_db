@@ -1,5 +1,5 @@
-import SchoolSettings from "./SchoolSettings";
+import RoleSettingsHub from "@/components/settings/RoleSettingsHub";
 
 export default function Page() {
-  return <SchoolSettings />;
+  return <RoleSettingsHub role="coordinator" />;
 }

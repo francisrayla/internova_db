@@ -1,13 +1,8 @@
 "use client";
 
 import Icon from "@/components/Icon";
-
-function formatBytes(bytes) {
-  if (bytes == null) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import FileLink from "@/components/FileViewer";
+import { formatBytes } from "@/lib/format";
 
 /** Renders a support-ticket message's attachment the same way whether it's
  * being viewed by the coordinator who sent it or the Super Admin reading it —
@@ -19,19 +14,19 @@ export default function TicketAttachment({ url, name, type, size, mine }) {
 
   if (isImage) {
     return (
-      <a href={url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl">
+      <FileLink url={url} name={name} type={type} className="block w-full cursor-zoom-in overflow-hidden rounded-xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={url} alt={name || "Attachment"} className="max-h-56 w-full object-cover" />
-      </a>
+      </FileLink>
     );
   }
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${
+    <FileLink
+      url={url}
+      name={name}
+      type={type}
+      className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs ${
         mine ? "border-white/30 bg-white/10" : "border-slate-200 bg-slate-50"
       }`}
     >
@@ -40,6 +35,6 @@ export default function TicketAttachment({ url, name, type, size, mine }) {
         <span className="block truncate font-medium">{name || "File"}</span>
         {size != null && <span className="block opacity-75">{formatBytes(size)}</span>}
       </span>
-    </a>
+    </FileLink>
   );
 }

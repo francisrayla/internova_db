@@ -13,12 +13,13 @@ const NAV_ITEMS = [
   { label: "Activities", href: "/supervisor/activities", icon: "📝" },
   { label: "Tasks", href: "/supervisor/tasks", icon: "🗂️" },
   { label: "Evaluations", href: "/supervisor/evaluations", icon: "⭐" },
+  { label: "Certificates", href: "/supervisor/certificates", icon: "🎓" },
   { label: "Files", href: "/supervisor/files", icon: "📄" },
 ];
 
 const PROFILE_LINKS = [
   { href: "/supervisor/profile", icon: "user", label: "My Profile" },
-  { href: "/supervisor/account", icon: "gear", label: "Account Settings" },
+  { href: "/supervisor/settings", icon: "gear", label: "Settings" },
 ];
 
 export default function SupervisorLayout({ children }) {

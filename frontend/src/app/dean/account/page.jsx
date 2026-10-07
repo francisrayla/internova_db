@@ -1,11 +1,5 @@
-import AccountSettings from "@/components/AccountSettings";
-import WeeklyEmailPreference from "@/components/dean/WeeklyEmailPreference";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <>
-      <AccountSettings />
-      <WeeklyEmailPreference />
-    </>
-  );
+  redirect("/dean/settings/account");
 }

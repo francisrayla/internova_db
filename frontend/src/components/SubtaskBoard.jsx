@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { DndContext, DragOverlay, PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, DragOverlay, pointerWithin, useDraggable, useDroppable } from "@dnd-kit/core";
+import { DRAG_ROW_CLASS, blockTouchContextMenu, useDragSensors } from "@/lib/useDragSensors";
 import DueDateBadge from "@/components/DueDateBadge";
 
 const STATUSES = [
@@ -56,14 +57,15 @@ function Row({ subtask, onSelect, selected }) {
   );
 }
 
-// Press and hold to pick this card up; a quick tap still selects it (opens
-// the comment panel) since dnd-kit only starts a drag past the hold delay.
+// Drag it with the mouse, or press and hold on a touch screen; a plain click or tap
+// still selects it (opens the comment panel).
 function HoldableRow({ subtask, onSelect, selected, isBeingDragged }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: String(subtask.id) });
 
   return (
-    <div ref={setNodeRef} {...listeners} {...attributes} className={isBeingDragged ? "opacity-30" : ""}>
+    <div ref={setNodeRef} {...listeners} {...attributes} onContextMenu={blockTouchContextMenu} className={`${DRAG_ROW_CLASS} ${isBeingDragged ? "opacity-30" : ""}`}>
       <button
+        draggable={false}
         onClick={() => onSelect(subtask.id)}
         className={`flex w-full cursor-grab items-start justify-between gap-3 rounded-2xl border bg-white p-3 text-left shadow-sm transition hover:border-blue-300 hover:shadow active:cursor-grabbing ${selected ? "border-blue-400 ring-1 ring-blue-300" : "border-slate-200"}`}
       >
@@ -104,10 +106,7 @@ function DropColumn({ status, label }) {
  */
 export default function SubtaskBoard({ subtasks, onStatusChange, onRequestComplete, onSelect, selectedId, interactive }) {
   const [activeId, setActiveId] = useState(null);
-  // tolerance needs real slack — a genuinely still hand can't hold a mouse
-  // perfectly steady for 350ms, and too tight a tolerance silently cancels
-  // the long-press the moment natural hand tremor exceeds it.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { delay: 350, tolerance: 25 } }));
+  const sensors = useDragSensors();
 
   const activeSubtask = subtasks.find((s) => s.id === activeId) ?? null;
 

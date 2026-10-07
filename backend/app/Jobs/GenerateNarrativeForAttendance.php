@@ -44,6 +44,13 @@ class GenerateNarrativeForAttendance implements ShouldQueue
             return;
         }
 
+        // A split day is written once, from its first time in to its last time out.
+        $dayRows = Attendance::where('deployment_id', $deployment->id)->whereDate('attendance_date', $date)->get();
+        if ($dayRows->contains(fn ($r) => $r->clock_in && !$r->clock_out && $date === \App\Support\LocalTime::today())) {
+            return;
+        }
+        $closed = $dayRows->filter(fn ($r) => $r->clock_in && $r->clock_out);
+
         $internId = $deployment->intern_id;
 
         $taskTitles = Task::whereHas('assignees', fn ($q) => $q->where('user_id', $internId))
@@ -58,8 +65,8 @@ class GenerateNarrativeForAttendance implements ShouldQueue
 
         $items = $taskTitles->merge($subtaskTitles)->values()->all();
 
-        $clockIn = $attendance->clock_in?->local()?->format('h:i A');
-        $clockOut = $attendance->clock_out?->local()?->format('h:i A');
+        $clockIn = $closed->min('clock_in')?->local()?->format('h:i A');
+        $clockOut = $closed->max('clock_out')?->local()?->format('h:i A');
 
         // AI Narrative Writing is a Premium feature — a Basic-plan school
         // still gets the backfilled narrative, just built from the plain

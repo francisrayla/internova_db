@@ -32,7 +32,7 @@ const WARM_API = [
 
 const PROFILE_LINKS = [
   { href: "/intern/profile", icon: "user", label: "My Profile" },
-  { href: "/intern/account", icon: "gear", label: "Account Settings" },
+  { href: "/intern/settings", icon: "gear", label: "Settings" },
 ];
 
 export default function InternLayout({ children }) {

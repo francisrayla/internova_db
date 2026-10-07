@@ -18,11 +18,21 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  // The red number: only what arrived since the list was last opened (see markSeen on the server).
+  const [newCount, setNewCount] = useState(0);
   const rootRef = useRef(null);
+  const openRef = useRef(false);
+
+  function markSeen() {
+    apiFetch("/api/notifications/seen", { method: "POST" }).catch(() => {});
+  }
 
   useEffect(() => {
     function handleClickOutside(event) {
-      if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        openRef.current = false;
+        setOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -41,6 +51,7 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
         if (data.notifications) {
           setNotifications(data.notifications);
           setUnreadCount(data.unread_count ?? 0);
+          setNewCount(data.new_count ?? data.unread_count ?? 0);
         }
       })
       .catch(() => {
@@ -61,6 +72,9 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
       if (payload.important === false) return;
       setNotifications((prev) => [{ ...payload, read: false }, ...prev].slice(0, 30));
       setUnreadCount((prev) => prev + 1);
+      // Already looking at the list: nothing "new" to announce, but remember it was seen.
+      if (openRef.current) markSeen();
+      else setNewCount((prev) => prev + 1);
     }
 
     channelNames.forEach((name) => echo.channel(name).listen(".notification.created", handlePush));
@@ -73,6 +87,16 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
       channelNames.forEach((name) => echo.channel(name).stopListening(".notification.created", handlePush));
     };
   }, [audienceRole, schoolId, userId]);
+
+  function toggleOpen() {
+    const next = !open;
+    openRef.current = next;
+    setOpen(next);
+    if (next && newCount > 0) {
+      setNewCount(0);
+      markSeen();
+    }
+  }
 
   function handleOpenNotification(notification) {
     setOpen(false);
@@ -93,22 +117,24 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
     }).catch(() => {});
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadCount(0);
+    setNewCount(0);
+    markSeen();
   }
 
   return (
     <div className="relative" ref={rootRef}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleOpen}
         className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
         title="Notifications"
-        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+        aria-label={newCount > 0 ? `Notifications, ${newCount} new` : "Notifications"}
         aria-expanded={open}
       >
         <Icon name="bell" size={18} />
-        {unreadCount > 0 && (
+        {newCount > 0 && (
           <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-            {unreadCount > 9 ? "9+" : unreadCount}
+            {newCount > 9 ? "9+" : newCount}
           </span>
         )}
       </button>

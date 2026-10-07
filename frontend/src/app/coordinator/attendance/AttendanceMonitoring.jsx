@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import Icon from "@/components/Icon";
-import PhotoViewer from "@/components/PhotoViewer";
+import AttendanceSelfies from "@/components/AttendanceSelfies";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
 
 import { inputProps } from "@/lib/inputRules";
@@ -33,7 +33,6 @@ function CompanySection({ companyId, name, total, filters }) {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-  const [viewer, setViewer] = useState(null);
 
   function fetchPage(nextPage, append) {
     const params = buildParams({ company_id: String(companyId), page: String(nextPage) }, filters);
@@ -82,36 +81,16 @@ function CompanySection({ companyId, name, total, filters }) {
             <p className="py-6 text-center text-sm text-slate-400">No attendance records match.</p>
           ) : (
             records.map((r) => {
-              const photos = [
-                r.clock_in_selfie_url && { url: r.clock_in_selfie_url, label: `${r.intern_name} · Time In · ${r.attendance_date}` },
-                r.clock_out_selfie_url && { url: r.clock_out_selfie_url, label: `${r.intern_name} · Time Out · ${r.attendance_date}` },
-              ].filter(Boolean);
               return (
                 <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-3.5 last:border-b-0">
                   <div className="flex items-center gap-3">
-                    <div className="flex shrink-0 gap-1.5">
-                      {photos.length === 0 ? (
-                        <span className="grid h-11 w-11 place-items-center rounded-lg bg-slate-100 text-[10px] text-slate-400">No photo</span>
-                      ) : (
-                        photos.map((ph, i) => (
-                          <button
-                            key={ph.url}
-                            type="button"
-                            onClick={() => setViewer({ photos, index: i })}
-                            aria-label={ph.label}
-                            className="h-11 w-11 cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 hover:border-blue-400"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={ph.url} alt={ph.label} className="h-full w-full object-cover" />
-                          </button>
-                        ))
-                      )}
-                    </div>
+                    <AttendanceSelfies record={r} name={r.intern_name} />
                     <div>
                       <p className="font-medium text-slate-900">{r.intern_name}</p>
                       <p className="text-xs text-slate-500">
-                        {r.attendance_date} · {r.clock_in ?? "—"} to {r.clock_out ?? "—"} {r.hours != null && `(${r.hours}h)`}
+                        {r.attendance_date}{r.session_label ? ` (${r.session_label})` : ""} · {r.clock_in ?? "—"} to {r.clock_out ?? "—"} {r.hours != null && `(${r.hours}h)`}
                         {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}
+                        {r.edited && <span className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title="The supervisor corrected the time because the intern forgot to time out">Time corrected</span>}
                         <OfflineEntryBadge record={r} className="ml-1.5" />
                       </p>
                     </div>
@@ -134,14 +113,6 @@ function CompanySection({ companyId, name, total, filters }) {
                 {loadingMore ? "Loading…" : "Load more"}
               </button>
             </div>
-          )}
-          {viewer && (
-            <PhotoViewer
-              photos={viewer.photos}
-              index={viewer.index}
-              onIndexChange={(i) => setViewer((v) => ({ ...v, index: i }))}
-              onClose={() => setViewer(null)}
-            />
           )}
         </div>
       )}

@@ -68,34 +68,36 @@ class NarrativeReportService
         $disk = Storage::disk('public');
         $url = fn (?string $path) => $path ? $disk->url($path) : null;
 
-        // Ledger: only complete, approved days count toward the hours.
+        // Daily Time Record: one line per day. A single-session day shows its time in and out;
+        // a split day shows the morning and the afternoon. Only complete, approved punches count.
+        $fmt = fn ($t) => $t?->local()?->format('h:i A');
         $running = 0.0;
         $ledger = [];
-        foreach ($approved as $a) {
-            if (!$a->clock_in || !$a->clock_out) {
+        $split = false;
+        foreach ($approved->groupBy(fn ($a) => $a->attendance_date?->toDateString()) as $day => $rows) {
+            $done = $rows->filter(fn ($a) => $a->clock_in && $a->clock_out);
+            if (!$day || $done->isEmpty()) {
                 continue;
             }
-            $hours = round(max(0, $a->clock_in->diffInMinutes($a->clock_out)) / 60, 2);
+            $hours = round($done->sum(fn ($a) => $a->workedMinutes()) / 60, 2);
             $running += $hours;
+            $am = $rows->firstWhere('session', Attendance::AM);
+            $pm = $rows->firstWhere('session', Attendance::PM);
+            $full = $rows->firstWhere('session', Attendance::FULL);
+            $split = $split || $am || $pm;
             $ledger[] = [
-                'date' => $a->attendance_date?->format('M d, Y'),
-                'time_in' => $a->clock_in->local()->format('h:i A'),
-                'time_out' => $a->clock_out->local()->format('h:i A'),
+                'date' => $rows->first()->attendance_date?->format('M d, Y'),
+                // A full day's single in/out sits in the first "in" and the last "out" column.
+                'am_in' => $fmt($am?->clock_in ?? $full?->clock_in),
+                'am_out' => $fmt($am?->clock_out),
+                'pm_in' => $fmt($pm?->clock_in),
+                'pm_out' => $fmt($pm?->clock_out ?? $full?->clock_out),
+                'time_in' => $fmt($rows->pluck('clock_in')->filter()->sort()->first()),
+                'time_out' => $fmt($rows->pluck('clock_out')->filter()->sort()->last()),
                 'hours' => $hours,
                 'running_total' => round($running, 2),
-                'company' => $companyOn($a->attendance_date?->toDateString()),
+                'company' => $companyOn($day),
             ];
-        }
-
-        $attendancePhotos = [];
-        foreach ($approved as $a) {
-            $date = $a->attendance_date?->format('M d, Y');
-            if ($a->clock_in_selfie_path) {
-                $attendancePhotos[] = ['url' => $url($a->clock_in_selfie_path), 'date' => $date, 'time' => $a->clock_in?->local()?->format('h:i A'), 'kind' => 'Time in'];
-            }
-            if ($a->clock_out_selfie_path) {
-                $attendancePhotos[] = ['url' => $url($a->clock_out_selfie_path), 'date' => $date, 'time' => $a->clock_out?->local()?->format('h:i A'), 'kind' => 'Time out'];
-            }
         }
 
         $taskRows = [];
@@ -110,15 +112,22 @@ class NarrativeReportService
         }
 
         // Journal: one row per day that has either an approved attendance or a
-        // reportable narrative. AM = time in, PM = time out (attendance keeps a
-        // single in/out per day, not a morning/afternoon split).
+        // reportable narrative. AM = the day's first time in, PM = its last time out.
         $days = [];
         foreach ($approved as $a) {
             $key = $a->attendance_date?->toDateString();
             if ($key) {
                 $days[$key]['date'] = $a->attendance_date;
-                $days[$key]['am'] = $a->clock_in?->local()?->format('h:i A');
-                $days[$key]['pm'] = $a->clock_out?->local()?->format('h:i A');
+                $in = $a->clock_in?->local();
+                $out = $a->clock_out?->local();
+                if ($in && (!isset($days[$key]['in']) || $in->lt($days[$key]['in']))) {
+                    $days[$key]['in'] = $in;
+                }
+                if ($out && (!isset($days[$key]['out']) || $out->gt($days[$key]['out']))) {
+                    $days[$key]['out'] = $out;
+                }
+                $days[$key]['am'] = isset($days[$key]['in']) ? $days[$key]['in']->format('h:i A') : null;
+                $days[$key]['pm'] = isset($days[$key]['out']) ? $days[$key]['out']->format('h:i A') : null;
                 $days[$key]['company'] = $companyOn($key);
             }
         }
@@ -168,8 +177,7 @@ class NarrativeReportService
                     'label' => "Previously deployed at {$x['company_name']}" . ($x['range'] ? ", {$x['range']}" : ''),
                 ])->values()->all(),
             ],
-            'ledger' => ['multi_company' => $multi, 'rows' => $ledger, 'total_hours' => round($running, 2), 'required_hours' => $d->required_hours],
-            'attendance_photos' => $attendancePhotos,
+            'ledger' => ['multi_company' => $multi, 'split' => $split, 'rows' => $ledger, 'total_hours' => round($running, 2), 'required_hours' => $d->required_hours],
             'duties' => ['intro' => NarrativeTemplateService::DUTIES_INTRO, 'tasks' => $taskRows],
             'task_photos' => $taskPhotos,
             'journal' => $journal,

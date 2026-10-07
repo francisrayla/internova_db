@@ -14,7 +14,7 @@ import { clearOfflineCaches } from "@/lib/offlineCache";
 
 const PROFILE_LINKS = [
   { href: "/coordinator/profile", icon: "user", label: "My Profile" },
-  { href: "/coordinator/account", icon: "gear", label: "Account Settings" },
+  { href: "/coordinator/settings", icon: "gear", label: "Settings" },
   { href: "/coordinator/support", icon: "message", label: "Contact Support" },
 ];
 
@@ -30,7 +30,7 @@ const BASE_NAV_ITEMS = [
   { label: "Reports", href: "/coordinator/reports", icon: "📊" },
   { label: "Dean Feedback", href: "/coordinator/feedback", icon: "💬" },
   // Billing and editing school details belong to the school's Dean; this page is read-only here.
-  { label: "School Settings", href: "/coordinator/settings", icon: "⚙️" },
+  { label: "Settings", href: "/coordinator/settings", icon: "⚙️" },
 ];
 
 // Reachable in any access-gate state — small utility screens, not operational data.

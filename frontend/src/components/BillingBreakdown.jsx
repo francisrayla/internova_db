@@ -1,6 +1,6 @@
 "use client";
 
-const peso = (n) => `₱${Number(n ?? 0).toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+import { peso } from "@/lib/format";
 
 /**
  * "What you pay and why". Renders the server's breakdown (SubscriptionBreakdown.php) as-is,

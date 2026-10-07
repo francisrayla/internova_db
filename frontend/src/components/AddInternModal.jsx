@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { apiFetch } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";

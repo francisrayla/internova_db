@@ -52,5 +52,5 @@ export function createApiProxy(prefix) {
   }
 
   const handler = (method) => async (request, { params }) => proxy(request, await params, method);
-  return { GET: handler("GET"), POST: handler("POST"), PATCH: handler("PATCH"), DELETE: handler("DELETE") };
+  return { GET: handler("GET"), POST: handler("POST"), PUT: handler("PUT"), PATCH: handler("PATCH"), DELETE: handler("DELETE") };
 }

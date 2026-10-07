@@ -122,6 +122,10 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
       setError("Enter a title.");
       return;
     }
+    if (selected.length > 1 && !leaderId) {
+      setError("Choose a task leader. With more than one intern, the leader submits the task once the subtasks are done.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -152,12 +156,12 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
           </div>
           {selectedInterns.length > 1 && (
             <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Group leader (optional)</span>
-              <select value={leaderId} onChange={(e) => setLeaderId(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
-                <option value="">No leader — everyone works equally</option>
+              <span className="mb-1.5 block font-semibold text-slate-700">Task leader <span className="text-red-600" aria-hidden="true">*</span></span>
+              <select required value={leaderId} onChange={(e) => setLeaderId(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+                <option value="">Choose the leader…</option>
                 {selectedInterns.map((i) => <option key={i.user_id} value={i.user_id}>{i.name}</option>)}
               </select>
-              <span className="mt-1 block text-xs text-slate-400">The leader can break this task into subtasks and assign them to the rest of the group.</span>
+              <span className="mt-1 block text-xs text-slate-500">Required for a group task. The leader splits the task into subtasks for the group and is the one who submits the task once every subtask is done.</span>
             </label>
           )}
           <label className="block text-sm">
@@ -234,6 +238,7 @@ function TaskRow({ task }) {
 export default function TaskManagement() {
   const [tasks, setTasks] = useState([]);
   const [interns, setInterns] = useState([]);
+  const [notSetUp, setNotSetUp] = useState([]);
   const [view, setView] = useState("active");
   const [internFilter, setInternFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -248,6 +253,7 @@ export default function TaskManagement() {
       .then((r) => {
         setTasks(r.tasks ?? []);
         setInterns(r.interns ?? []);
+        setNotSetUp(r.not_set_up ?? []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -282,6 +288,13 @@ export default function TaskManagement() {
           Assign task
         </button>
       </div>
+
+      {notSetUp.length > 0 && (
+        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {notSetUp.join(", ")} {notSetUp.length === 1 ? "has" : "have"} not set up an account yet, so they are left out of task assignment until
+          they open their invitation. The coordinator can fix the email and resend the link.
+        </p>
+      )}
 
       <div className="flex w-fit gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
         <button

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Icon from "@/components/Icon";
 
 /** Full-screen viewer for a small set of photos. `photos` is [{ url, label }];
  * `index` is which one is showing, `onIndexChange`/`onClose` are the parent's. */
@@ -30,11 +31,11 @@ export default function PhotoViewer({ photos, index, onIndexChange, onClose }) {
     >
       <button
         type="button"
-        onClick={onClose}
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
         aria-label="Close photo"
-        className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full bg-white/15 text-xl leading-none text-white hover:bg-white/25"
+        className="absolute right-4 top-4 z-10 grid h-11 w-11 place-items-center rounded-full bg-white/20 text-white hover:bg-white/30"
       >
-        ×
+        <Icon name="x" size={22} />
       </button>
 
       {index > 0 && (

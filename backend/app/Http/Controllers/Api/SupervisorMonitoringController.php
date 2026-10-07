@@ -20,6 +20,8 @@ use App\Models\TaskEvaluation;
 use App\Models\TaskProof;
 use App\Models\User;
 use App\Services\ActivityLogService;
+use App\Services\AttendanceSessions;
+use App\Support\LocalTime;
 use App\Services\DeploymentSummaryService;
 use App\Services\NotificationService;
 use App\Services\PlanFeatures;
@@ -98,7 +100,11 @@ class SupervisorMonitoringController extends Controller
 
         $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t));
 
-        return response()->json(['tasks' => $tasks, 'interns' => $this->internOptions($request->user())]);
+        $notSetUp = InternshipDeployment::with('intern')->visibleToSupervisor($request->user())->where('status', 'active')
+            ->whereHas('intern', fn ($q) => $q->where('status', 'pending_activation'))->get()
+            ->map(fn ($d) => $d->intern?->name)->filter()->values();
+
+        return response()->json(['tasks' => $tasks, 'interns' => $this->internOptions($request->user()), 'not_set_up' => $notSetUp]);
     }
 
     private function mapTaskRow(Task $t): array
@@ -159,7 +165,7 @@ class SupervisorMonitoringController extends Controller
         // Only deployments actually supervised by this supervisor can be
         // assigned — this also silently drops any id that doesn't belong to
         // them rather than trusting the client-submitted list.
-        $deployments = InternshipDeployment::visibleToSupervisor($request->user())
+        $deployments = InternshipDeployment::with('intern')->visibleToSupervisor($request->user())
             ->whereIn('id', $data['deployment_ids'])
             ->get();
 
@@ -167,11 +173,24 @@ class SupervisorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Select at least one intern at your company.'], 422);
         }
 
-        // A leader only makes sense on a group task, and has to actually be
-        // one of the interns being assigned — silently ignored otherwise
-        // rather than trusting a stray id from the client.
+        // Invited interns who have not set up their account cannot take tasks yet.
+        $notReady = $deployments->filter(fn ($d) => $d->intern?->status === 'pending_activation');
+        if ($notReady->isNotEmpty()) {
+            $names = $notReady->map(fn ($d) => $d->intern?->name)->filter()->implode(', ');
+            return response()->json(['success' => false, 'message' => "{$names} " . ($notReady->count() === 1 ? 'has' : 'have') . ' not set up an account yet, so a task cannot be assigned. Ask the coordinator to check their email or resend the invitation.'], 422);
+        }
+
+        // More than one intern makes it a group task, and a group task needs a leader: the one
+        // who submits the parent task once every subtask is done. The leader has to be one of the
+        // interns being assigned. A single intern has no leader.
         $leaderId = null;
-        if (!empty($data['leader_id']) && $deployments->count() > 1 && $deployments->contains('intern_id', $data['leader_id'])) {
+        if ($deployments->count() > 1) {
+            if (empty($data['leader_id'])) {
+                return response()->json(['success' => false, 'message' => 'Choose a task leader. With more than one intern, the leader is the one who submits the task once the subtasks are done.', 'errors' => ['leader_id' => ['Choose a task leader.']]], 422);
+            }
+            if (!$deployments->contains('intern_id', $data['leader_id'])) {
+                return response()->json(['success' => false, 'message' => 'The task leader must be one of the interns on this task.', 'errors' => ['leader_id' => ['The leader must be one of the interns on this task.']]], 422);
+            }
             $leaderId = $data['leader_id'];
         }
 
@@ -339,15 +358,9 @@ class SupervisorMonitoringController extends Controller
             'assignee_ids.*' => 'integer',
         ]);
 
-        // A subtask can go to several members of a group task at once —
-        // default to the sole assignee when the task isn't a group task.
-        $requestedIds = $data['assignee_ids'] ?? [];
-        if (empty($requestedIds) && $task->assignees->count() === 1) {
-            $requestedIds = [$task->assignees->first()->user_id];
-        }
-        $validIds = $task->assignees->pluck('user_id')->intersect($requestedIds)->values();
-        if ($validIds->count() !== count(array_unique($requestedIds))) {
-            return response()->json(['success' => false, 'message' => 'One or more selected interns are not assigned to this task.'], 422);
+        [$validIds, $problem] = $task->resolveSubtaskAssignees($data['assignee_ids'] ?? []);
+        if ($problem) {
+            return response()->json(['success' => false] + $problem, 422);
         }
 
         $subtask = $task->subtasks()->create([
@@ -455,7 +468,8 @@ class SupervisorMonitoringController extends Controller
 
         $query = Attendance::with('deployment.intern')
             ->whereIn('deployment_id', $deploymentIds)
-            ->orderByDesc('attendance_date');
+            ->orderByDesc('attendance_date')
+            ->orderByDesc('id');
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -472,6 +486,9 @@ class SupervisorMonitoringController extends Controller
                 'deployment_id' => $a->deployment_id,
                 'intern_name' => trim("{$a->deployment?->intern?->first_name} {$a->deployment?->intern?->last_name}") ?: $a->deployment?->intern?->name,
                 'attendance_date' => $a->attendance_date?->format('M d, Y'),
+                'attendance_date_raw' => $a->attendance_date?->toDateString(),
+                'session' => $a->session ?: Attendance::FULL,
+                'session_label' => match ($a->session) { Attendance::AM => 'Morning', Attendance::PM => 'Afternoon', default => null },
                 'clock_in' => $a->clock_in?->local()?->format('h:i A'),
                 'clock_in_selfie_url' => $a->clock_in_selfie_path ? Storage::disk('public')->url($a->clock_in_selfie_path) : null,
                 'clock_in_location' => $a->clock_in_latitude !== null ? ['lat' => $a->clock_in_latitude, 'lng' => $a->clock_in_longitude] : null,
@@ -483,11 +500,75 @@ class SupervisorMonitoringController extends Controller
                 'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
                 'status' => $a->status,
+                // A time-out the system filled in (the intern forgot) can be corrected by the supervisor.
+                'edited' => $a->edited_at !== null,
+                'can_edit_times' => ($a->auto_clocked_out || $a->edited_at !== null) && $a->clock_in && $a->clock_out,
+                'clock_in_value' => $a->clock_in?->local()?->format('H:i'),
+                'clock_out_value' => $a->clock_out?->local()?->format('H:i'),
+                'max_hours' => Attendance::maxHoursFor($a->session),
             ]),
             'total' => $records->total(),
             'page' => $records->currentPage(),
             'has_more' => $records->hasMorePages(),
             'interns' => $this->internOptions($request->user()),
+            'attendance_mode' => AttendanceSessions::modeFor($this->companyFor($request->user())),
+        ]);
+    }
+
+    private function companyFor(\App\Models\User $user): ?\App\Models\Company
+    {
+        return SupervisorProfile::with('company')->where('user_id', $user->id)->first()?->company;
+    }
+
+    /**
+     * How this company wants attendance recorded. The setting belongs to the
+     * company, so every supervisor of it sees and can change the same one.
+     */
+    public function attendanceSettings(Request $request): JsonResponse
+    {
+        $company = $this->companyFor($request->user());
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Supervisor profile not found.'], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'company' => ['id' => $company->id, 'name' => $company->company_name],
+            'attendance_mode' => AttendanceSessions::modeFor($company),
+        ]);
+    }
+
+    public function updateAttendanceSettings(Request $request): JsonResponse
+    {
+        $data = $request->validate(['attendance_mode' => 'required|in:single,split']);
+        $company = $this->companyFor($request->user());
+        if (!$company) {
+            return response()->json(['success' => false, 'message' => 'Supervisor profile not found.'], 404);
+        }
+
+        $changed = AttendanceSessions::modeFor($company) !== $data['attendance_mode'];
+        $company->update(['attendance_mode' => $data['attendance_mode']]);
+
+        if ($changed) {
+            $text = $data['attendance_mode'] === AttendanceSessions::SPLIT
+                ? 'Attendance now has four entries a day: morning time in and out, and afternoon time in and out.'
+                : 'Attendance now has one time in and one time out a day.';
+            // Queued: every notification is also broadcast live, and a company with many interns
+            // should not make the supervisor wait for each one.
+            \App\Jobs\NotifyInternsAttendanceFormatChanged::dispatch($company->id, $text);
+            ActivityLogService::record(
+                module: 'Attendance',
+                action: 'Changed attendance format',
+                description: "{$company->company_name} now records attendance as " . ($data['attendance_mode'] === AttendanceSessions::SPLIT ? 'morning and afternoon' : 'one time in and out') . '.',
+                schoolId: $company->school_id,
+                request: $request
+            );
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Attendance format saved.',
+            'attendance_mode' => AttendanceSessions::modeFor($company->fresh()),
         ]);
     }
 
@@ -500,6 +581,9 @@ class SupervisorMonitoringController extends Controller
             'attendance_date' => 'required|date',
             'clock_in' => 'nullable|date_format:H:i',
             'clock_out' => 'nullable|date_format:H:i|after:clock_in',
+            // Afternoon, for companies that record morning and afternoon separately.
+            'pm_in' => 'nullable|date_format:H:i|after:clock_out',
+            'pm_out' => 'nullable|date_format:H:i|after:pm_in',
         ]);
 
         $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
@@ -509,13 +593,27 @@ class SupervisorMonitoringController extends Controller
 
         // A supervisor logging attendance was there to see it happen — no
         // separate approval step needed, unlike a record entered secondhand.
+        // The times typed here are Philippine wall-clock times; storage is UTC.
+        $at = fn (?string $hm) => $hm ? Carbon::parse("{$data['attendance_date']} {$hm}", LocalTime::tz())->utc() : null;
+        $split = !empty($data['pm_in']) || !empty($data['pm_out']);
         $attendance = Attendance::create([
             'deployment_id' => $deployment->id,
             'attendance_date' => $data['attendance_date'],
-            'clock_in' => $data['clock_in'] ? "{$data['attendance_date']} {$data['clock_in']}" : null,
-            'clock_out' => $data['clock_out'] ? "{$data['attendance_date']} {$data['clock_out']}" : null,
+            'session' => $split ? Attendance::AM : Attendance::FULL,
+            'clock_in' => $at($data['clock_in'] ?? null),
+            'clock_out' => $at($data['clock_out'] ?? null),
             'status' => 'approved',
         ]);
+        if ($split) {
+            Attendance::create([
+                'deployment_id' => $deployment->id,
+                'attendance_date' => $data['attendance_date'],
+                'session' => Attendance::PM,
+                'clock_in' => $at($data['pm_in'] ?? null),
+                'clock_out' => $at($data['pm_out'] ?? null),
+                'status' => 'approved',
+            ]);
+        }
 
         ActivityLogService::record(
             module: 'Attendance',
@@ -526,6 +624,69 @@ class SupervisorMonitoringController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'Attendance logged.', 'id' => $attendance->id]);
+    }
+
+    /**
+     * The intern forgot to time out, so the system closed the shift at its longest length. The
+     * supervisor knows when they really left: this sets the true time in and out, and the hours are
+     * recomputed. A correction can only shorten a shift, never make it longer than the system's cap.
+     */
+    public function updateAttendanceTimes(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'clock_in' => 'required|date_format:H:i',
+            'clock_out' => 'required|date_format:H:i',
+        ]);
+
+        $attendance = Attendance::with('deployment.intern')
+            ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))
+            ->find($id);
+        if (!$attendance) {
+            return response()->json(['success' => false, 'message' => 'Attendance record not found.'], 404);
+        }
+        if (!$attendance->auto_clocked_out && $attendance->edited_at === null) {
+            return response()->json(['success' => false, 'message' => 'Only a time-out the system closed automatically can be corrected.'], 422);
+        }
+
+        // The times typed are Philippine wall-clock times on the day of the shift; storage is UTC.
+        $day = $attendance->clock_in ? LocalTime::date($attendance->clock_in) : $attendance->attendance_date->toDateString();
+        $in = Carbon::parse("{$day} {$data['clock_in']}", LocalTime::tz())->utc();
+        $out = Carbon::parse("{$day} {$data['clock_out']}", LocalTime::tz())->utc();
+        if ($out->lte($in)) {
+            return response()->json(['success' => false, 'message' => 'The time out must be after the time in.', 'errors' => ['clock_out' => ['The time out must be after the time in.']]], 422);
+        }
+        $max = Attendance::maxHoursFor($attendance->session);
+        if ($in->diffInMinutes($out) > $max * 60) {
+            return response()->json(['success' => false, 'message' => "A shift here can be at most {$max} hours long.", 'errors' => ['clock_out' => ["At most {$max} hours."]]], 422);
+        }
+
+        $attendance->update([
+            'clock_in' => $in,
+            'clock_out' => $out,
+            'auto_clocked_out' => false,
+            'edited_by' => $request->user()->id,
+            'edited_at' => now(),
+        ]);
+
+        $hours = round($in->diffInMinutes($out) / 60, 1);
+        $deployment = $attendance->deployment;
+        if ($deployment) {
+            NotificationService::toUser(
+                'intern', $deployment->intern_id, $deployment->school_id, 'attendance_edited', 'Your attendance time was corrected',
+                "{$attendance->attendance_date->format('M d, Y')}: {$in->local()->format('h:i A')} to {$out->local()->format('h:i A')} ({$hours}h).",
+                '/intern/attendance'
+            );
+        }
+
+        ActivityLogService::record(
+            module: 'Attendance',
+            action: 'Corrected attendance time',
+            description: "Attendance #{$attendance->id} on {$attendance->attendance_date->format('M d, Y')} set to {$in->local()->format('h:i A')} - {$out->local()->format('h:i A')} ({$hours}h).",
+            schoolId: $deployment?->school_id,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Time corrected.', 'hours' => $hours]);
     }
 
     public function reviewAttendance(Request $request, int $id): JsonResponse
@@ -568,6 +729,7 @@ class SupervisorMonitoringController extends Controller
     {
         return InternshipDeployment::with('intern')
             ->visibleToSupervisor($user)
+            ->accountSetUp()
             ->where('status', 'active')
             ->get()
             ->map(fn (InternshipDeployment $d) => [
