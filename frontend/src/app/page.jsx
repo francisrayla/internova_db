@@ -5,36 +5,37 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import InstallAppButton from "@/components/InstallAppButton";
+import NavIcon from "@/components/NavIcon";
 import { readStoredUser, resolveLandingPath } from "@/lib/roleDashboard";
 
 const FEATURES = [
   {
-    icon: "📍",
+    icon: "location",
     title: "GPS + Selfie Attendance",
     description: "Interns clock in and out with a selfie stamped with GPS location, time, and distance from the partner company.",
   },
   {
-    icon: "✅",
+    icon: "tasks",
     title: "Task Management",
     description: "Supervisors assign tasks, track progress, and rate each completed task — not just a final grade.",
   },
   {
-    icon: "📋",
+    icon: "checklist",
     title: "Formal Evaluations",
     description: "Schools set their own grading criteria. Coordinators and supervisors submit monthly, midterm, and final evaluations.",
   },
   {
-    icon: "🎓",
+    icon: "graduation",
     title: "Portfolio & Narrative Report",
     description: "Interns get a portfolio and narrative report generated from their attendance and tasks, with a Word download. Premium adds AI-written narratives.",
   },
   {
-    icon: "💬",
+    icon: "chat",
     title: "Real-time Messaging",
     description: "Coordinators, supervisors, and interns stay connected without leaving the platform.",
   },
   {
-    icon: "🏢",
+    icon: "companies",
     title: "Multi-Company Support",
     description: "Manage every partner company your school works with, each with its own supervisors and interns.",
   },
@@ -128,7 +129,7 @@ export default function Home() {
       <section className="bg-gradient-to-br from-blue-50 to-white">
         <div className="mx-auto max-w-6xl px-6 py-20 text-center">
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700">
-            🎓 Internship Management Platform
+            <NavIcon name="graduation" size={16} /> Internship Management Platform
           </div>
           <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
             Run your school&apos;s OJT program without the paperwork
@@ -159,7 +160,7 @@ export default function Home() {
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <div key={f.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-              <div className="text-3xl">{f.icon}</div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><NavIcon name={f.icon} size={24} /></div>
               <h3 className="mt-4 font-semibold text-slate-900">{f.title}</h3>
               <p className="mt-2 text-sm text-slate-600">{f.description}</p>
             </div>

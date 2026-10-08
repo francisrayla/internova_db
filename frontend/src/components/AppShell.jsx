@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { LogoMark } from "./Logo";
 import Icon from "./Icon";
+import NavIcon from "@/components/NavIcon";
 import NotificationBell from "./NotificationBell";
 import MessengerWidget from "./MessengerWidget";
 import ProfileMenu from "./ProfileMenu";
@@ -190,7 +191,7 @@ export default function AppShell({
                         : "text-slate-700 hover:bg-slate-100"
                     } ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
                   >
-                    <span>{item.icon}</span>
+                    <NavIcon name={item.icon} className="shrink-0" />
                     <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
                     {item.badge > 0 && (
                       <span className={`ml-auto rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ${collapsed ? "lg:hidden" : ""}`} aria-label={`${item.badge} unread`}>

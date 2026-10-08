@@ -19,18 +19,18 @@ const PROFILE_LINKS = [
 ];
 
 const BASE_NAV_ITEMS = [
-  { label: "Dashboard", href: "/coordinator/dashboard", icon: "▣" },
-  { label: "Interns", href: "/coordinator/interns", icon: "👥" },
-  { label: "Companies", href: "/coordinator/companies", icon: "🏢" },
-  { label: "Supervisors", href: "/coordinator/supervisors", icon: "🧑‍🏫" },
-  { label: "Attendance", href: "/coordinator/attendance", icon: "⏰" },
-  { label: "Tasks", href: "/coordinator/tasks", icon: "🗂️" },
-  { label: "Evaluations", href: "/coordinator/evaluations", icon: "⭐" },
-  { label: "Documents", href: "/coordinator/documents", icon: "📄" },
-  { label: "Reports", href: "/coordinator/reports", icon: "📊" },
-  { label: "Dean Feedback", href: "/coordinator/feedback", icon: "💬" },
+  { label: "Dashboard", href: "/coordinator/dashboard", icon: "dashboard" },
+  { label: "Interns", href: "/coordinator/interns", icon: "interns" },
+  { label: "Companies", href: "/coordinator/companies", icon: "companies" },
+  { label: "Supervisors", href: "/coordinator/supervisors", icon: "supervisors" },
+  { label: "Attendance", href: "/coordinator/attendance", icon: "attendance" },
+  { label: "Tasks", href: "/coordinator/tasks", icon: "tasks" },
+  { label: "Evaluations", href: "/coordinator/evaluations", icon: "evaluations" },
+  { label: "Documents", href: "/coordinator/documents", icon: "documents" },
+  { label: "Reports", href: "/coordinator/reports", icon: "reports" },
+  { label: "Dean Feedback", href: "/coordinator/feedback", icon: "feedback" },
   // Billing and editing school details belong to the school's Dean; this page is read-only here.
-  { label: "Settings", href: "/coordinator/settings", icon: "⚙️" },
+  { label: "Settings", href: "/coordinator/settings", icon: "settings" },
 ];
 
 // Reachable in any access-gate state — small utility screens, not operational data.

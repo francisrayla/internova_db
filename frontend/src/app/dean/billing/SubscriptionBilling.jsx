@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
 import BillingBreakdown from "@/components/BillingBreakdown";
+import NavIcon from "@/components/NavIcon";
 
 import { inputProps } from "@/lib/inputRules";
 const PLAN_FEATURES = {
@@ -26,10 +27,10 @@ const PLAN_FEATURES = {
 };
 
 const PAYMENT_METHODS = [
-  { id: "gcash", label: "GCash", icon: "📱", testMode: true },
-  { id: "maya", label: "Maya", icon: "💳", testMode: true },
-  { id: "card", label: "Debit / Credit Card", icon: "💳", testMode: true },
-  { id: "bank_transfer", label: "Bank Transfer", icon: "🏦", testMode: false },
+  { id: "gcash", label: "GCash", icon: "gcash", testMode: true },
+  { id: "maya", label: "Maya", icon: "maya", testMode: true },
+  { id: "card", label: "Debit / Credit Card", icon: "card", testMode: true },
+  { id: "bank_transfer", label: "Bank Transfer", icon: "bank", testMode: false },
 ];
 
 // Published list prices — matches SubscriptionPlan::PRICES on the backend.
@@ -619,7 +620,7 @@ export default function SubscriptionPage() {
                       disabled={busy}
                       className="relative rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
                     >
-                      {m.icon} {m.label}
+                      <span className="inline-flex items-center justify-center gap-2"><NavIcon name={m.icon} size={16} /> {m.label}</span>
                       {m.testMode && (
                         <span className="absolute -top-2 -right-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">TEST MODE</span>
                       )}
@@ -709,7 +710,7 @@ export default function SubscriptionPage() {
                       disabled={upgradeBusy}
                       className="relative rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
                     >
-                      {m.icon} {m.label}
+                      <span className="inline-flex items-center justify-center gap-2"><NavIcon name={m.icon} size={16} /> {m.label}</span>
                       {m.testMode && (
                         <span className="absolute -top-2 -right-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">TEST MODE</span>
                       )}
@@ -953,7 +954,7 @@ export default function SubscriptionPage() {
               disabled={busy}
               className="relative rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
             >
-              {m.icon} {m.label}
+              <span className="inline-flex items-center justify-center gap-2"><NavIcon name={m.icon} size={16} /> {m.label}</span>
               {m.testMode && (
                 <span className="absolute -top-2 -right-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
                   TEST MODE

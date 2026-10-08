@@ -19,10 +19,10 @@ const PROFILE_LINKS = [
 ];
 
 const NAV_ITEMS = [
-  { label: "Overview", href: "/dean/dashboard", icon: "▣" },
-  { label: "Coordinator", href: "/dean/coordinator", icon: "🧑‍🏫" },
-  { label: "Interns", href: "/dean/interns", icon: "👥" },
-  { label: "Billing", href: "/dean/billing", icon: "💳" },
+  { label: "Overview", href: "/dean/dashboard", icon: "dashboard" },
+  { label: "Coordinator", href: "/dean/coordinator", icon: "coordinator" },
+  { label: "Interns", href: "/dean/interns", icon: "interns" },
+  { label: "Billing", href: "/dean/billing", icon: "billing" },
 ];
 
 // Reachable before the subscription is active — billing itself plus small utility screens.

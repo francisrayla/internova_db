@@ -7,14 +7,14 @@ import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 
 const navItems = [
-  { label: "Dashboard", href: "/superadmin/dashboard", icon: "▣" },
-  { label: "Schools", href: "/superadmin/schools", icon: "🏫" },
-  { label: "Inquiries", href: "/superadmin/inquiries", icon: "📨" },
-  { label: "Billing", href: "/superadmin/billing", icon: "💳" },
-  { label: "Plans", href: "/superadmin/plans", icon: "📋" },
-  { label: "AI Usage", href: "/superadmin/ai-usage", icon: "✨" },
-  { label: "Support", href: "/superadmin/support", icon: "💬" },
-  { label: "Activity", href: "/superadmin/activity-logs", icon: "🕘" },
+  { label: "Dashboard", href: "/superadmin/dashboard", icon: "dashboard" },
+  { label: "Schools", href: "/superadmin/schools", icon: "schools" },
+  { label: "Inquiries", href: "/superadmin/inquiries", icon: "inquiries" },
+  { label: "Billing", href: "/superadmin/billing", icon: "billing" },
+  { label: "Plans", href: "/superadmin/plans", icon: "plans" },
+  { label: "AI Usage", href: "/superadmin/ai-usage", icon: "ai" },
+  { label: "Support", href: "/superadmin/support", icon: "support" },
+  { label: "Activity", href: "/superadmin/activity-logs", icon: "activity" },
 ];
 
 const PROFILE_LINKS = [

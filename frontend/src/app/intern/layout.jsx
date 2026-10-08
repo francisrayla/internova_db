@@ -7,13 +7,13 @@ import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 
 const navItems = [
-  { label: "Dashboard", href: "/intern/dashboard", icon: "▣" },
-  { label: "Attendance", href: "/intern/attendance", icon: "⏰" },
-  { label: "Tasks", href: "/intern/tasks", icon: "🗂️" },
-  { label: "Activities", href: "/intern/activities", icon: "📝" },
-  { label: "Evaluations", href: "/intern/evaluations", icon: "⭐" },
-  { label: "Documents", href: "/intern/documents", icon: "📄" },
-  { label: "Portfolio", href: "/intern/portfolio", icon: "🧰" },
+  { label: "Dashboard", href: "/intern/dashboard", icon: "dashboard" },
+  { label: "Attendance", href: "/intern/attendance", icon: "attendance" },
+  { label: "Tasks", href: "/intern/tasks", icon: "tasks" },
+  { label: "Activities", href: "/intern/activities", icon: "activities" },
+  { label: "Evaluations", href: "/intern/evaluations", icon: "evaluations" },
+  { label: "Documents", href: "/intern/documents", icon: "documents" },
+  { label: "Portfolio", href: "/intern/portfolio", icon: "portfolio" },
 ];
 
 // Data the intern screens load, fetched ahead so every screen — attendance
