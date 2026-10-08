@@ -47,7 +47,7 @@ class LocalTimeTest extends TestCase
 
         return $this->post('/api/intern/attendance/clock-in', [
             'selfie' => UploadedFile::fake()->create('s.jpg', 10, 'image/jpeg'),
-            'latitude' => 14.5, 'longitude' => 121.0,
+            'latitude' => 14.5547, 'longitude' => 121.0244,
         ], ['Accept' => 'application/json']);
     }
 
@@ -96,7 +96,7 @@ class LocalTimeTest extends TestCase
             'is_offline' => 1,
             'device_time' => '2026-10-06T01:00:00+08:00',
             'device_now' => '2026-10-06T01:30:00+08:00',
-            'selfie' => UploadedFile::fake()->create('s.jpg', 10, 'image/jpeg'), 'latitude' => 14.5, 'longitude' => 121.0,
+            'selfie' => UploadedFile::fake()->create('s.jpg', 10, 'image/jpeg'), 'latitude' => 14.5547, 'longitude' => 121.0244,
         ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('record.clock_in', '01:00 AM');
         $row = Attendance::first();
         $this->assertSame('2026-10-05 17:00:00', $row->getRawOriginal('clock_in'));

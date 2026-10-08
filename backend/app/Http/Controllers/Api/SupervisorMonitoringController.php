@@ -129,6 +129,10 @@ class SupervisorMonitoringController extends Controller
             'due_date_raw' => $t->due_date?->format('Y-m-d'),
             'created_at' => $t->created_at->local()->format('M d, Y'),
             'completed_at' => $t->completed_at?->local()?->format('M d, Y'),
+            // Done but not graded yet: stays in the Active list until this supervisor rates it.
+            'awaiting_rating' => $t->awaitingRating($this->ratingsEnabled()),
+            // A rated task is locked; until then the supervisor can still correct its details.
+            'can_edit' => $t->evaluation === null,
             'evaluation' => $t->evaluation ? [
                 'rating' => (float) $t->evaluation->rating,
                 'comments' => $t->evaluation->comments,
@@ -137,6 +141,14 @@ class SupervisorMonitoringController extends Controller
             'subtask_total' => $t->subtasks->count(),
             'subtask_done' => $t->subtasks->where('status', 'completed')->count(),
         ];
+    }
+
+    private ?bool $ratingsEnabled = null;
+
+    /** Does this school's plan include per-task ratings? (decides whether a done task waits for a grade) */
+    private function ratingsEnabled(): bool
+    {
+        return $this->ratingsEnabled ??= PlanFeatures::has(request()->user()?->school, PlanFeatures::TASK_RATINGS);
     }
 
     private function taskForSupervisor(int $taskId, User $user): ?Task
@@ -178,6 +190,13 @@ class SupervisorMonitoringController extends Controller
         if ($notReady->isNotEmpty()) {
             $names = $notReady->map(fn ($d) => $d->intern?->name)->filter()->implode(', ');
             return response()->json(['success' => false, 'message' => "{$names} " . ($notReady->count() === 1 ? 'has' : 'have') . ' not set up an account yet, so a task cannot be assigned. Ask the coordinator to check their email or resend the invitation.'], 422);
+        }
+
+        // An intern whose first day has not come yet is not working yet, so nothing can be assigned.
+        $notStarted = $deployments->filter(fn ($d) => !$d->hasStartedOn());
+        if ($notStarted->isNotEmpty()) {
+            $names = $notStarted->map(fn ($d) => ($d->intern?->name ?? 'An intern') . ' (starts ' . $d->start_date->format('M j, Y') . ')')->implode(', ');
+            return response()->json(['success' => false, 'message' => "{$names} ". ($notStarted->count() === 1 ? 'has' : 'have') . ' not started the internship yet, so a task cannot be assigned. Choose the interns who have started.'], 422);
         }
 
         // More than one intern makes it a group task, and a group task needs a leader: the one
@@ -223,6 +242,78 @@ class SupervisorMonitoringController extends Controller
         return response()->json(['success' => true, 'message' => 'Task assigned.', 'id' => $task->id]);
     }
 
+    /**
+     * Fix a task's details (title, description, priority, due date) after it was assigned. Any
+     * supervisor of the company can do it (same scoping as rating). It stays open until the task is
+     * rated: after the grade the task is closed out in History and feeds the intern's evaluation, so
+     * changing what was graded would be rewriting the record. Who it is assigned to and its status
+     * are not editable here (status follows the interns' work and their subtasks).
+     */
+    public function updateTask(Request $request, int $id): JsonResponse
+    {
+        $task = $this->taskForSupervisor($id, $request->user());
+        if (!$task) {
+            return response()->json(['success' => false, 'message' => 'Task not found.'], 404);
+        }
+        if ($task->isRated()) {
+            return response()->json(['success' => false, 'message' => 'This task has already been rated, so it can no longer be edited.'], 422);
+        }
+
+        $data = $request->validate([
+            'title' => 'required|string|max:150',
+            'description' => 'nullable|string|max:2000',
+            'priority' => 'required|string|in:low,medium,high',
+            'due_date' => 'nullable|date',
+        ]);
+        $data['description'] = isset($data['description']) && trim($data['description']) !== '' ? $data['description'] : null;
+        $data['title'] = trim($data['title']);
+
+        $before = [
+            'title' => $task->title,
+            'description' => $task->description,
+            'priority' => $task->priority,
+            'due_date' => $task->due_date?->format('Y-m-d'),
+        ];
+        $after = [
+            'title' => $data['title'],
+            'description' => $data['description'],
+            'priority' => $data['priority'],
+            'due_date' => !empty($data['due_date']) ? Carbon::parse($data['due_date'])->format('Y-m-d') : null,
+        ];
+        $changed = array_keys(array_filter($after, fn ($v, $k) => $v !== $before[$k], ARRAY_FILTER_USE_BOTH));
+        if (empty($changed)) {
+            return response()->json(['success' => true, 'message' => 'Nothing changed.', 'changed' => []]);
+        }
+
+        $task->update($after);
+
+        $labels = ['title' => 'title', 'description' => 'description', 'priority' => 'priority', 'due_date' => 'due date'];
+        $changedText = implode(', ', array_map(fn ($k) => $labels[$k], $changed));
+
+        ActivityLogService::record(
+            module: 'Tasks',
+            action: 'Edited task',
+            description: "\"{$task->title}\" edited ({$changedText}).",
+            schoolId: $request->user()->school_id,
+            request: $request
+        );
+
+        $schoolId = $request->user()->school_id;
+        foreach ($task->assignees()->pluck('user_id')->unique() as $internId) {
+            NotificationService::toUser(
+                'intern',
+                $internId,
+                $schoolId,
+                'task_updated',
+                'Your task was updated',
+                "\"{$task->title}\": the supervisor changed the {$changedText}.",
+                "/intern/tasks/{$task->id}"
+            );
+        }
+
+        return response()->json(['success' => true, 'message' => 'Task updated.', 'changed' => $changed]);
+    }
+
     public function taskShow(Request $request, int $id): JsonResponse
     {
         $supervisorId = $request->user()->id;
@@ -254,6 +345,9 @@ class SupervisorMonitoringController extends Controller
         }
         if ($task->status !== 'completed') {
             return response()->json(['success' => false, 'message' => 'This task is not done yet.'], 422);
+        }
+        if ($task->hasUnfinishedSubtasks()) {
+            return response()->json(['success' => false, 'message' => 'This task still has subtasks that are not done, so it cannot be rated yet.'], 422);
         }
 
         $data = $request->validate([
@@ -350,6 +444,10 @@ class SupervisorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Task not found.'], 404);
         }
 
+        if ($block = $task->subtaskAddBlock()) {
+            return response()->json(['success' => false, 'message' => $block], 422);
+        }
+
         $data = $request->validate([
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
@@ -385,6 +483,11 @@ class SupervisorMonitoringController extends Controller
         }
 
         $task = $subtask->task;
+        // A graded task keeps the work that was graded. Removing a subtask that is not done is still fine
+        // (it is how an old task with an unfinished subtask gets cleaned up).
+        if ($subtask->status === 'completed' && $task->isRated()) {
+            return response()->json(['success' => false, 'message' => 'This task has already been rated, so its finished subtasks can no longer be removed.'], 422);
+        }
         $subtask->delete();
         $task->recalculateStatusFromSubtasks();
 
@@ -498,6 +601,9 @@ class SupervisorMonitoringController extends Controller
                 'auto_clocked_out' => (bool) $a->auto_clocked_out,
                 'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
                 'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
+                'clock_in_distance_m' => $a->clock_in_distance_m,
+                'clock_out_distance_m' => $a->clock_out_distance_m,
+                'location_flags' => array_values(array_unique([...($a->clock_in_location_flags ?? []), ...($a->clock_out_location_flags ?? [])])),
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
                 'status' => $a->status,
                 // A time-out the system filled in (the intern forgot) can be corrected by the supervisor.
@@ -589,6 +695,14 @@ class SupervisorMonitoringController extends Controller
         $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
             return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
+        }
+
+        // Nothing can be logged before the internship started, or once the required hours are rendered.
+        if (!$deployment->hasStartedOn($data['attendance_date'])) {
+            return response()->json(['success' => false, 'message' => "Attendance cannot be logged before this intern's internship started on {$deployment->start_date->format('F j, Y')}."], 422);
+        }
+        if ($deployment->isFinished()) {
+            return response()->json(['success' => false, 'message' => 'This intern has already completed the required hours, so attendance is closed.'], 422);
         }
 
         // A supervisor logging attendance was there to see it happen — no
@@ -736,6 +850,9 @@ class SupervisorMonitoringController extends Controller
                 'deployment_id' => $d->id,
                 'user_id' => $d->intern_id,
                 'name' => trim("{$d->intern?->first_name} {$d->intern?->last_name}") ?: $d->intern?->name,
+                // Set while the first day is still ahead: such an intern cannot be given tasks or attendance yet.
+                'starts_on' => $d->hasStartedOn() ? null : $d->start_date->toDateString(),
+                'starts_on_label' => $d->hasStartedOn() ? null : $d->start_date->format('M j, Y'),
             ])
             ->values()
             ->all();

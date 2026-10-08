@@ -60,6 +60,47 @@ class Task extends Model
         return $this->hasMany(TaskProof::class)->orderBy('created_at');
     }
 
+    /** True when at least one subtask is not done yet. A task with no subtasks has nothing unfinished. */
+    public function hasUnfinishedSubtasks(): bool
+    {
+        return $this->subtasks()->where('status', '!=', 'completed')->exists();
+    }
+
+    /** The supervisor has graded it. A rated task is closed out: it sits in History and feeds the intern's evaluation. */
+    public function isRated(): bool
+    {
+        return $this->evaluation()->exists();
+    }
+
+    /**
+     * Why a subtask cannot be added right now, or null when it can. A done task is closed to new
+     * subtasks: adding one would leave a finished parent with unfinished work, and (once rated)
+     * would change work the supervisor already graded. The caller answers with a 422.
+     */
+    public function subtaskAddBlock(): ?string
+    {
+        if ($this->status !== 'completed') {
+            return null;
+        }
+
+        return $this->isRated()
+            ? 'This task has already been rated, so no more subtasks can be added to it.'
+            : 'This task is already marked done, so a subtask cannot be added to it. A task can only be done when every subtask is done. Create a new task for the extra work instead.';
+    }
+
+    /** Answer when someone tries to move a subtask out of Done while its parent task is done. */
+    public const SUBTASK_FROZEN_MESSAGE = 'This task is already marked done, so its subtasks can no longer be moved back. A done task needs all of its subtasks done.';
+
+    /**
+     * Done, but the supervisor's grade is still missing, so it stays in the Active list. Only applies when the
+     * school's plan includes per-task ratings: without that feature nobody can ever grade it, so a finished
+     * task would otherwise be stuck as "waiting" forever.
+     */
+    public function awaitingRating(bool $ratingsEnabled): bool
+    {
+        return $ratingsEnabled && $this->status === 'completed' && !$this->evaluation;
+    }
+
     /**
      * Who a new subtask goes to. A subtask always has an owner: a solo task gives it to its one
      * intern, a group task needs at least one chosen member, every member must be on the task and
@@ -124,6 +165,13 @@ class Task extends Model
     public function setStatus(string $status): void
     {
         if ($status === $this->status) {
+            return;
+        }
+
+        // Last line of defence: a parent task can never become done while one of its subtasks is not.
+        // Every caller checks first and answers the user with a message; this only keeps the data
+        // consistent if a future code path forgets to.
+        if ($status === 'completed' && $this->hasUnfinishedSubtasks()) {
             return;
         }
 

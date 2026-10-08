@@ -5,6 +5,7 @@ import { DndContext, DragOverlay, pointerWithin, useDraggable, useDroppable } fr
 import { DRAG_ROW_CLASS, blockTouchContextMenu, useDragSensors } from "@/lib/useDragSensors";
 import { useState } from "react";
 import DueDateBadge from "@/components/DueDateBadge";
+import { isAwaitingRating } from "@/lib/taskState";
 
 const STATUSES = [
   { key: "pending", label: "Pending" },
@@ -41,7 +42,7 @@ function CardBody({ task, subLabel }) {
       </div>
       {subLabel && <p className="text-xs text-slate-500">{subLabel}</p>}
       <DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} />
-      {task.status === "completed" && !task.evaluation && (
+      {isAwaitingRating(task) && (
         <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
           Awaiting supervisor rating
         </span>

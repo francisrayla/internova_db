@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import DueDateBadge from "@/components/DueDateBadge";
 import TaskHistoryRow from "@/components/TaskHistoryRow";
+import { isAwaitingRating, isTaskClosed } from "@/lib/taskState";
 
 import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
@@ -40,7 +41,7 @@ function TaskRow({ task }) {
         </p>
         <div className="mt-1.5"><DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} /></div>
       </div>
-      {task.status === "completed" && !task.evaluation ? (
+      {isAwaitingRating(task) ? (
         <span className="shrink-0 rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">Awaiting rating</span>
       ) : (
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[task.status]}`}>{STATUS_LABELS[task.status]}</span>
@@ -92,8 +93,8 @@ export default function CompanyTasks() {
 
   // A finished task still needs the supervisor's rating before it's truly
   // closed out — until then it stays visible here, not History.
-  const activeTasks = useMemo(() => companyTasks.filter((t) => !(t.status === "completed" && t.evaluation)), [companyTasks]);
-  const historyTasks = useMemo(() => companyTasks.filter((t) => t.status === "completed" && t.evaluation), [companyTasks]);
+  const activeTasks = useMemo(() => companyTasks.filter((t) => !isTaskClosed(t)), [companyTasks]);
+  const historyTasks = useMemo(() => companyTasks.filter(isTaskClosed), [companyTasks]);
 
   const visibleTasks = useMemo(() => {
     const source = view === "active" ? activeTasks : historyTasks;

@@ -1,6 +1,6 @@
 # Coordinator and supervisor monitoring (dashboards, interns, companies, settings, pending, preview, profile)
 last_commit: 6bc841a
-updated: 2026-10-06
+updated: 2026-10-08
 
 ## Map (where the code lives)
 - backend/routes/api.php — coordinator group (role:coordinator) from L108: interns L121-135, companies L137-141, supervisors L143-146, users resend-invitation/email L150-151, school-settings L153-154 (GET only now; PATCH moved to Dean). Billing routes removed from this group; supervisor group from L184: interns L188-189
@@ -37,8 +37,8 @@ updated: 2026-10-06
 - Manual: as coordinator add a company, a supervisor, and interns (single and import); check list and dashboard counts; reassign an intern; delete a company with deployments (expect 422); coordinator PATCH school-settings (expect 405). As supervisor confirm only own interns appear.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-08 uncommitted — deployment start date window: InternshipDeployment::START_DAYS_BACK=60 / START_DAYS_AHEAD=90 (startDateBounds/startDateRules/startDateMessages) enforced in CoordinatorMonitoringController storeIntern, importInterns and updateDeployment (the latter only when the date is changed, so editing hours of an old deployment still works). Frontend: lib/startDateWindow.js feeds min/max + hint on AddInternModal, ManageDeploymentModal and ImportInterns. TEST DB NOTE: php artisan test fails with 'Tablespace ... exists' because internova_testing holds 54 orphaned .ibd files (left by the disk-full incident); fix = delete C:/xampp/mysql/data/internova_testing/*.ibd while MySQL is stopped or idle, then DROP/CREATE DATABASE internova_testing.
 - 2026-10-07 uncommitted — Pending accounts screen /coordinator/interns/pending (interns who never set up an account: Edit email = PATCH users/{id}/email which sends a new link and kills the old one, Resend invitation); they no longer show in the main Interns list (banner + tile link there); intern rows gain invitation_expired — result: PendingAccountTaskTest, headless 390px ok (no email was sent from the browser)
 - 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
 - 2026-10-06 5a24cfb + uncommitted — ran `deployments:merge-reassigned` on local DB (user approved, backup internova_db_backup_before_transfers.sql): merged 37→28, 38→14, 39→13; 0 child rows left on deleted ids; re-run says 'Nothing to merge'. Coordinator list shows one row each with 'Moved from', Completed count 4→1; Dean intern detail shows Deployment history. InternDetail: missing end date reads 'present' — result: pass
 - 2026-10-06 5a24cfb + uncommitted — main session: REMOVED migration 2026_10_09_000100_merge_reassigned_duplicate_deployments (it would auto-merge/delete deployments on the Railway deploy); the merge is manual only: `php artisan deployments:merge-reassigned --pretend` then without --pretend, after a backup. Local: transfers table migrated; pretend found 3 pairs (28←37, 14←38, 13←39). UI checked 1229/390/360, no overflow/errors — result: pass (tests 68/68)
-- 2026-10-06 5a24cfb + uncommitted — reassign changed from close+create to in-place edit + deployment_transfers; history UI, Transferred out, merge backfill, ConfirmDialog everywhere, compact cards. First attempt (transferred status + hour-chain helper) was dropped on the user's change of direction — result: pass (tests 68/68, build ok, lint no new errors; not checked in a browser at 390/360)

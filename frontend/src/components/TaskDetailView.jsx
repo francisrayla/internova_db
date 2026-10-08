@@ -8,6 +8,8 @@ import SubtaskBoard from "@/components/SubtaskBoard";
 import DueDateBadge from "@/components/DueDateBadge";
 import ProofUploadModal from "@/components/ProofUploadModal";
 import ProofPreviewModal from "@/components/ProofPreviewModal";
+import EditTaskModal from "@/components/EditTaskModal";
+import { isAwaitingRating } from "@/lib/taskState";
 
 import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
@@ -384,7 +386,7 @@ function SelectedSubtaskPanel({ subtask, onComment, onDelete, canManage, onPrevi
  * with zero subtasks falls back to a plain status control for the intern,
  * since there's nothing to drag yet.
  */
-export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel, resolveBackHref, canAddSubtask, canChangeStatus = false, canRate = false, requireProof = true }) {
+export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel, resolveBackHref, canAddSubtask, canChangeStatus = false, canRate = false, canEditTask = false, requireProof = true }) {
   const params = useParams();
   const router = useRouter();
   const taskId = params.taskId ?? params.id;
@@ -395,6 +397,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   const [selectedSubtaskId, setSelectedSubtaskId] = useState(null);
   const [completingTarget, setCompletingTarget] = useState(null);
   const [previewProof, setPreviewProof] = useState(null);
+  const [editing, setEditing] = useState(false);
 
   function load() {
     setLoading(true);
@@ -583,12 +586,38 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
               <div className="flex items-center gap-2">
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[task.status]}`}>{task.status.replace("_", " ")}</span>
                 {canChangeStatus && task.subtask_total === 0 && canManageSubtasks && <StatusSelect value={task.status} onChange={updateTaskStatus} />}
+                {canEditTask && task.can_edit !== false && (
+                  <button type="button" onClick={() => setEditing(true)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                    Edit task
+                  </button>
+                )}
               </div>
             </div>
             {task.description && <p className="mt-4 text-sm text-slate-600">{task.description}</p>}
 
-            {task.subtask_total > 0 && task.subtask_done < task.subtask_total && (
-              <p className="mt-3 text-xs text-slate-400">Status is driven by its subtasks below ({task.subtask_done}/{task.subtask_total} done).</p>
+            {task.subtask_total > 0 && task.subtask_done < task.subtask_total && task.status !== "completed" && (
+              canManageSubtasks && canChangeStatus ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-sm text-slate-600">Finish all subtasks first ({task.subtask_done}/{task.subtask_total} done).</p>
+                  <button
+                    type="button"
+                    disabled
+                    title={`Finish all subtasks first (${task.subtask_done}/${task.subtask_total} done)`}
+                    className="shrink-0 cursor-not-allowed rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-400"
+                  >
+                    Mark task complete
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-slate-400">Status is driven by its subtasks below ({task.subtask_done}/{task.subtask_total} done).</p>
+              )
+            )}
+
+            {task.subtask_total > 0 && task.subtask_done < task.subtask_total && task.status === "completed" && (
+              <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                This task is marked done, but {task.subtask_total - task.subtask_done} of its {task.subtask_total} subtask{task.subtask_total === 1 ? " is" : "s are"} not done ({task.subtask_done}/{task.subtask_total} done).
+                {canChangeStatus ? " Set each unfinished subtask to Done." : canAddSubtask === true ? " Remove the unfinished subtasks, or ask the intern to finish them." : ""}
+              </p>
             )}
 
             {task.subtask_total > 0 && task.subtask_done === task.subtask_total && task.status !== "completed" && (
@@ -625,8 +654,14 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
           {task.evaluation ? (
             <RatingDisplay evaluation={task.evaluation} />
           ) : task.status === "completed" && canRate ? (
-            <RatingForm onSubmit={submitRating} />
-          ) : task.status === "completed" ? (
+            task.subtask_done === task.subtask_total ? (
+              <RatingForm onSubmit={submitRating} />
+            ) : (
+              <p className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-700">
+                This task can be rated once every subtask is done ({task.subtask_done}/{task.subtask_total} done).
+              </p>
+            )
+          ) : isAwaitingRating(task) ? (
             <p className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-700">
               Waiting on the supervisor rating before this moves to History.
             </p>
@@ -635,8 +670,13 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700">Subtasks</h2>
-              {canManageSubtasks && <AddSubtaskForm assignees={task.assignees} onAdd={addSubtask} />}
+              {canManageSubtasks && task.status !== "completed" && <AddSubtaskForm assignees={task.assignees} onAdd={addSubtask} />}
             </div>
+            {canManageSubtasks && task.status === "completed" && (
+              <p className="text-xs text-slate-400">
+                {task.evaluation ? "This task has been rated, so no more subtasks can be added." : "This task is done, so no more subtasks can be added. A done task needs all of its subtasks done."}
+              </p>
+            )}
             {task.subtasks.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400">No subtasks yet.</p>
             ) : (
@@ -647,6 +687,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                 onSelect={(id) => setSelectedSubtaskId((cur) => (cur === id ? null : id))}
                 selectedId={selectedSubtaskId}
                 interactive={canChangeStatus}
+                taskCompleted={task.status === "completed"}
               />
             )}
             {selectedSubtask && (
@@ -671,6 +712,10 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
       )}
 
       {previewProof && <ProofPreviewModal proof={previewProof} onClose={() => setPreviewProof(null)} />}
+
+      {editing && task && (
+        <EditTaskModal task={task} apiBase={apiBase} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />
+      )}
     </div>
   );
 }

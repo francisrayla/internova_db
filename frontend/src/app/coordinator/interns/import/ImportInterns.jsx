@@ -8,6 +8,7 @@ import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { clean } from "@/lib/inputRules";
 import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse, normalizeCourse } from "@/lib/internOptions";
+import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 import {
   FIELD_LABELS,
   IMPORT_FIELDS,
@@ -461,7 +462,8 @@ function DeployStep({ rows, companies, onBack, onImported }) {
             <CompanySupervisorsNote companyId={form.company_id} companyName={activeCompanies.find((c) => String(c.id) === String(form.company_id))?.company_name} />
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
-              <input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className={selectClass} />
+              <input type="date" value={form.start_date} min={startDateBounds().min} max={startDateBounds().max} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className={selectClass} />
+              <span className="mt-1 block text-xs text-slate-500">{START_DATE_HINT}</span>
             </label>
           </div>
         )}

@@ -286,6 +286,7 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::get('/tasks', [SupervisorMonitoringController::class, 'tasks']);
     Route::post('/tasks', [SupervisorMonitoringController::class, 'storeTask']);
     Route::get('/tasks/{id}', [SupervisorMonitoringController::class, 'taskShow']);
+    Route::patch('/tasks/{id}', [SupervisorMonitoringController::class, 'updateTask']);
     Route::post('/tasks/{id}/evaluate', [SupervisorMonitoringController::class, 'evaluateTask']);
     Route::post('/tasks/{taskId}/subtasks', [SupervisorMonitoringController::class, 'storeSubtask']);
     Route::delete('/subtasks/{id}', [SupervisorMonitoringController::class, 'destroySubtask']);

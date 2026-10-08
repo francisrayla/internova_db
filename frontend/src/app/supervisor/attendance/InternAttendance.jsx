@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
+import LocationFlags from "@/components/LocationFlags";
 import AttendanceSelfies from "@/components/AttendanceSelfies";
 
 const STATUS_STYLES = {
@@ -123,12 +124,12 @@ function LogAttendanceModal({ interns, mode, onClose, onSaved }) {
               onChange={(e) => setForm((f) => ({ ...f, deployment_id: e.target.value }))}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
             >
-              {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id}>{i.name}</option>)}
+              {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id}>{i.starts_on ? `${i.name} (starts ${i.starts_on_label})` : i.name}</option>)}
             </select>
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Date</span>
-            <input type="date" value={form.attendance_date} onChange={(e) => setForm((f) => ({ ...f, attendance_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+            <input type="date" value={form.attendance_date} min={interns.find((i) => String(i.deployment_id) === String(form.deployment_id))?.starts_on ?? undefined} onChange={(e) => setForm((f) => ({ ...f, attendance_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <TimeField label={split ? "Morning time in" : "Clock in"} value={form.clock_in} onChange={(v) => setForm((f) => ({ ...f, clock_in: v }))} />
@@ -247,6 +248,7 @@ export default function InternAttendance() {
                     {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}
                     {r.edited && <span className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title="The supervisor corrected the time because the intern forgot to time out">Time corrected</span>}
                     <OfflineEntryBadge record={r} className="ml-1.5" />
+                    <LocationFlags record={r} className="ml-1.5" />
                   </p>
                   <div className="mt-0.5 flex gap-3 text-xs text-slate-400">
                     {r.clock_in_location && (

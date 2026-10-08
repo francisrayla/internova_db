@@ -20,6 +20,7 @@ use App\Models\TaskComment;
 use App\Models\TaskProof;
 use App\Jobs\GenerateNarrativeForAttendance;
 use App\Services\ActivityLogService;
+use App\Services\AttendanceLocationService;
 use App\Services\AttendanceSessions;
 use App\Services\DeploymentHistoryService;
 use App\Services\DeploymentSummaryService;
@@ -119,6 +120,14 @@ class InternMonitoringController extends Controller
         return response()->json(['tasks' => $tasks]);
     }
 
+    private ?bool $ratingsEnabled = null;
+
+    /** Does this school's plan include per-task ratings? (decides whether a done task waits for a grade) */
+    private function ratingsEnabled(): bool
+    {
+        return $this->ratingsEnabled ??= PlanFeatures::has(request()->user()?->school, PlanFeatures::TASK_RATINGS);
+    }
+
     private function mapTaskRow(Task $t, int $internId): array
     {
         $assignees = $t->assignees->map(fn (TaskAssignee $a) => [
@@ -144,6 +153,8 @@ class InternMonitoringController extends Controller
             'due_date_raw' => $t->due_date?->format('Y-m-d'),
             'created_at' => $t->created_at->local()->format('M d, Y'),
             'completed_at' => $t->completed_at?->local()?->format('M d, Y'),
+            // Done but not graded yet: stays in the Active list until the supervisor rates it.
+            'awaiting_rating' => $t->awaitingRating($this->ratingsEnabled()),
             'evaluation' => $t->evaluation ? [
                 'rating' => (float) $t->evaluation->rating,
                 'comments' => $t->evaluation->comments,
@@ -279,6 +290,10 @@ class InternMonitoringController extends Controller
         if ($data['status'] === 'completed') {
             return response()->json(['success' => false, 'message' => 'Upload proof to mark this task as done.'], 422);
         }
+        // Once the supervisor has graded it the task is closed out; moving it back would undo a graded task.
+        if ($task->isRated()) {
+            return response()->json(['success' => false, 'message' => 'This task has already been rated by the supervisor, so its status can no longer be changed.'], 422);
+        }
 
         $task->setStatus($data['status']);
 
@@ -359,6 +374,10 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Only the task leader can add subtasks for this group.'], 403);
         }
 
+        if ($block = $task->subtaskAddBlock()) {
+            return response()->json(['success' => false, 'message' => $block], 422);
+        }
+
         $data = $request->validate([
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
@@ -396,6 +415,10 @@ class InternMonitoringController extends Controller
         $data = $request->validate(['status' => 'required|string|in:pending,in_progress,completed']);
         if ($data['status'] === 'completed') {
             return response()->json(['success' => false, 'message' => 'Upload proof to mark this subtask as done.'], 422);
+        }
+        // A done task keeps all its subtasks done; sliding one back would leave a finished parent with open work.
+        if ($subtask->task->status === 'completed') {
+            return response()->json(['success' => false, 'message' => Task::SUBTASK_FROZEN_MESSAGE], 422);
         }
 
         $subtask->update([
@@ -490,6 +513,9 @@ class InternMonitoringController extends Controller
             'clock_out_selfie_url' => $a->clock_out_selfie_path ? Storage::disk('public')->url($a->clock_out_selfie_path) : null,
             'clock_out_location' => $a->clock_out_latitude !== null ? ['lat' => $a->clock_out_latitude, 'lng' => $a->clock_out_longitude] : null,
             'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
+            'clock_in_distance_m' => $a->clock_in_distance_m,
+            'clock_out_distance_m' => $a->clock_out_distance_m,
+            'location_flags' => array_values(array_unique([...($a->clock_in_location_flags ?? []), ...($a->clock_out_location_flags ?? [])])),
             'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
             'auto_clocked_out' => (bool) $a->auto_clocked_out,
             'edited' => $a->edited_at !== null,
@@ -552,6 +578,8 @@ class InternMonitoringController extends Controller
             'mode' => AttendanceSessions::dayMode($companyMode, $rows),
             'steps' => AttendanceSessions::steps($companyMode, $rows),
             'day_ends_at' => $dayEndsAt,
+            // Why clocking in is closed (not started yet, finished, inactive), or null when it is open.
+            'clock_block' => $deployment->attendanceBlock(LocalTime::today()),
         ]);
     }
 
@@ -561,6 +589,11 @@ class InternMonitoringController extends Controller
             'selfie' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
+            // How precise the phone said the fix was (metres) and how old it was when the photo was taken (seconds).
+            'accuracy' => 'nullable|numeric|min:0|max:100000',
+            'fix_age' => 'nullable|numeric|min:0|max:86400',
+            // The page found the browser's location functions replaced by script (a spoofing tool).
+            'geo_tampered' => 'nullable|boolean',
         ]);
 
         return $data;
@@ -639,6 +672,12 @@ class InternMonitoringController extends Controller
         // happened to sync on — an offline clock-in at 11pm that only
         // reaches the server the next morning still belongs to that first day.
         $today = LocalTime::date($clockTime);
+
+        // Not before the first day of the internship, and not once the required hours are rendered.
+        if ($block = $deployment->attendanceBlock($today)) {
+            return response()->json(['success' => false, 'message' => $block['message'], 'code' => $block['code']], 422);
+        }
+
         $rows = Attendance::where('deployment_id', $deployment->id)
             ->whereDate('attendance_date', $today)
             ->orderBy('id')
@@ -667,6 +706,14 @@ class InternMonitoringController extends Controller
         }
 
         $data = $this->selfieAndLocation($request);
+        $check = AttendanceLocationService::assess(
+            $deployment->company, (float) $data['latitude'], (float) $data['longitude'],
+            isset($data['accuracy']) ? (float) $data['accuracy'] : null, isset($data['fix_age']) ? (float) $data['fix_age'] : null,
+            $isOffline, $deployment->id, 'clock_in', mayBlock: true, tampered: $request->boolean('geo_tampered'), at: $clockTime,
+        );
+        if ($check['block']) {
+            return response()->json(['success' => false, 'message' => $check['block']['message'], 'code' => $check['block']['code']], 422);
+        }
         $selfiePath = $request->file('selfie')->store("attendance-selfies/deployment-{$deployment->id}", 'public');
 
         $attendance = $existing ?? new Attendance(['deployment_id' => $deployment->id, 'attendance_date' => $today, 'session' => $session]);
@@ -677,6 +724,9 @@ class InternMonitoringController extends Controller
             'clock_in_longitude' => $data['longitude'],
             'clock_in_is_offline' => $isOffline,
             'clock_in_synced_at' => $syncedAt,
+            'clock_in_distance_m' => $check['distance_m'],
+            'clock_in_accuracy_m' => $check['accuracy_m'],
+            'clock_in_location_flags' => $check['flags'] ?: null,
             'status' => 'approved',
         ]);
         $attendance->save();
@@ -719,6 +769,12 @@ class InternMonitoringController extends Controller
         }
 
         $data = $this->selfieAndLocation($request);
+        // A time-out is never refused over its location (that would leave the shift open); it is flagged for review.
+        $check = AttendanceLocationService::assess(
+            $deployment->company, (float) $data['latitude'], (float) $data['longitude'],
+            isset($data['accuracy']) ? (float) $data['accuracy'] : null, isset($data['fix_age']) ? (float) $data['fix_age'] : null,
+            $isOffline, $deployment->id, 'clock_out', mayBlock: false, tampered: $request->boolean('geo_tampered'), at: $clockTime,
+        );
         $selfiePath = $request->file('selfie')->store("attendance-selfies/deployment-{$deployment->id}", 'public');
 
         $attendance->update([
@@ -728,6 +784,9 @@ class InternMonitoringController extends Controller
             'clock_out_longitude' => $data['longitude'],
             'clock_out_is_offline' => $isOffline,
             'clock_out_synced_at' => $syncedAt,
+            'clock_out_distance_m' => $check['distance_m'],
+            'clock_out_accuracy_m' => $check['accuracy_m'],
+            'clock_out_location_flags' => $check['flags'] ?: null,
             'status' => 'approved',
         ]);
 

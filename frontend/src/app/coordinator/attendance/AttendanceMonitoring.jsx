@@ -5,6 +5,7 @@ import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import Icon from "@/components/Icon";
 import AttendanceSelfies from "@/components/AttendanceSelfies";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
+import LocationFlags from "@/components/LocationFlags";
 
 import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
@@ -92,6 +93,7 @@ function CompanySection({ companyId, name, total, filters }) {
                         {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}
                         {r.edited && <span className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title="The supervisor corrected the time because the intern forgot to time out">Time corrected</span>}
                         <OfflineEntryBadge record={r} className="ml-1.5" />
+                        <LocationFlags record={r} className="ml-1.5" />
                       </p>
                     </div>
                   </div>

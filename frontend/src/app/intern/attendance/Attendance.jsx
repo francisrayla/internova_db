@@ -19,6 +19,31 @@ function formatStampDate(d) {
 function formatStampTime(d) {
   return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: DISPLAY_TIME_ZONE });
 }
+/** Straight-line distance in metres between two {lat, lng} points (enough precision for "has the phone moved"). */
+function metersApart(a, b) {
+  const R = 6371000;
+  const rad = (d) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/** True when the browser's location functions are no longer the built-in ones, which is how spoofing extensions
+ * and scripts work. It cannot see a fake-GPS app on the phone itself (nothing in a web page can); the server
+ * adds its own checks for that. */
+function geolocationLooksTampered() {
+  try {
+    const geo = navigator.geolocation;
+    if (!geo) return false;
+    const isNative = (fn) => typeof fn === "function" && /\{\s*\[native code\]\s*\}/.test(Function.prototype.toString.call(fn));
+    const real = typeof Geolocation !== "undefined" ? geo instanceof Geolocation : true;
+    return !(real && isNative(geo.getCurrentPosition) && isNative(geo.watchPosition));
+  } catch {
+    return false;
+  }
+}
+
 function formatStampLocation(location) {
   if (!location) return "Locating…";
   return location.address || `Lat ${location.lat.toFixed(5)}, Lng ${location.lng.toFixed(5)}`;
@@ -114,6 +139,8 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
 
   const [locSupported] = useState(() => typeof navigator !== "undefined" && !!navigator.geolocation);
   const [location, setLocation] = useState(null);
+  const watchIdRef = useRef(null);
+  const lastGeocodeRef = useRef(null);
   const [locError, setLocError] = useState(locSupported ? "" : "This browser doesn't support location access.");
 
   const [saving, setSaving] = useState(false);
@@ -163,22 +190,40 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     }
   }, [ready]);
 
+  // The location is watched, not read once, so the fix stays fresh while the camera is open and its
+  // accuracy improves. maximumAge 0 refuses a cached position. The reading used for the photo is the
+  // one at the moment of capture (see capture()), together with its precision and age, which the
+  // server uses to refuse a stale or very imprecise fix.
+  function stopLocationWatch() {
+    if (watchIdRef.current != null && typeof navigator !== "undefined" && navigator.geolocation) navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+  }
+
   function requestLocation() {
-    navigator.geolocation.getCurrentPosition(
+    stopLocationWatch();
+    watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude, address: null };
-        setLocation(loc);
-        // Resolved separately so the shutter isn't blocked waiting on it —
-        // the stamp shows raw coordinates for the moment it takes, then
-        // swaps to the address once the lookup lands.
-        reverseGeocode(loc.lat, loc.lng).then((address) => {
-          if (address) setLocation((prev) => (prev ? { ...prev, address } : prev));
-        });
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        setLocError("");
+        // The place name is looked up separately so the shutter isn't blocked waiting on it, and again only
+        // after the phone has really moved.
+        const last = lastGeocodeRef.current;
+        const needsName = !last || metersApart(last, { lat, lng }) > 40;
+        setLocation((prev) => ({ lat, lng, accuracy, fixedAt: pos.timestamp, address: needsName ? null : prev?.address ?? null }));
+        if (needsName) {
+          lastGeocodeRef.current = { lat, lng };
+          reverseGeocode(lat, lng).then((address) => {
+            if (address) setLocation((prev) => (prev && prev.lat === lat && prev.lng === lng ? { ...prev, address } : prev));
+          });
+        }
       },
-      (err) => setLocError(err.code === err.PERMISSION_DENIED ? "Location access was denied — allow it to continue." : "Couldn't get your location. Try again."),
+      (err) => setLocation((prev) => {
+        if (!prev) setLocError(err.code === err.PERMISSION_DENIED ? "Location access was denied — allow it to continue." : "Couldn't get your location. Try again.");
+        return prev;
+      }),
       // GPS still works offline, but without network-assisted positioning a
       // first fix can take noticeably longer — give it room before giving up.
-      { enableHighAccuracy: true, timeout: 20000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );
   }
 
@@ -190,6 +235,8 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
 
   useEffect(() => {
     if (locSupported) requestLocation();
+    return () => stopLocationWatch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locSupported]);
 
   useEffect(() => {
@@ -252,12 +299,21 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     ctx.restore();
     const clock = trustedNow();
     const stampAt = clock.date;
-    const meta = { deviceTime: new Date().toISOString(), anchoredTime: clock.source === "server" ? stampAt.toISOString() : null };
+    // Where the phone was at this moment, how precise that fix was and how old it is.
+    const fix = location && {
+      lat: location.lat,
+      lng: location.lng,
+      accuracy: location.accuracy ?? null,
+      fixAge: location.fixedAt ? Math.max(0, (Date.now() - location.fixedAt) / 1000) : null,
+      tampered: geolocationLooksTampered(),
+    };
+    const meta = { deviceTime: new Date().toISOString(), anchoredTime: clock.source === "server" ? stampAt.toISOString() : null, fix };
     drawStamp(ctx, canvas, stampAt, clock.source === "server");
     canvas.toBlob(
       (blob) => {
         if (!blob) return;
         stopStream();
+        stopLocationWatch();
         setReady(false);
         setPreview(URL.createObjectURL(blob));
         setSelfie(blob);
@@ -273,6 +329,7 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     setSelfie(null);
     setCaptureMeta(null);
     startCamera();
+    if (locSupported) requestLocation();
   }
 
   /** No connection: keep the entry on the device and let OfflineStatus
@@ -282,8 +339,11 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
       mode,
       session,
       selfie,
-      lat: location.lat,
-      lng: location.lng,
+      lat: (captureMeta?.fix ?? location).lat,
+      lng: (captureMeta?.fix ?? location).lng,
+      accuracy: captureMeta?.fix?.accuracy ?? null,
+      fixAge: captureMeta?.fix?.fixAge ?? null,
+      tampered: captureMeta?.fix?.tampered ?? false,
       deviceTime: captureMeta?.deviceTime ?? new Date().toISOString(),
       anchoredTime: captureMeta?.anchoredTime ?? null,
     });
@@ -301,8 +361,12 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
       }
       const formData = new FormData();
       formData.append("selfie", selfie, "selfie.jpg");
-      formData.append("latitude", String(location.lat));
-      formData.append("longitude", String(location.lng));
+      const fix = captureMeta?.fix ?? location;
+      formData.append("latitude", String(fix.lat));
+      formData.append("longitude", String(fix.lng));
+      if (fix.accuracy != null) formData.append("accuracy", String(Math.round(fix.accuracy)));
+      if (fix.fixAge != null) formData.append("fix_age", String(Math.round(fix.fixAge)));
+      if (fix.tampered) formData.append("geo_tampered", "1");
       if (session) formData.append("session", session);
       const res = await apiFetch(`/api/intern/attendance/${isIn ? "clock-in" : "clock-out"}`, {
         method: "POST",
@@ -432,6 +496,12 @@ const SPLIT_STEPS = [
   { session: "pm", action: "clock_out", label: "Afternoon time out" },
 ];
 
+const BLOCK_TITLES = {
+  not_started: "Your internship hasn't started yet",
+  finished: "You've completed your internship hours",
+  inactive: "Attendance is closed",
+};
+
 /** What the today-card should show, combining the server's answer (possibly
  * a cached copy from an earlier day, if offline) with anything still sitting
  * in the offline queue — an offline time in has to move the card on to the
@@ -467,6 +537,9 @@ function resolveTodayView(today, pending, online) {
       steps, split, waitingToSync, action: next.action, session: next.session, label: next.label,
       clockIn: next.action === "clock_out" ? steps[i - 1]?.time : null,
       started: steps.some((st) => st.time),
+      // Why clocking in is closed (the internship has not started, or it is finished). Only trusted
+      // for today's copy of the answer, and nothing queued on this device is waiting to be sent.
+      block: next.action === "clock_in" && !stale && !waitingToSync ? today?.clock_block ?? null : null,
     };
   }
   const rows = (today && !stale ? today.rows : null) ?? [];
@@ -559,7 +632,13 @@ export default function Attendance() {
             </ol>
           )}
 
-          {view.action === "clock_in" && (
+          {view.action === "clock_in" && view.block && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm font-semibold text-amber-900">{BLOCK_TITLES[view.block.code] ?? "Attendance is closed"}</p>
+              <p className="mt-0.5 text-sm text-amber-800">{view.block.message}</p>
+            </div>
+          )}
+          {view.action === "clock_in" && !view.block && (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-900">

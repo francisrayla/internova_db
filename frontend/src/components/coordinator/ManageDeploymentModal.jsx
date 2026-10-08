@@ -7,6 +7,7 @@ import { clampOnBlur } from "@/lib/clampNumber";
 import { cleanNumber } from "@/lib/inputRules";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
+import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 import { todayLocalDate } from "@/lib/timeAgo";
 
 /**
@@ -111,7 +112,8 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
             </label>
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
-              <input type="date" value={hoursForm.start_date} onChange={(e) => setHoursForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <input type="date" value={hoursForm.start_date} min={[startDateBounds().min, intern.start_date_raw].filter(Boolean).sort()[0]} max={[startDateBounds().max, intern.start_date_raw].filter(Boolean).sort().at(-1)} onChange={(e) => setHoursForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+              <span className="mt-1 block text-xs text-slate-500">{START_DATE_HINT}</span>
             </label>
           </div>
           {hoursError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{hoursError}</p>}

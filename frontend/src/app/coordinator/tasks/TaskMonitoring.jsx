@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import { isTaskClosed } from "@/lib/taskState";
 
 import { inputProps } from "@/lib/inputRules";
 function CompanyCard({ company, activeCount, totalCount }) {
@@ -55,7 +56,7 @@ export default function TaskMonitoring() {
     for (const t of tasks) {
       const bucket = (counts[t.company_id] ??= { total: 0, active: 0 });
       bucket.total += 1;
-      if (!(t.status === "completed" && t.evaluation)) bucket.active += 1;
+      if (!isTaskClosed(t)) bucket.active += 1;
     }
     return counts;
   }, [tasks]);

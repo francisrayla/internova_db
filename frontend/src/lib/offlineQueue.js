@@ -66,9 +66,9 @@ export function isNetworkError(err) {
 
 /** deviceTime: the phone's own clock at capture. anchoredTime: the
  *  server-anchored clock (lib/trustedClock) when available, else null. */
-export async function enqueueAttendance({ mode, session = null, selfie, lat, lng, deviceTime, anchoredTime = null }) {
+export async function enqueueAttendance({ mode, session = null, selfie, lat, lng, accuracy = null, fixAge = null, tampered = false, deviceTime, anchoredTime = null }) {
   await run("readwrite", (store) =>
-    store.add({ userId: currentUserId(), mode, session, selfie, lat, lng, deviceTime, anchoredTime, createdAt: Date.now() })
+    store.add({ userId: currentUserId(), mode, session, selfie, lat, lng, accuracy, fixAge, tampered, deviceTime, anchoredTime, createdAt: Date.now() })
   );
   notifyChanged();
 }
@@ -102,6 +102,10 @@ export async function syncPendingAttendance() {
       formData.append("selfie", entry.selfie, "selfie.jpg");
       formData.append("latitude", String(entry.lat));
       formData.append("longitude", String(entry.lng));
+      // How precise the fix was and how old it was at capture (the server flags a weak or doubtful one).
+      if (entry.accuracy != null) formData.append("accuracy", String(Math.round(entry.accuracy)));
+      if (entry.fixAge != null) formData.append("fix_age", String(Math.round(entry.fixAge)));
+      if (entry.tampered) formData.append("geo_tampered", "1");
       formData.append("is_offline", "1");
       // Which part of the day this was (full day, morning or afternoon), as the phone knew it.
       if (entry.session) formData.append("session", entry.session);

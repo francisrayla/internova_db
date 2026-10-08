@@ -5,6 +5,7 @@ import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsN
 import { apiFetch } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
 import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse } from "@/lib/internOptions";
+import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 
 const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", course: "", course_other: "", year_level: "4th Year" };
 
@@ -164,7 +165,8 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
                 <CompanySupervisorsNote companyId={deployment.company_id} companyName={lockedCompanyName ?? activeCompanies.find((c) => String(c.id) === String(deployment.company_id))?.company_name} />
                 <label className="block text-sm">
                   <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
-                  <input type="date" value={deployment.start_date} onChange={(e) => setDeployment((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                  <input type="date" value={deployment.start_date} min={startDateBounds().min} max={startDateBounds().max} onChange={(e) => setDeployment((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                  <span className="mt-1 block text-xs text-slate-500">{START_DATE_HINT}</span>
                 </label>
                 <div className="block text-sm">
                   <span className="mb-1.5 block font-semibold text-slate-700">Required hours</span>

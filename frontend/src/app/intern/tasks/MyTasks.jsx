@@ -9,9 +9,10 @@ import TaskHistoryRow from "@/components/TaskHistoryRow";
 import ProofUploadModal from "@/components/ProofUploadModal";
 import { useCurrentUser } from "@/lib/UserContext";
 import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
+import { isTaskClosed } from "@/lib/taskState";
 
 import { inputProps } from "@/lib/inputRules";
-const LIVE_TYPES = ["task_evaluated", "task_comment"];
+const LIVE_TYPES = ["task_evaluated", "task_comment", "task_updated"];
 
 /**
  * Tasks with no subtasks yet drag directly between columns here — the same
@@ -103,8 +104,8 @@ export default function MyTasks() {
 
   // A finished task still needs your supervisor's rating before it's truly
   // closed out — until then it stays visible here, not History.
-  const activeTasks = useMemo(() => tasks.filter((t) => !(t.status === "completed" && t.evaluation)), [tasks]);
-  const historyTasks = useMemo(() => tasks.filter((t) => t.status === "completed" && t.evaluation), [tasks]);
+  const activeTasks = useMemo(() => tasks.filter((t) => !isTaskClosed(t)), [tasks]);
+  const historyTasks = useMemo(() => tasks.filter(isTaskClosed), [tasks]);
 
   const visibleTasks = useMemo(() => {
     const source = view === "active" ? activeTasks : historyTasks;

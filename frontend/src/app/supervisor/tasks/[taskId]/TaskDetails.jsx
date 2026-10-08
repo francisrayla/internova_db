@@ -16,6 +16,7 @@ export default function TaskDetails() {
       backLabel="Back to Tasks"
       canAddSubtask={hasPlanFeature(user, PLAN_FEATURES.SUBTASKS)}
       canRate={hasPlanFeature(user, PLAN_FEATURES.TASK_RATINGS)}
+      canEditTask
     />
   );
 }

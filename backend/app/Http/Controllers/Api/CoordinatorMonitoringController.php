@@ -28,6 +28,7 @@ use App\Services\DeploymentHistoryService;
 use App\Services\DeploymentSummaryService;
 use App\Services\EmailDeliverability;
 use App\Services\InternMonitoringService;
+use App\Services\PlanFeatures;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -387,6 +388,9 @@ class CoordinatorMonitoringController extends Controller
                 'edited' => $a->edited_at !== null,
                 'clock_in_is_offline' => (bool) $a->clock_in_is_offline,
                 'clock_out_is_offline' => (bool) $a->clock_out_is_offline,
+                'clock_in_distance_m' => $a->clock_in_distance_m,
+                'clock_out_distance_m' => $a->clock_out_distance_m,
+                'location_flags' => array_values(array_unique([...($a->clock_in_location_flags ?? []), ...($a->clock_out_location_flags ?? [])])),
                 'attendance_date' => $a->attendance_date?->format('M d, Y'),
                 'session' => $a->session ?: Attendance::FULL,
                 'session_label' => match ($a->session) { Attendance::AM => 'Morning', Attendance::PM => 'Afternoon', default => null },
@@ -458,6 +462,8 @@ class CoordinatorMonitoringController extends Controller
             'due_date_raw' => $t->due_date?->format('Y-m-d'),
             'created_at' => $t->created_at->local()->format('M d, Y'),
             'completed_at' => $t->completed_at?->local()?->format('M d, Y'),
+            // Done but not graded yet: stays in the Active list until the supervisor rates it.
+            'awaiting_rating' => $t->awaitingRating($this->ratingsEnabled()),
             'evaluation' => $t->evaluation ? [
                 'rating' => (float) $t->evaluation->rating,
                 'comments' => $t->evaluation->comments,
@@ -466,6 +472,14 @@ class CoordinatorMonitoringController extends Controller
             'subtask_total' => $t->subtasks->count(),
             'subtask_done' => $t->subtasks->where('status', 'completed')->count(),
         ];
+    }
+
+    private ?bool $ratingsEnabled = null;
+
+    /** Does this school's plan include per-task ratings? (decides whether a done task waits for a grade) */
+    private function ratingsEnabled(): bool
+    {
+        return $this->ratingsEnabled ??= PlanFeatures::has(request()->user()?->school, PlanFeatures::TASK_RATINGS);
     }
 
     /**
@@ -1276,9 +1290,9 @@ class CoordinatorMonitoringController extends Controller
             'course' => 'nullable|string|max:150',
             'year_level' => 'nullable|string|max:50',
             'company_id' => 'required|integer',
-            'start_date' => 'required|date',
+            'start_date' => InternshipDeployment::startDateRules(),
             'end_date' => 'nullable|date|after_or_equal:start_date',
-        ]);
+        ], InternshipDeployment::startDateMessages());
 
         if ($problem = EmailDeliverability::problem($data['email'])) {
             return response()->json(['success' => false, 'message' => $problem], 422);
@@ -1390,8 +1404,8 @@ class CoordinatorMonitoringController extends Controller
         $data = $request->validate([
             'rows' => 'required|array|min:1|max:' . self::IMPORT_MAX_ROWS,
             'company_id' => 'required|integer',
-            'start_date' => 'required|date',
-        ]);
+            'start_date' => InternshipDeployment::startDateRules(),
+        ], InternshipDeployment::startDateMessages());
 
         $company = Company::where('id', $data['company_id'])->where('school_id', $schoolId)->first();
         if (!$company) {
@@ -1669,10 +1683,13 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Intern not found for your school.'], 404);
         }
 
+        // The window only applies to a date being changed, so saving the hours of an intern who
+        // started months ago does not trip over their original start date.
+        $startChanged = $request->input('start_date') !== $deployment->start_date?->toDateString();
         $data = $request->validate([
             'required_hours' => 'required|integer|min:1|max:2000',
-            'start_date' => 'required|date',
-        ]);
+            'start_date' => $startChanged ? InternshipDeployment::startDateRules() : 'required|date',
+        ], InternshipDeployment::startDateMessages());
 
         $deployment->update($data);
 

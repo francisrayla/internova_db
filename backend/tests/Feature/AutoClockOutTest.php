@@ -91,7 +91,7 @@ class AutoClockOutTest extends TestCase
     {
         Carbon::setTestNow(Carbon::parse('2026-10-14 01:00:00', 'UTC'));
         Sanctum::actingAs($this->intern);
-        $punch = fn (string $a) => $this->post("/api/intern/attendance/{$a}", ['selfie' => UploadedFile::fake()->image('s.png'), 'latitude' => 14.5, 'longitude' => 121.0], ['Accept' => 'application/json'])->assertOk();
+        $punch = fn (string $a) => $this->post("/api/intern/attendance/{$a}", ['selfie' => UploadedFile::fake()->image('s.png'), 'latitude' => 14.5547, 'longitude' => 121.0244], ['Accept' => 'application/json'])->assertOk();
         $punch('clock-in');
         Carbon::setTestNow(now()->addHours(7)); // before the 8-hour cut-off
         $punch('clock-out');
