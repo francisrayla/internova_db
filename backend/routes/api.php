@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CoordinatorMonitoringController;
+use App\Http\Controllers\Api\CourseRequirementController;
 use App\Http\Controllers\Api\DeanSubscriptionController;
 use App\Http\Controllers\Api\CoordinatorSupportController;
 use App\Http\Controllers\Api\DeanController;
@@ -172,6 +173,12 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     Route::get('/documents', [CoordinatorMonitoringController::class, 'documents']);
     Route::post('/documents', [CoordinatorMonitoringController::class, 'storeDocument']);
     Route::patch('/documents/{id}', [CoordinatorMonitoringController::class, 'reviewDocument']);
+    // Which documents each course must submit (set per school; see CourseRequirementService).
+    Route::get('/course-requirements', [CourseRequirementController::class, 'index']);
+    Route::put('/course-requirements', [CourseRequirementController::class, 'update']);
+    Route::delete('/course-requirements', [CourseRequirementController::class, 'reset']);
+    Route::post('/course-requirements/rename', [CourseRequirementController::class, 'rename']);
+    Route::get('/document-types', [CourseRequirementController::class, 'forDeployment']);
 
     // Coordinator owns the rubric; the supervisor is the one who actually
     // sits with the intern and submits the evaluation (see the supervisor
@@ -267,6 +274,7 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::post('/attendance', [SupervisorMonitoringController::class, 'storeAttendance']);
     Route::patch('/attendance/{id}', [SupervisorMonitoringController::class, 'reviewAttendance']);
     Route::patch('/attendance/{id}/times', [SupervisorMonitoringController::class, 'updateAttendanceTimes']);
+    Route::patch('/attendance/{id}/red-flag', [SupervisorMonitoringController::class, 'checkRedFlag']);
 
     // OJT certificate of completion: one PowerPoint template per company, filled in per intern.
     Route::get('/certificates', [SupervisorCertificateController::class, 'show']);
@@ -300,6 +308,7 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::get('/evaluations', [SupervisorMonitoringController::class, 'evaluations']);
     Route::post('/evaluations', [SupervisorMonitoringController::class, 'storeEvaluation']);
     Route::post('/evaluations/manual', [SupervisorMonitoringController::class, 'storeManualEvaluation']);
+    Route::patch('/evaluations/{id}', [SupervisorMonitoringController::class, 'updateEvaluation']);
 });
 
 Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(function () {
@@ -329,6 +338,7 @@ Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(func
     Route::patch('/activities/{id}', [InternMonitoringController::class, 'updateActivity']);
     Route::get('/documents', [InternMonitoringController::class, 'documents']);
     Route::post('/documents', [InternMonitoringController::class, 'storeDocument']);
+    Route::get('/document-types', [CourseRequirementController::class, 'forIntern']);
     Route::get('/portfolio', [InternMonitoringController::class, 'portfolio']);
     Route::patch('/portfolio', [InternMonitoringController::class, 'updatePortfolio']);
     Route::get('/portfolio/narrative-report', [NarrativeReportController::class, 'internReport']);

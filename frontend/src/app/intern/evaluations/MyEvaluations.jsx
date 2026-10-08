@@ -5,7 +5,7 @@ import { fetchInternData } from "@/lib/internApi";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import EvaluationView from "@/components/EvaluationView";
 
-const LIVE_TYPES = ["evaluation_submitted"];
+const LIVE_TYPES = ["evaluation_submitted", "evaluation_updated"];
 
 /**
  * Read-only — the supervisor fills these in (see the supervisor's own

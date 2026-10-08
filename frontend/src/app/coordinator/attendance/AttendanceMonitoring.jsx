@@ -6,6 +6,7 @@ import Icon from "@/components/Icon";
 import AttendanceSelfies from "@/components/AttendanceSelfies";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
 import LocationFlags from "@/components/LocationFlags";
+import RedFlagBadge from "@/components/RedFlagBadge";
 
 import { inputProps } from "@/lib/inputRules";
 const STATUS_STYLES = {
@@ -83,11 +84,12 @@ function CompanySection({ companyId, name, total, filters }) {
           ) : (
             records.map((r) => {
               return (
-                <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-3.5 last:border-b-0">
-                  <div className="flex items-center gap-3">
+                <div key={r.id} className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 border-l-4 py-3.5 pl-5 pr-6 last:border-b-0 sm:pl-6 ${r.red_flag ? "border-l-red-600" : "border-l-transparent"}`}>
+                  <div className="flex min-w-0 items-center gap-3">
                     <AttendanceSelfies record={r} name={r.intern_name} />
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium text-slate-900">{r.intern_name}</p>
+                      <RedFlagBadge record={r} className="mt-1" />
                       <p className="text-xs text-slate-500">
                         {r.attendance_date}{r.session_label ? ` (${r.session_label})` : ""} · {r.clock_in ?? "—"} to {r.clock_out ?? "—"} {r.hours != null && `(${r.hours}h)`}
                         {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}

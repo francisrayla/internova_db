@@ -9,6 +9,7 @@ import { useUrlTab } from "@/lib/useUrlTab";
 import { formatDate, timeAgo } from "@/lib/timeAgo";
 import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
 import AttendanceSelfies from "@/components/AttendanceSelfies";
+import RedFlagBadge from "@/components/RedFlagBadge";
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
 import { AttendanceCalendar, GroupPill, Projection } from "@/components/dean/monitoring";
 import { BackLink, EmptyState, ErrorNote, Pill, ProgressBar, Skeleton, SkeletonList, TabBar } from "@/components/dean/ui";
@@ -41,11 +42,12 @@ function AttendanceTab({ rows }) {
   return (
     <List>
       {rows.map((a) => (
-        <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <li key={a.id} className={`flex flex-wrap items-center justify-between gap-2 border-l-4 py-3 pl-3 pr-4 ${a.red_flag ? "border-l-red-600" : "border-l-transparent"}`}>
           <div className="flex min-w-0 items-center gap-3">
             <AttendanceSelfies record={{ ...a, attendance_date: formatDate(a.date) }} />
             <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900">{formatDate(a.date, { weekday: "short", month: "short", day: "numeric" })}</p>
+            <RedFlagBadge record={a} className="my-0.5" />
             <p className="text-sm text-slate-500">
               {a.session_label ? `${a.session_label}: ` : ""}{a.clock_in ?? "—"} to {a.clock_out ?? (a.clock_in ? "still clocked in" : "—")}
               {a.hours !== null && <> · <span className="font-medium text-slate-700">{a.hours} h</span></>}

@@ -15,7 +15,6 @@ import { EmptyState, ErrorNote, Pill, ProgressBar, SectionTitle, SkeletonList } 
 import { gradeBand, scoreTone } from "../evalHelpers";
 
 const LIST_HREF = "/supervisor/evaluations";
-const TYPES = ["Midterm", "Final"];
 const CATEGORY_DESCRIPTIONS = {
   "B. Interpersonal Skills": "The measure of the trainee's ability to relate to one another and to operate within the division where they are assigned through social communication and interaction.",
 };
@@ -23,6 +22,16 @@ const CATEGORY_DESCRIPTIONS = {
 const fieldClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
 const today = () => todayLocalDate();
 const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+/** "120 of 480 hrs" for an intern who has not finished yet. */
+const hoursLabel = (i) => `${fmt(Number(i.approved_hours) || 0)} of ${i.required_hours || "?"} hrs`;
+
+/** Picker text: an intern who cannot be picked says why right in the option. */
+function optionLabel(i) {
+  if (i.can_evaluate) return i.name;
+  if (i.block_code === "already_evaluated") return `${i.name} (already evaluated, edit it instead)`;
+  return `${i.name} (${hoursLabel(i)})`;
+}
 
 function Field({ label, children }) {
   return (
@@ -33,7 +42,7 @@ function Field({ label, children }) {
   );
 }
 
-function CategoryCard({ cat, items, scores, autoFilled, comment, showErrors, onScore, onBlurScore, onComment }) {
+function CategoryCard({ cat, items, scores, autoFilled, suggestions, comment, showErrors, onScore, onBlurScore, onComment }) {
   const [commentOpen, setCommentOpen] = useState(Boolean(comment));
   const got = items.reduce((n, c) => n + (Number(scores[c.id]) || 0), 0);
   const max = items.reduce((n, c) => n + Number(c.max_score), 0);
@@ -52,12 +61,19 @@ function CategoryCard({ cat, items, scores, autoFilled, comment, showErrors, onS
         {items.map((c) => {
           const missing = showErrors && (scores[c.id] === undefined || scores[c.id] === "");
           const auto = autoFilled[c.id] != null;
+          const suggested = suggestions[c.id];
           return (
             <div key={c.id} className="flex items-start justify-between gap-3 py-2.5">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-800">{c.name}</p>
                 {c.description && <p className="text-xs text-slate-500">{c.description}</p>}
                 {auto && <p className="mt-0.5 text-xs text-purple-600">Auto-filled from task ratings (avg {autoFilled[c.id]}/10)</p>}
+                {suggested != null && (
+                  <p className="mt-0.5 text-xs text-purple-600">
+                    Task ratings suggest {suggested}.{" "}
+                    <button type="button" onClick={() => onScore(c.id, String(suggested))} className="font-semibold underline">Use it</button>
+                  </p>
+                )}
                 {missing && <p role="alert" className="mt-0.5 text-xs font-medium text-red-600">Enter a score from 0 to {Number(c.max_score)}.</p>}
               </div>
               <div className="flex shrink-0 items-center gap-1.5 text-sm text-slate-500">
@@ -133,22 +149,49 @@ function SummaryCard({ total, max, pct, groups, scores, unscored, formal }) {
   );
 }
 
+/** Interns who cannot be picked, each with the reason (hours still to render, or already evaluated). */
+function UnavailableInterns({ interns }) {
+  if (interns.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5">
+      <p className="text-xs font-semibold text-slate-600">Cannot be evaluated right now</p>
+      <ul className="mt-1 space-y-1.5">
+        {interns.map((i) => (
+          <li key={i.deployment_id} className="text-sm text-slate-600">
+            <span className="font-medium text-slate-800">{i.name}</span>
+            {i.block_code === "already_evaluated" ? (
+              <>
+                {": already evaluated. "}
+                {i.evaluation_id && <Link href={`${LIST_HREF}/new?edit=${i.evaluation_id}`} className="font-semibold text-blue-600 hover:underline">Edit it</Link>}
+              </>
+            ) : (
+              <>: {hoursLabel(i)} rendered. Available once the required hours are completed.</>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function NewEvaluation() {
   const router = useRouter();
   const params = useSearchParams();
   const { user } = useCurrentUser();
-  const formal = hasPlanFeature(user, PLAN_FEATURES.FORMAL_EVALUATIONS);
+  const planFormal = hasPlanFeature(user, PLAN_FEATURES.FORMAL_EVALUATIONS);
+  const editId = Number(params.get("edit")) || null;
 
   const [interns, setInterns] = useState([]);
   const [criteria, setCriteria] = useState([]);
+  const [editEval, setEditEval] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   const [deploymentId, setDeploymentId] = useState("");
-  const [type, setType] = useState("Midterm");
   const [date, setDate] = useState(today);
   const [scores, setScores] = useState({});
   const [autoFilled, setAutoFilled] = useState({});
+  const [suggestions, setSuggestions] = useState({});
   const [categoryComments, setCategoryComments] = useState({});
   const [remarks, setRemarks] = useState("");
   const [overall, setOverall] = useState("");
@@ -161,44 +204,87 @@ export default function NewEvaluation() {
   const dirtyRef = useRef(false);
   const markDirty = () => { dirtyRef.current = true; };
 
+  // Editing an evaluation keeps the kind it was submitted as: scored per criterion, or one overall score.
+  const formal = editEval ? editEval.scores.length > 0 : planFormal;
+
   useEffect(() => {
     Promise.all([fetchSupervisorData("evaluations"), fetchSupervisorData("evaluation-criteria")])
       .then(([evalRes, critRes]) => {
         const list = evalRes.interns ?? [];
         setInterns(list);
         setCriteria(critRes.criteria ?? []);
+        if (editId) {
+          const ev = (evalRes.evaluations ?? []).find((e) => e.id === editId);
+          if (!ev) {
+            setLoadError("This evaluation was not found. It may belong to another company.");
+            return;
+          }
+          setEditEval(ev);
+          setDeploymentId(String(ev.deployment_id));
+          setDate(ev.evaluation_date_raw || today());
+          setRemarks(ev.remarks ?? "");
+          setCategoryComments(ev.category_comments ?? {});
+          setOverall(ev.overall_score != null ? String(Number(ev.overall_score)) : "");
+          return;
+        }
         const wanted = params.get("intern");
-        setDeploymentId(String(list.find((i) => String(i.deployment_id) === wanted)?.deployment_id ?? list[0]?.deployment_id ?? ""));
+        const ready = list.filter((i) => i.can_evaluate);
+        setDeploymentId(String(ready.find((i) => String(i.deployment_id) === wanted)?.deployment_id ?? ready[0]?.deployment_id ?? ""));
       })
       .catch((e) => setLoadError(e.message))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Suggested scores come from the chosen intern's task ratings.
+  // Task-rating suggestions for the chosen intern. A new evaluation starts from them; an edit keeps the
+  // saved scores, prefilled, and only offers the suggestion next to a criterion that differs.
   useEffect(() => {
-    if (!formal || !deploymentId) return;
+    if (!formal || !deploymentId || loading) return;
     let cancelled = false;
     apiFetch(`/api/supervisor/evaluation-criteria?deployment_id=${deploymentId}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
-        const list = data.criteria ?? [];
+        const active = data.criteria ?? [];
         const nextScores = {};
         const nextAuto = {};
-        for (const c of list) {
-          if (c.suggested_score != null) {
-            nextScores[c.id] = String(c.suggested_score);
-            nextAuto[c.id] = c.task_rating_average;
+        const nextSuggest = {};
+        let list = active;
+        if (editEval) {
+          const saved = new Map(editEval.scores.map((s) => [s.criteria_id, s]));
+          // A criterion that was scored but is no longer active is still part of this evaluation.
+          list = [
+            ...active,
+            ...editEval.scores
+              .filter((s) => !active.some((c) => c.id === s.criteria_id))
+              .map((s) => ({ id: s.criteria_id, name: s.criterion_name, category: s.category, max_score: s.max_score, description: null, suggested_score: null, task_rating_average: null })),
+          ];
+          for (const c of list) {
+            const s = saved.get(c.id);
+            if (s) {
+              nextScores[c.id] = String(Number(s.score));
+              if (c.suggested_score != null && Number(c.suggested_score) !== Number(s.score)) nextSuggest[c.id] = c.suggested_score;
+            } else if (c.suggested_score != null) {
+              nextScores[c.id] = String(c.suggested_score);
+              nextAuto[c.id] = c.task_rating_average;
+            }
+          }
+        } else {
+          for (const c of list) {
+            if (c.suggested_score != null) {
+              nextScores[c.id] = String(c.suggested_score);
+              nextAuto[c.id] = c.task_rating_average;
+            }
           }
         }
         setCriteria(list);
         setScores(nextScores);
         setAutoFilled(nextAuto);
+        setSuggestions(nextSuggest);
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [deploymentId, formal]);
+  }, [deploymentId, formal, loading, editEval]);
 
   useEffect(() => {
     function warn(e) {
@@ -219,8 +305,10 @@ export default function NewEvaluation() {
   const total = formal ? criteria.reduce((n, c) => n + (Number(scores[c.id]) || 0), 0) : Number(overall) || 0;
   const pct = max > 0 ? (total / max) * 100 : 0;
   const unscored = formal ? criteria.filter((c) => scores[c.id] === undefined || scores[c.id] === "").length : 0;
-  const internName = interns.find((i) => String(i.deployment_id) === String(deploymentId))?.name ?? "this intern";
-  const typeLabel = formal ? type : "Manual";
+  const selected = interns.find((i) => String(i.deployment_id) === String(deploymentId));
+  const internName = editEval?.intern_name ?? selected?.name ?? "this intern";
+  const unavailable = interns.filter((i) => !i.can_evaluate);
+  const noOneReady = !editId && !interns.some((i) => i.can_evaluate);
 
   function leave() {
     if (dirtyRef.current) setLeaveOpen(true);
@@ -231,6 +319,7 @@ export default function NewEvaluation() {
     markDirty();
     setScores((p) => ({ ...p, [id]: value }));
     setAutoFilled((p) => ({ ...p, [id]: undefined }));
+    setSuggestions((p) => ({ ...p, [id]: undefined }));
   }
 
   function requestSubmit(e) {
@@ -238,6 +327,7 @@ export default function NewEvaluation() {
     setSubmitError("");
     setShowErrors(true);
     if (!deploymentId) return setSubmitError("Select an intern.");
+    if (!editId && selected && !selected.can_evaluate) return setSubmitError(selected.block_reason || "This intern cannot be evaluated yet.");
     if (!date) return setSubmitError("Choose the date rated.");
     if (formal ? unscored > 0 : overall === "" || Number(overall) < 0 || Number(overall) > 100) {
       return setSubmitError(formal ? "Score every criterion before submitting." : "Enter an overall score from 0 to 100.");
@@ -249,25 +339,26 @@ export default function NewEvaluation() {
     setSaving(true);
     setSubmitError("");
     try {
+      const savedRemarks = new Map((editEval?.scores ?? []).map((s) => [s.criteria_id, s.remarks]));
+      const common = { evaluation_date: date, remarks: remarks.trim() || null };
       const body = formal
         ? {
-            deployment_id: deploymentId,
-            evaluation_type: type,
-            evaluation_date: date,
-            remarks: remarks.trim() || null,
+            ...common,
             category_comments: categoryComments,
-            scores: criteria.map((c) => ({ criteria_id: c.id, score: Number(scores[c.id]) || 0 })),
+            scores: criteria.map((c) => ({ criteria_id: c.id, score: Number(scores[c.id]) || 0, remarks: savedRemarks.get(c.id) ?? null })),
           }
-        : { deployment_id: deploymentId, evaluation_date: date, overall_score: Number(overall), remarks: remarks.trim() || null };
-      const res = await apiFetch(formal ? "/api/supervisor/evaluations" : "/api/supervisor/evaluations/manual", {
-        method: "POST",
+        : { ...common, overall_score: Number(overall) };
+      if (!editId) body.deployment_id = deploymentId;
+      const url = editId ? `/api/supervisor/evaluations/${editId}` : planFormal ? "/api/supervisor/evaluations" : "/api/supervisor/evaluations/manual";
+      const res = await apiFetch(url, {
+        method: editId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not submit evaluation.");
+      if (!res.ok || !data.success) throw new Error(data.message || "Could not save the evaluation.");
       dirtyRef.current = false;
-      router.push(`${LIST_HREF}?saved=${data.id}`);
+      router.push(`${LIST_HREF}?saved=${data.id}${editId ? "&edited=1" : ""}`);
     } catch (err) {
       setSubmitError(err.message);
       setSaving(false);
@@ -282,16 +373,31 @@ export default function NewEvaluation() {
 
   if (loading) return <div className="space-y-4">{backLink}<SkeletonList rows={3} /></div>;
   if (loadError) return <div className="space-y-4">{backLink}<ErrorNote>{loadError}</ErrorNote></div>;
-  if (interns.length === 0) return <div className="space-y-4">{backLink}<EmptyState icon="check" title="No interns yet" text="No interns are deployed at your company yet." /></div>;
-  if (formal && criteria.length === 0) return <div className="space-y-4">{backLink}<EmptyState icon="check" title="Evaluation criteria not set up" text="Your coordinator has not set up the evaluation criteria yet." /></div>;
+  if (interns.length === 0 && !editId) return <div className="space-y-4">{backLink}<EmptyState icon="check" title="No interns yet" text="No interns are deployed at your company yet." /></div>;
+  if (formal && criteria.length === 0 && !editId) return <div className="space-y-4">{backLink}<EmptyState icon="check" title="Evaluation criteria not set up" text="Your coordinator has not set up the evaluation criteria yet." /></div>;
+  if (noOneReady) {
+    return (
+      <div className="space-y-4">
+        {backLink}
+        <h1 className="text-2xl font-bold text-slate-900">New evaluation</h1>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-sm font-semibold text-slate-900">No intern can be evaluated yet</p>
+          <p className="mt-1 text-sm text-slate-600">An intern can be evaluated once the required hours are completed, and each intern is evaluated once (you can edit it later).</p>
+          <UnavailableInterns interns={unavailable} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={requestSubmit} noValidate className="space-y-5 pb-24 lg:pb-0">
       <div>
         {backLink}
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">New evaluation</h1>
+        <h1 className="mt-1 text-2xl font-bold text-slate-900">{editId ? "Edit evaluation" : "New evaluation"}</h1>
         <p className="mt-1 text-sm text-slate-600">
-          {formal ? "Score each criterion. Totals update as you go." : "Give an overall score and remarks. The school's rubric below is a guide for what the score should reflect."}
+          {editId
+            ? `Change the scores or remarks for ${internName}. The total is recalculated and ${internName.split(" ")[0] || "the intern"} is told it was updated.`
+            : formal ? "Score each criterion. Totals update as you go." : "Give an overall score and remarks. The school's rubric below is a guide for what the score should reflect."}
         </p>
       </div>
 
@@ -299,23 +405,28 @@ export default function NewEvaluation() {
         <div className="min-w-0 space-y-4">
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <SectionTitle title="Who and when" />
-            <div className={`grid grid-cols-1 gap-3 ${formal ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Intern">
-                <select value={deploymentId} onChange={(e) => { markDirty(); setDeploymentId(e.target.value); }} className={fieldClass}>
-                  {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id}>{i.name}</option>)}
-                </select>
-              </Field>
-              {formal && (
-                <Field label="Evaluation type">
-                  <select value={type} onChange={(e) => { markDirty(); setType(e.target.value); }} className={fieldClass}>
-                    {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {editId ? (
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{internName}</p>
+                ) : (
+                  <select value={deploymentId} onChange={(e) => { markDirty(); setDeploymentId(e.target.value); }} className={fieldClass}>
+                    {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id} disabled={!i.can_evaluate}>{optionLabel(i)}</option>)}
                   </select>
-                </Field>
-              )}
+                )}
+              </Field>
               <Field label="Date rated">
                 <input type="date" value={date} onChange={(e) => { markDirty(); setDate(e.target.value); }} className={fieldClass} />
               </Field>
             </div>
+            {!editId && selected?.can_evaluate && (
+              <p className="mt-2 text-xs text-emerald-700">
+                {selected.finished && Number(selected.approved_hours) < selected.required_hours
+                  ? "Internship marked completed."
+                  : `Required hours completed (${hoursLabel(selected)}).`}
+              </p>
+            )}
+            {!editId && <UnavailableInterns interns={unavailable} />}
           </section>
 
           {formal ? (
@@ -326,6 +437,7 @@ export default function NewEvaluation() {
                 items={items}
                 scores={scores}
                 autoFilled={autoFilled}
+                suggestions={suggestions}
                 comment={categoryComments[cat] ?? ""}
                 showErrors={showErrors}
                 onScore={setScore}
@@ -391,7 +503,7 @@ export default function NewEvaluation() {
           {submitError && <ErrorNote>{submitError}</ErrorNote>}
           <div className="hidden justify-end gap-2 lg:flex">
             <button type="button" onClick={leave} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Submit evaluation</button>
+            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{editId ? "Save changes" : "Submit evaluation"}</button>
           </div>
         </div>
 
@@ -405,32 +517,32 @@ export default function NewEvaluation() {
           <p className="text-base font-bold text-slate-900">{fmt(total)} / {fmt(max)} <span className="text-sm font-medium text-slate-500">({pct.toFixed(0)}%)</span></p>
           {formal && <p className="truncate text-xs text-slate-500">{unscored ? `${unscored} unscored` : "All scored"}</p>}
         </div>
-        <button type="submit" disabled={saving} className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">Submit</button>
+        <button type="submit" disabled={saving} className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{editId ? "Save" : "Submit"}</button>
       </div>
 
       <ConfirmDialog
         open={confirmOpen}
         tone="primary"
-        title={`Submit ${typeLabel} evaluation?`}
-        confirmLabel="Submit evaluation"
+        title={editId ? "Save changes to this evaluation?" : "Submit evaluation?"}
+        confirmLabel={editId ? "Save changes" : "Submit evaluation"}
         busy={saving}
         error={submitError}
         onConfirm={submit}
         onCancel={() => { if (!saving) setConfirmOpen(false); }}
       >
-        <p>Submit {typeLabel} evaluation for {internName}? Total {fmt(total)} / {fmt(max)} ({pct.toFixed(0)}%).</p>
-        <p>The intern is notified right away. Submitted evaluations can&apos;t be edited, so check the scores first.</p>
+        <p>{editId ? `Save the changes to the evaluation of ${internName}?` : `Submit the evaluation for ${internName}?`} Total {fmt(total)} / {fmt(max)} ({pct.toFixed(0)}%).</p>
+        <p>{editId ? "The intern is told that it was updated." : "The intern is notified right away. Each intern is evaluated once, but you can edit it later."}</p>
       </ConfirmDialog>
 
       <ConfirmDialog
         open={leaveOpen}
-        title="Leave without submitting?"
+        title={editId ? "Leave without saving?" : "Leave without submitting?"}
         confirmLabel="Leave"
         cancelLabel="Keep editing"
         onConfirm={() => { dirtyRef.current = false; router.push(LIST_HREF); }}
         onCancel={() => setLeaveOpen(false)}
       >
-        <p>Your scores and comments have not been submitted and will be lost.</p>
+        <p>{editId ? "Your changes have not been saved and will be lost." : "Your scores and comments have not been submitted and will be lost."}</p>
       </ConfirmDialog>
     </form>
   );

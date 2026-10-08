@@ -8,6 +8,7 @@ use App\Models\DeanProfile;
 use App\Models\InternshipDeployment;
 use App\Models\School;
 use App\Models\User;
+use App\Rules\CompleteEmail;
 use App\Services\AccountInvitationService;
 use App\Services\ActivityLogService;
 use App\Services\EmailDeliverability;
@@ -117,10 +118,11 @@ class DeanController extends Controller
             return response()->json(['success' => false, 'message' => 'School not found.'], 404);
         }
 
-        $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
+        $request->merge(['email' => CompleteEmail::normalize($request->input('email'))]);
         $data = $request->validate([
             'name'  => 'required|string|max:150',
-            'email' => ['required', 'email', 'max:255'],
+            // Shape only here; the typo / no-mail-server check runs below, after the "already used" check.
+            'email' => ['required', 'bail', new CompleteEmail(false)],
         ]);
 
         if (SchoolStaff::coordinator($school->id)) {
@@ -242,13 +244,10 @@ class DeanController extends Controller
             return $coordinator;
         }
 
-        $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
+        $request->merge(['email' => CompleteEmail::normalize($request->input('email'))]);
         $data = $request->validate([
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($coordinator->id)],
+            'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')->ignore($coordinator->id)],
         ]);
-        if ($problem = EmailDeliverability::problem($data['email'])) {
-            return response()->json(['success' => false, 'message' => $problem], 422);
-        }
 
         $old = $coordinator->email;
         $coordinator->update(['email' => $data['email'], 'email_bounced_at' => null, 'email_bounce_reason' => null]);

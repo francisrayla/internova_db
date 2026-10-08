@@ -161,12 +161,17 @@ function TitlePage({ data, template }) {
   );
 }
 
-function TocPage({ template }) {
+// The evaluation form closes the report and is left out (no empty heading) until the intern is evaluated.
+function visibleSections(data) {
+  return data.template.sections.filter((s) => s.source !== "auto_evaluation" || data.evaluation);
+}
+
+function TocPage({ sections, template }) {
   return (
     <Sheet template={template}>
       <h2 className="nr-title">TABLE OF CONTENTS</h2>
       <div style={{ marginTop: 20 }}>
-        {template.sections.map((s, i) => (
+        {sections.map((s, i) => (
           <div key={s.key} className="nr-toc-row">
             <span>{s.title}</span>
             <span className="nr-toc-fill" />
@@ -332,7 +337,8 @@ function JournalBody({ data }) {
 }
 
 function EvaluationBody({ evaluation }) {
-  if (!evaluation) return <Note>No evaluation recorded yet</Note>;
+  if (!evaluation) return null;
+  const comments = evaluation.category_comments ?? {};
   const groups = [];
   evaluation.scores.forEach((s) => {
     const cat = s.category || "";
@@ -345,6 +351,9 @@ function EvaluationBody({ evaluation }) {
   });
   return (
     <>
+      <p style={{ margin: "0 0 10px" }}>
+        Evaluated by: {evaluation.evaluator_name || "—"}{evaluation.evaluation_date ? ` · ${evaluation.evaluation_date}` : ""}
+      </p>
       {groups.length > 0 && (
         <table className="nr-table">
           <thead>
@@ -354,25 +363,25 @@ function EvaluationBody({ evaluation }) {
             {groups.map((g) => (
               <Fragment key={g.cat}>
                 {g.cat && (
-                  <tr><td colSpan={3} className="nr-b">{g.cat}</td></tr>
+                  <tr><td colSpan={3} className="nr-b" style={{ background: "#eee" }}>{g.cat}</td></tr>
                 )}
                 {g.rows.map((r, i) => (
                   <tr key={i}>
                     <td>{r.criterion_name}</td>
-                    <td style={{ textAlign: "center" }}>{r.score}</td>
-                    <td style={{ textAlign: "center" }}>{r.max_score}</td>
+                    <td style={{ textAlign: "center" }}>{Number(r.score)}</td>
+                    <td style={{ textAlign: "center" }}>{Number(r.max_score)}</td>
                   </tr>
                 ))}
+                {comments[g.cat] && (
+                  <tr><td colSpan={3} style={{ fontStyle: "italic", fontSize: "10pt" }}>Comments: {comments[g.cat]}</td></tr>
+                )}
               </Fragment>
             ))}
           </tbody>
         </table>
       )}
-      <p className="nr-b" style={{ marginTop: 14 }}>Total / Rating: {evaluation.overall_score != null ? `${evaluation.overall_score}%` : "—"}</p>
-      {evaluation.remarks && <p className="nr-p">Remarks: {evaluation.remarks}</p>}
-      <p style={{ margin: "10px 0 0" }}>
-        Evaluated by: {evaluation.evaluator_name || "—"}{evaluation.evaluation_date ? ` · ${evaluation.evaluation_date}` : ""}
-      </p>
+      <p className="nr-b" style={{ marginTop: 14 }}>Total / Rating: {evaluation.overall_score != null ? `${Number(evaluation.overall_score)}%` : "—"}</p>
+      {evaluation.remarks && <p className="nr-p">{groups.length > 0 ? "Areas to focus on for development" : "Remarks"}: {evaluation.remarks}</p>}
     </>
   );
 }
@@ -444,8 +453,8 @@ export default function NarrativeReport({ data }) {
       <div className="nr-scroll">
         <CoverPage data={data} template={template} />
         <TitlePage data={data} template={template} />
-        <TocPage template={template} />
-        {template.sections.map((section) => (
+        <TocPage sections={visibleSections(data)} template={template} />
+        {visibleSections(data).map((section) => (
           <Sheet key={section.key} template={template}>
             <h2 className="nr-title">{section.title}</h2>
             <SectionBody section={section} data={data} template={template} />

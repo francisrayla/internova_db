@@ -35,6 +35,7 @@ export default function EvaluationView({ evaluation }) {
           <p className="text-xs text-slate-500">
             {evaluation.evaluation_date}
             {evaluation.evaluator_name ? ` · Rated by ${evaluation.evaluator_name}` : ""}
+            {evaluation.edited_at ? ` · Updated ${evaluation.edited_at}` : ""}
           </p>
         </div>
         {evaluation.overall_score != null && (

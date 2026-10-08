@@ -4,6 +4,8 @@ import { useState } from "react";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { apiFetch } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
+import EmailField from "@/components/EmailField";
+import { emailProblem, normalizeEmail } from "@/lib/emailCheck";
 import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse } from "@/lib/internOptions";
 import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 
@@ -21,18 +23,21 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [invited, setInvited] = useState(false);
+  const [attempted, setAttempted] = useState(false);
 
   const activeCompanies = (companies ?? []).filter((c) => c.status === "active");
 
   function validateStep1() {
     if (!account.first_name.trim() || !account.last_name.trim()) return "Enter the intern's full name.";
-    if (!/\S+@\S+\.\S+/.test(account.email)) return "Enter a valid email address.";
+    if (!account.email.trim()) return "Enter the intern's email address.";
+    if (emailProblem(account.email)) return " ";
     return "";
   }
 
   function goToStep2() {
+    setAttempted(true);
     const err = validateStep1();
-    if (err) return setError(err);
+    if (err) return setError(err.trim());
     setError("");
     setStep(2);
   }
@@ -55,7 +60,7 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
       const res = await apiFetch("/api/coordinator/interns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...accountPayload, course, ...deployment }),
+        body: JSON.stringify({ ...accountPayload, email: normalizeEmail(account.email), course, ...deployment }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not add intern.");
@@ -104,11 +109,13 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
                 <input {...inputProps("personName")} value={account.last_name} onChange={(e) => setAccount((f) => ({ ...f, last_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
               </label>
             </div>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-              <input {...inputProps("email")} type="email" value={account.email} onChange={(e) => setAccount((f) => ({ ...f, email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="intern@example.com" />
-              <span className="mt-1 block text-xs text-slate-400">They&apos;ll get an email here to set their password and enter their own student number.</span>
-            </label>
+            <EmailField
+              value={account.email}
+              onChange={(email) => setAccount((f) => ({ ...f, email }))}
+              showErrors={attempted}
+              placeholder="intern@example.com"
+              help="They'll get an email here to set their password and enter their own student number."
+            />
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="mb-1.5 block font-semibold text-slate-700">Course</span>

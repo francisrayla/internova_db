@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Models\DailyActivity;
 use App\Models\Document;
 use App\Models\Evaluation;
+use App\Models\InternProfile;
 use App\Models\InternshipDeployment;
 use App\Models\Portfolio;
 use App\Models\School;
@@ -58,6 +59,9 @@ class NarrativeProgressService
             }
         }
         $documents = Document::whereIn('deployment_id', $ids)->get(['deployment_id', 'document_type'])->groupBy('deployment_id');
+        // Each intern's course decides which documents count as required (default set when the course is not configured).
+        $requirements = CourseRequirementService::forSchool($school);
+        $courses = InternProfile::where('school_id', $school->id)->whereIn('user_id', $internIds)->pluck('course', 'user_id');
         $portfolios = Portfolio::whereIn('intern_id', $internIds)->withCount('items')->get()->keyBy('intern_id');
         $evaluated = Evaluation::whereIn('deployment_id', $ids)->distinct()->pluck('deployment_id')->flip();
 
@@ -65,15 +69,18 @@ class NarrativeProgressService
         foreach ($deployments as $d) {
             $rows = $attendance->get($d->id, collect());
             $hours = $rows->sum(fn ($a) => $a->workedMinutes()) / 60;
-            $types = $documents->get($d->id, collect())->map(fn ($x) => mb_strtolower(trim($x->document_type)))->all();
+            $types = $documents->get($d->id, collect())->map(fn ($x) => CourseRequirementService::norm($x->document_type))->all();
+            $mine = collect(CourseRequirementService::applyToSections($sections->all(), $requirements->typesFor($courses[$d->intern_id] ?? null), $types))
+                ->filter(fn ($s) => $s['source'] !== 'document' || ($s['required'] ?? true))
+                ->values();
             $portfolio = $portfolios->get($d->intern_id);
             $texts = $portfolio?->report_texts ?? [];
 
             $done = 0;
             $missingDocs = 0;
-            foreach ($sections as $s) {
+            foreach ($mine as $s) {
                 $ok = match ($s['source']) {
-                    'document' => in_array(mb_strtolower(trim($s['document_type'] ?? $s['title'])), $types, true),
+                    'document' => in_array(CourseRequirementService::norm($s['document_type'] ?? $s['title']), $types, true),
                     'intern_text' => trim((string) ($texts[$s['key']] ?? '')) !== '',
                     'auto_ledger' => $d->required_hours ? $hours >= $d->required_hours : $hours > 0,
                     'auto_duties' => ($taskCounts[$d->id] ?? 0) > 0,
@@ -90,7 +97,7 @@ class NarrativeProgressService
                 }
             }
 
-            $out[$d->id] = ['done' => $done, 'total' => $sections->count(), 'missing_documents' => $missingDocs];
+            $out[$d->id] = ['done' => $done, 'total' => $mine->count(), 'missing_documents' => $missingDocs];
         }
 
         return $out;

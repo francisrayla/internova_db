@@ -596,7 +596,7 @@ class DeanMonitoringController extends Controller
         $summary = DeploymentSummaryService::summarize($d, $profile);
         $disk = Storage::disk('public');
 
-        $attendance = Attendance::where('deployment_id', $d->id)->orderByDesc('attendance_date')->orderByDesc('id')->limit(31)->get()
+        $attendance = Attendance::with('redFlagChecker')->where('deployment_id', $d->id)->orderByDesc('attendance_date')->orderByDesc('id')->limit(31)->get()
             ->map(fn (Attendance $a) => [
                 'id' => $a->id,
                 'date' => $a->attendance_date?->toDateString(),
@@ -610,6 +610,7 @@ class DeanMonitoringController extends Controller
                 'clock_in_selfie_url' => $a->clock_in_selfie_path ? $disk->url($a->clock_in_selfie_path) : null,
                 'clock_out_selfie_url' => $a->clock_out_selfie_path ? $disk->url($a->clock_out_selfie_path) : null,
                 'edited' => $a->edited_at !== null,
+                ...$a->redFlagPayload(),
             ]);
 
         $activities = DailyActivity::where('deployment_id', $d->id)->orderByDesc('activity_date')->orderByDesc('id')->limit(40)->get()

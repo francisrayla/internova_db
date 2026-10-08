@@ -16,6 +16,8 @@ import useInternActions from "@/components/coordinator/useInternActions";
 import useSupervisorActions from "@/components/coordinator/useSupervisorActions";
 import { AddSupervisorModal, MAX_SUPERVISORS } from "@/components/coordinator/SupervisorModals";
 import { clean, inputProps } from "@/lib/inputRules";
+import EmailField from "@/components/EmailField";
+import { emailProblem, normalizeEmail, serverFieldError } from "@/lib/emailCheck";
 
 function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -27,18 +29,35 @@ function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [attempted, setAttempted] = useState(false);
 
   async function save(extra = {}) {
+    // Only a changed address is checked, so an older saved one never blocks other edits.
+    const emailChanged = normalizeEmail(form.contact_email) !== (company.contact_email ?? "").toLowerCase();
+    if (emailChanged) {
+      setAttempted(true);
+      if (emailProblem(form.contact_email)) return setError("");
+    }
     setSaving(true);
     setError("");
+    setEmailError("");
     try {
       const res = await apiFetch(`/api/coordinator/companies/${company.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, ...extra }),
+        body: JSON.stringify({ ...form, contact_email: emailChanged ? normalizeEmail(form.contact_email) : company.contact_email ?? "", ...extra }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not update company.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const fieldMessage = serverFieldError(data, "contact_email");
+        if (fieldMessage) {
+          setEmailError(fieldMessage);
+          setSaving(false);
+          return;
+        }
+        throw new Error(data.message || "Could not update company.");
+      }
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -77,10 +96,13 @@ function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
             <input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Contact email</span>
-              <input {...inputProps("email")} type="email" value={form.contact_email} onChange={(e) => setForm((f) => ({ ...f, contact_email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-            </label>
+            <EmailField
+              label="Contact email"
+              value={form.contact_email}
+              onChange={(contact_email) => { setForm((f) => ({ ...f, contact_email })); setEmailError(""); }}
+              serverError={emailError}
+              showErrors={attempted}
+            />
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Contact number</span>
               <input {...inputProps("phone")} type="tel" value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: clean("phone", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />

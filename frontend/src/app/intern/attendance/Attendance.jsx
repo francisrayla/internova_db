@@ -44,46 +44,94 @@ function geolocationLooksTampered() {
   }
 }
 
-function formatStampLocation(location) {
+/** What the stamp says about the place. `pending` (online, name not found yet) shows a wait message, never
+ * coordinates: the photo can only be taken once the place has a name. Coordinates appear only when the phone is
+ * offline, where no name can be looked up. */
+function formatStampLocation(location, pending = false) {
   if (!location) return "Locating…";
-  return location.address || `Lat ${location.lat.toFixed(5)}, Lng ${location.lng.toFixed(5)}`;
+  if (location.address) return location.address;
+  if (pending) return "Finding your place name…";
+  return `Lat ${location.lat.toFixed(5)}, Lng ${location.lng.toFixed(5)}`;
 }
 
 function truncate(str, max) {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
-/** Turns raw coordinates into a short, readable address (street/barangay,
- * city, province) via OpenStreetMap's free Nominatim reverse-geocoder — no
- * API key needed. Coordinates alone aren't what a supervisor can glance at
- * and recognize; a real address is. Falls back to the coordinates
- * themselves if the lookup is unavailable, so the stamp never blocks on it. */
-async function reverseGeocode(lat, lng) {
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`, {
-      headers: { Accept: "application/json", "Accept-Language": "en" },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const a = data.address;
-    const parts = a ? [a.road || a.neighbourhood || a.suburb, a.city || a.town || a.municipality || a.village, a.state || a.province].filter(Boolean) : [];
-    const address = parts.length ? parts.join(", ") : data.display_name;
-    return address ? truncate(address, 60) : null;
-  } catch {
-    return null;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** One lookup is given this long before the next provider/attempt takes over. */
+const GEOCODE_TIMEOUT_MS = 7000;
+/** Waits before each attempt at finding the place name (3 attempts); after the last one the intern is asked to retry. */
+const GEOCODE_ATTEMPT_DELAYS_MS = [0, 2500, 5000];
+
+/** "Barangay, City, Province" without repeats ("Mamburao, Mamburao" becomes "Mamburao"). */
+function joinPlaceParts(parts) {
+  const seen = new Set();
+  const out = [];
+  for (const part of parts) {
+    const text = typeof part === "string" ? part.trim() : "";
+    if (text && !seen.has(text.toLowerCase())) {
+      seen.add(text.toLowerCase());
+      out.push(text);
+    }
   }
+  return out.length ? truncate(out.join(", "), 60) : null;
+}
+
+/** OpenStreetMap's Nominatim: free, no API key, but slow or rate-limited at times. */
+async function nominatimName(lat, lng) {
+  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`, {
+    headers: { Accept: "application/json", "Accept-Language": "en" },
+    signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const a = data.address;
+  const name = a ? joinPlaceParts([a.road || a.neighbourhood || a.suburb || a.hamlet, a.city || a.town || a.municipality || a.village, a.state || a.province]) : null;
+  return name ?? (data.display_name ? truncate(data.display_name, 60) : null);
+}
+
+/** BigDataCloud's client-side reverse geocoder: free, no API key, allowed from a browser. The fallback. */
+async function bigDataCloudName(lat, lng) {
+  const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return joinPlaceParts([data.locality, data.city, data.principalSubdivision]);
+}
+
+/** Resolves with the first provider that gives a name; null when every one failed or knew nothing. */
+function firstName(lookups) {
+  return new Promise((resolve) => {
+    let left = lookups.length;
+    const miss = () => {
+      left -= 1;
+      if (left === 0) resolve(null);
+    };
+    lookups.forEach((lookup) => lookup.then((name) => (name ? resolve(name) : miss()), miss));
+  });
+}
+
+/** Turns raw coordinates into a short, readable place name (barangay, city, province). Coordinates alone aren't
+ * what a supervisor can glance at and recognize. Both providers are asked at once and whichever answers first
+ * wins, so one being slow, blocked or rate-limited does not hold the intern up. Returns null when neither knows. */
+function reverseGeocode(lat, lng) {
+  return firstName([nominatimName(lat, lng), bigDataCloudName(lat, lng)]);
 }
 
 /** Live overlay + the identical stamp baked into the captured image itself,
  * mimicking a timestamp/GPS camera — so the date, time, and coordinates are
  * part of the photo's pixels, not just separate form fields. */
-function StampOverlay({ now, location }) {
+function StampOverlay({ now, location, pending }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2.5 pt-6 text-white">
       <p className="text-sm font-semibold leading-tight">
         {formatStampDate(now)} · {formatStampTime(now)}
       </p>
-      <p className="mt-0.5 text-xs leading-tight text-white/90">📍 {formatStampLocation(location)}</p>
+      <p className="mt-0.5 text-xs leading-tight text-white/90">📍 {formatStampLocation(location, pending)}</p>
     </div>
   );
 }
@@ -138,9 +186,18 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
 
   const [locSupported] = useState(() => typeof navigator !== "undefined" && !!navigator.geolocation);
-  const [location, setLocation] = useState(null);
+  const [fix, setFix] = useState(null);
+  // The place name is kept apart from the GPS fix: the fix changes every few seconds, and a name that arrives a
+  // moment after the next reading must still be used (tying it to exact coordinates lost it before).
+  const [placeName, setPlaceName] = useState(null);
+  // idle: nothing to look up (offline, or already found) - looking: first try - retrying: trying again - failed: all tries used.
+  const [placeState, setPlaceState] = useState("idle");
   const watchIdRef = useRef(null);
   const lastGeocodeRef = useRef(null);
+  const placeJobRef = useRef(0);
+  const fixRef = useRef(null);
+  const placeNameRef = useRef(null);
+  const location = fix && { ...fix, address: placeName };
   const [locError, setLocError] = useState(locSupported ? "" : "This browser doesn't support location access.");
 
   const [saving, setSaving] = useState(false);
@@ -199,28 +256,58 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     watchIdRef.current = null;
   }
 
+  /** Finds the place name for a point: up to 3 attempts, each asking both providers. While it is not found the
+   * shutter stays off (the stamp must carry a place name, not raw coordinates). Offline there is nothing to ask,
+   * so it stops quietly and the entry is saved with coordinates. */
+  async function lookupPlace(lat, lng) {
+    const job = ++placeJobRef.current;
+    lastGeocodeRef.current = { lat, lng };
+    for (let attempt = 0; attempt < GEOCODE_ATTEMPT_DELAYS_MS.length; attempt++) {
+      setPlaceState(attempt === 0 ? "looking" : "retrying");
+      if (GEOCODE_ATTEMPT_DELAYS_MS[attempt]) await sleep(GEOCODE_ATTEMPT_DELAYS_MS[attempt]);
+      if (job !== placeJobRef.current) return;
+      if (!navigator.onLine) {
+        setPlaceState("idle");
+        return;
+      }
+      const name = await reverseGeocode(lat, lng);
+      if (job !== placeJobRef.current) return;
+      if (name) {
+        placeNameRef.current = name;
+        setPlaceName(name);
+        setPlaceState("idle");
+        return;
+      }
+    }
+    setPlaceState("failed");
+  }
+
+  function retryPlace() {
+    const at = fixRef.current;
+    if (at) lookupPlace(at.lat, at.lng);
+  }
+
   function requestLocation() {
     stopLocationWatch();
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude: lat, longitude: lng, accuracy } = pos.coords;
         setLocError("");
-        // The place name is looked up separately so the shutter isn't blocked waiting on it, and again only
-        // after the phone has really moved.
+        fixRef.current = { lat, lng };
+        setFix({ lat, lng, accuracy, fixedAt: pos.timestamp });
+        // The place name is looked up separately so the location itself is never held up by it, and again
+        // only after the phone has really moved. A name for a spot far from here is dropped at once.
         const last = lastGeocodeRef.current;
-        const needsName = !last || metersApart(last, { lat, lng }) > 40;
-        setLocation((prev) => ({ lat, lng, accuracy, fixedAt: pos.timestamp, address: needsName ? null : prev?.address ?? null }));
-        if (needsName) {
-          lastGeocodeRef.current = { lat, lng };
-          reverseGeocode(lat, lng).then((address) => {
-            if (address) setLocation((prev) => (prev && prev.lat === lat && prev.lng === lng ? { ...prev, address } : prev));
-          });
+        const moved = last ? metersApart(last, { lat, lng }) : Infinity;
+        if (moved > 150) {
+          placeNameRef.current = null;
+          setPlaceName(null);
         }
+        if (moved > 40) lookupPlace(lat, lng);
       },
-      (err) => setLocation((prev) => {
-        if (!prev) setLocError(err.code === err.PERMISSION_DENIED ? "Location access was denied — allow it to continue." : "Couldn't get your location. Try again.");
-        return prev;
-      }),
+      (err) => {
+        if (!fixRef.current) setLocError(err.code === err.PERMISSION_DENIED ? "Location access was denied — allow it to continue." : "Couldn't get your location. Try again.");
+      },
       // GPS still works offline, but without network-assisted positioning a
       // first fix can take noticeably longer — give it room before giving up.
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
@@ -235,7 +322,10 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
 
   useEffect(() => {
     if (locSupported) requestLocation();
-    return () => stopLocationWatch();
+    return () => {
+      stopLocationWatch();
+      placeJobRef.current += 1; // a lookup still running must not touch the closed screen
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locSupported]);
 
@@ -246,7 +336,12 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
   }, []);
 
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
+    const update = () => {
+      setOnline(navigator.onLine);
+      // Back online with a place that never got a name (it was offline when the fix came): find it now.
+      const at = fixRef.current;
+      if (navigator.onLine && at && !placeNameRef.current) lookupPlace(at.lat, at.lng);
+    };
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
     return () => {
@@ -288,7 +383,7 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
   function capture() {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    if (!video || !canvas || !canCapture) return;
     canvas.width = video.videoWidth || 480;
     canvas.height = video.videoHeight || 360;
     const ctx = canvas.getContext("2d");
@@ -392,7 +487,10 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     }
   }
 
-  const canCapture = ready && !!location;
+  // Online, the photo waits for a place name so the stamp never reads "Lat …, Lng …". Offline no name can be
+  // looked up, so the entry is allowed with coordinates (and says so).
+  const needsPlace = online && !location?.address;
+  const canCapture = ready && !!location && !needsPlace;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
@@ -410,7 +508,7 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
         ) : ready ? (
           <>
             <video ref={videoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
-            <StampOverlay now={now} location={location} />
+            <StampOverlay now={now} location={location} pending={online} />
           </>
         ) : (
           <div className="flex h-full items-center justify-center px-8 text-center">
@@ -442,9 +540,26 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
             )}
           </p>
         )}
+        {ready && !!location && needsPlace && !preview && (
+          <p className="text-center text-xs text-slate-300" role="status">
+            {placeState === "failed" ? (
+              <>
+                <span className="text-red-400">We couldn&apos;t find your place name. Check your internet connection.</span>{" "}
+                <button type="button" onClick={retryPlace} className="font-semibold text-blue-400 hover:underline">
+                  Try again
+                </button>
+              </>
+            ) : placeState === "retrying" ? (
+              "Still finding your place name…"
+            ) : (
+              "Finding your place name…"
+            )}
+          </p>
+        )}
         {!online && (
           <p className="text-center text-xs text-amber-300">
             You&apos;re offline — this will be saved on your device and sent automatically once you&apos;re back online.
+            {" "}No internet: your place name will not be on the photo.
           </p>
         )}
         {submitError && <p className="rounded-xl bg-red-500/10 px-3 py-2 text-center text-sm text-red-400">{submitError}</p>}

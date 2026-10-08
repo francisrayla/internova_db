@@ -16,6 +16,7 @@ const LIVE_TYPES = [
   "task_comment",
   "attendance_reviewed",
   "evaluation_submitted",
+  "evaluation_updated",
   "activity_reviewed",
 ];
 

@@ -15,6 +15,12 @@ const STATUS_STYLES = {
   rejected: "bg-red-100 text-red-700",
 };
 
+const REQUIREMENT_STYLES = {
+  not_uploaded: "bg-slate-100 text-slate-600",
+  ...STATUS_STYLES,
+};
+const REQUIREMENT_LABELS = { not_uploaded: "Not uploaded", pending: "Pending review", approved: "Approved", rejected: "Rejected" };
+
 const LIVE_TYPES = ["document_reviewed", "document_uploaded"];
 
 export default function MyDocuments() {
@@ -25,12 +31,18 @@ export default function MyDocuments() {
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // What the intern's course requires (with each one's status) and the other types an upload may use.
+  const [types, setTypes] = useState(null);
+  const [formKey, setFormKey] = useState(0); // remounts the type field when a requirement row presets it
 
   const load = useCallback(() => {
     fetchInternData("documents")
       .then((data) => setDocuments(data.documents ?? []))
       .catch(() => setDocuments([]))
       .finally(() => setLoading(false));
+    fetchInternData("document-types")
+      .then((data) => setTypes(data))
+      .catch(() => setTypes(null));
   }, []);
 
   useEffect(() => {
@@ -69,6 +81,17 @@ export default function MyDocuments() {
     }
   }
 
+  function uploadRequirement(type) {
+    setDocType(type);
+    setFormKey((k) => k + 1);
+    setError("");
+    setShowForm(true);
+  }
+
+  const requirements = types?.requirements ?? [];
+  const options = types ? { required: requirements.map((r) => r.document_type), others: types.others ?? [] } : undefined;
+  const doneCount = requirements.filter((r) => r.status === "approved").length;
+
   return (
     <div className="space-y-6">
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -90,7 +113,7 @@ export default function MyDocuments() {
         <form onSubmit={handleSubmit} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Document type</span>
-            <DocumentTypeField value={docType} onChange={setDocType} />
+            <DocumentTypeField key={formKey} value={docType} onChange={setDocType} options={options} />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">File</span>
@@ -113,6 +136,38 @@ export default function MyDocuments() {
             </button>
           </div>
         </form>
+      )}
+
+      {requirements.length > 0 && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Required for your course{types?.course ? ` (${types.course})` : ""}</h2>
+            <p className="text-sm text-slate-600">
+              <span className="font-semibold text-slate-900">{doneCount}</span> of {requirements.length} approved
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {requirements.map((r) => (
+              <li key={r.document_type} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                <p className="min-w-0 break-words text-sm font-medium text-slate-900">{r.document_type}</p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${REQUIREMENT_STYLES[r.status] ?? "bg-slate-100 text-slate-600"}`}>
+                    {REQUIREMENT_LABELS[r.status] ?? r.status}
+                  </span>
+                  {(r.status === "not_uploaded" || r.status === "rejected") && (
+                    <button
+                      type="button"
+                      onClick={() => uploadRequirement(r.document_type)}
+                      className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                    >
+                      {r.status === "rejected" ? "Upload again" : "Upload"}
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

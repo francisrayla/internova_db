@@ -58,7 +58,7 @@ function Breakdown({ evaluation }) {
   );
 }
 
-function EvaluationCard({ evaluation: e, highlighted }) {
+function EvaluationCard({ evaluation: e, highlighted, several }) {
   const [open, setOpen] = useState(false);
   const score = e.overall_score != null ? Number(e.overall_score) : null;
 
@@ -71,18 +71,26 @@ function EvaluationCard({ evaluation: e, highlighted }) {
           <p className="truncate text-xs text-slate-500">
             {e.evaluation_date}
             {e.evaluator_name ? ` · Rated by ${e.evaluator_name}` : ""}
+            {e.edited_at ? ` · Edited ${e.edited_at}` : ""}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
-          <Pill tone="slate">{e.evaluation_type}</Pill>
+          {several && <Pill tone={e.is_official ? "blue" : "amber"}>{e.is_official ? "Counts" : "Earlier"}</Pill>}
+          {e.evaluation_type !== "Final" && <Pill tone="slate">{e.evaluation_type}</Pill>}
           {score != null && <Pill tone={scoreTone(score)}>{score.toFixed(0)}/100</Pill>}
         </div>
       </div>
-      {(e.scores?.length > 0 || e.remarks) && (
-        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-3 text-sm font-semibold text-blue-600 hover:underline">
-          {open ? "Hide breakdown" : "View breakdown"}
-        </button>
+      {several && !e.is_official && (
+        <p className="mt-2 text-xs text-amber-700">This intern has more than one evaluation. Only the latest one counts for the score and the report. This one is kept for reference.</p>
       )}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+        {(e.scores?.length > 0 || e.remarks) && (
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="text-sm font-semibold text-blue-600 hover:underline">
+            {open ? "Hide breakdown" : "View breakdown"}
+          </button>
+        )}
+        <Link href={`${NEW_HREF}?edit=${e.id}`} className="text-sm font-semibold text-blue-600 hover:underline">Edit</Link>
+      </div>
       {open && <Breakdown evaluation={e} />}
     </div>
   );
@@ -97,6 +105,7 @@ export default function DailyPerformanceEvaluation() {
   const formalEnabled = hasPlanFeature(user, PLAN_FEATURES.FORMAL_EVALUATIONS);
   const params = useSearchParams();
   const savedId = Number(params.get("saved")) || null;
+  const wasEdited = params.get("edited") === "1";
 
   const [interns, setInterns] = useState([]);
   const [evaluations, setEvaluations] = useState([]);
@@ -135,8 +144,9 @@ export default function DailyPerformanceEvaluation() {
   }, [savedId, loading]);
 
   const types = useMemo(() => {
-    const extra = [...new Set(evaluations.map((e) => e.evaluation_type))].filter((t) => !["Midterm", "Final", "Manual"].includes(t));
-    return ["All", "Midterm", "Final", "Manual", ...extra];
+    // Evaluations are one per intern now, so the type filter only appears when older data holds different types.
+    const present = [...new Set(evaluations.map((e) => e.evaluation_type))];
+    return present.length > 1 ? ["All", ...present] : [];
   }, [evaluations]);
 
   const visible = useMemo(() => {
@@ -145,7 +155,9 @@ export default function DailyPerformanceEvaluation() {
   }, [evaluations, search, type]);
 
   const setupMissing = formalEnabled && criteriaCount === 0;
-  const canCreate = interns.length > 0 && !setupMissing;
+  const ready = interns.filter((i) => i.can_evaluate);
+  const canCreate = ready.length > 0 && !setupMissing;
+  const perIntern = useMemo(() => evaluations.reduce((m, e) => m.set(e.deployment_id, (m.get(e.deployment_id) ?? 0) + 1), new Map()), [evaluations]);
   const newButton = canCreate ? (
     <Link href={NEW_HREF} className="inline-flex rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
       New evaluation
@@ -167,10 +179,16 @@ export default function DailyPerformanceEvaluation() {
         </div>
         {!loading && newButton}
       </div>
+      {!loading && !canCreate && !setupMissing && interns.length > 0 && (
+        <p className="text-sm text-slate-600">
+          No intern can be evaluated yet. An intern is evaluated once, after completing the required hours.
+          {interns.some((i) => i.block_code === "not_finished") ? " Still rendering hours: " + interns.filter((i) => i.block_code === "not_finished").map((i) => `${i.name} (${Number(i.approved_hours)} of ${i.required_hours} hrs)`).join(", ") + "." : ""}
+        </p>
+      )}
 
       {savedId && banner && (
         <Banner tone="green" onDismiss={() => setBanner(false)}>
-          Evaluation submitted. It is highlighted below.
+          {wasEdited ? "Evaluation updated. It is highlighted below." : "Evaluation submitted. It is highlighted below."}
         </Banner>
       )}
       {error && <ErrorNote onRetry={retry}>{error}</ErrorNote>}
@@ -194,7 +212,7 @@ export default function DailyPerformanceEvaluation() {
                 aria-label="Search intern"
                 className="w-full max-w-sm rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
-              <div className="flex flex-wrap gap-2">
+              <div className={`flex flex-wrap gap-2 ${types.length ? "" : "hidden"}`}>
                 {types.map((t) => (
                   <button
                     key={t}
@@ -216,7 +234,7 @@ export default function DailyPerformanceEvaluation() {
           ) : (
             <div className="space-y-3">
               {visible.map((e) => (
-                <EvaluationCard key={e.id} evaluation={e} highlighted={e.id === savedId} />
+                <EvaluationCard key={e.id} evaluation={e} highlighted={e.id === savedId} several={(perIntern.get(e.deployment_id) ?? 0) > 1} />
               ))}
             </div>
           )}

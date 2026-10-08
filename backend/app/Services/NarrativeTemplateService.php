@@ -42,7 +42,6 @@ class NarrativeTemplateService
             ['key' => 'certificate_of_completion', 'title' => 'CERTIFICATE OF COMPLETION', 'source' => 'document', 'document_type' => 'Certificate of Completion'],
             ['key' => 'personal_observation', 'title' => 'PERSONAL OBSERVATION', 'source' => 'intern_text'],
             ['key' => 'journal', 'title' => "STUDENT'S JOURNAL", 'source' => 'auto_journal'],
-            ['key' => 'performance_evaluation', 'title' => 'PERFORMANCE EVALUATION REPORT', 'source' => 'auto_evaluation'],
             [
                 'key' => 'co_responsibility',
                 'title' => 'STATEMENT OF CO-RESPONSIBILITY',
@@ -52,6 +51,8 @@ class NarrativeTemplateService
                 'remarks' => self::CO_RESPONSIBILITY_REMARKS,
             ],
             ['key' => 'suggestion', 'title' => 'SUGGESTION TO IMPROVE THE STUDENT APPRENTICESHIP PROGRAM', 'source' => 'intern_text'],
+            // Always the last pages of the report (resolve() keeps it there), shown only once the intern is evaluated.
+            ['key' => 'performance_evaluation', 'title' => 'PERFORMANCE EVALUATION REPORT', 'source' => 'auto_evaluation'],
         ];
     }
 
@@ -131,7 +132,11 @@ class NarrativeTemplateService
         $cover['school_year'] = $cover['school_year'] ?: self::deriveSchoolYear($start);
         // The attendance selfies no longer go in the report (the DTR table covers attendance),
         // including in templates a school saved before that.
-        $sections = collect($row?->sections ?: $defaults['sections'])->reject(fn ($s) => ($s['source'] ?? null) === 'auto_attendance')->values()->all();
+        $sections = collect($row?->sections ?: $defaults['sections'])->reject(fn ($s) => ($s['source'] ?? null) === 'auto_attendance')->values();
+        // The evaluation form is always the last section, even in a template saved with it elsewhere
+        // (or without it). The renderers leave it out while the intern has no evaluation.
+        $evaluationSection = $sections->firstWhere('source', 'auto_evaluation') ?? collect($defaults['sections'])->firstWhere('source', 'auto_evaluation');
+        $sections = $sections->reject(fn ($s) => ($s['source'] ?? null) === 'auto_evaluation')->push($evaluationSection)->values()->all();
 
         $vars = array_merge([
             'school_name' => $letterhead['school_name'],

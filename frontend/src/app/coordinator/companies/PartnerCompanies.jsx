@@ -8,24 +8,35 @@ import Icon from "@/components/Icon";
 import { Avatar, Banner, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
 
 import { clean, inputProps } from "@/lib/inputRules";
+import EmailField from "@/components/EmailField";
+import { emailProblem, normalizeEmail, serverFieldError } from "@/lib/emailCheck";
 function AddCompanyModal({ onClose, onSaved }) {
   const [form, setForm] = useState({ company_name: "", address: "", contact_email: "", contact_number: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [attempted, setAttempted] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setAttempted(true);
     if (!form.company_name.trim()) return setError("Enter a company name.");
+    if (emailProblem(form.contact_email)) return setError("");
     setSaving(true);
     setError("");
+    setEmailError("");
     try {
       const res = await apiFetch("/api/coordinator/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, contact_email: normalizeEmail(form.contact_email) }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not add company.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const fieldMessage = serverFieldError(data, "contact_email");
+        if (fieldMessage) return setEmailError(fieldMessage);
+        throw new Error(data.message || "Could not add company.");
+      }
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -48,10 +59,13 @@ function AddCompanyModal({ onClose, onSaved }) {
             <input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Contact email</span>
-              <input {...inputProps("email")} type="email" value={form.contact_email} onChange={(e) => setForm((f) => ({ ...f, contact_email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-            </label>
+            <EmailField
+              label="Contact email"
+              value={form.contact_email}
+              onChange={(contact_email) => { setForm((f) => ({ ...f, contact_email })); setEmailError(""); }}
+              serverError={emailError}
+              showErrors={attempted}
+            />
             <label className="block text-sm">
               <span className="mb-1.5 block font-semibold text-slate-700">Contact number</span>
               <input {...inputProps("phone")} type="tel" value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: clean("phone", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />

@@ -22,6 +22,7 @@ use App\Models\TaskAssignee;
 use App\Models\TaskComment;
 use App\Models\TaskProof;
 use App\Models\User;
+use App\Rules\CompleteEmail;
 use App\Services\AccountInvitationService;
 use App\Services\ActivityLogService;
 use App\Services\DeploymentHistoryService;
@@ -121,6 +122,16 @@ class CoordinatorMonitoringController extends Controller
         );
     }
 
+    /** Lowercases and strips spaces from an email field (when sent) so what is validated is what is saved. */
+    private function normalizeEmailInput(Request $request, string $field = 'email'): void
+    {
+        if ($request->has($field) && is_string($request->input($field))) {
+            $value = CompleteEmail::normalize($request->input($field));
+            // An empty optional field is "no email", not an invalid one.
+            $request->merge([$field => $value === '' ? null : $value]);
+        }
+    }
+
     /**
      * The recovery path a coordinator otherwise doesn't have: if an invite
      * never arrives (spam, a mistyped inbox, or the original send simply
@@ -187,13 +198,10 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'This account type cannot be edited from here.'], 422);
         }
 
-        $request->merge(['email' => strtolower(str_replace(' ', '', (string) $request->input('email')))]);
+        $request->merge(['email' => CompleteEmail::normalize($request->input('email'))]);
         $data = $request->validate([
-            'email' => ['required', 'email', 'max:100', Rule::unique('users', 'email')->ignore($user->id)],
+            'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')->ignore($user->id)],
         ]);
-        if ($problem = EmailDeliverability::problem($data['email'])) {
-            return response()->json(['success' => false, 'message' => $problem], 422);
-        }
 
         $old = $user->email;
         $user->update(['email' => $data['email'], 'email_bounced_at' => null, 'email_bounce_reason' => null]);
@@ -333,13 +341,8 @@ class CoordinatorMonitoringController extends Controller
         if ($companyId = $request->query('company_id')) {
             $query->whereHas('deployment', fn ($q) => $q->where('company_id', $companyId));
         }
-        if ($search = trim((string) $request->query('search'))) {
-            $query->whereHas('deployment.intern', fn ($q) => $q->where(function ($w) use ($search) {
-                $w->where('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('name', 'like', "%{$search}%");
-            }));
-        }
+        // By first name, last name or the full name ("First Last").
+        $query->internNameLike($request->query('search'));
         if ($from = $request->query('from')) {
             $query->whereDate('attendance_date', '>=', $from);
         }
@@ -371,7 +374,7 @@ class CoordinatorMonitoringController extends Controller
     public function attendance(Request $request): JsonResponse
     {
         $records = $this->filteredAttendanceQuery($request)
-            ->with('deployment.intern', 'deployment.company')
+            ->with('deployment.intern', 'deployment.company', 'redFlagChecker')
             ->orderByDesc('attendance_date')
             ->paginate(10);
 
@@ -391,6 +394,7 @@ class CoordinatorMonitoringController extends Controller
                 'clock_in_distance_m' => $a->clock_in_distance_m,
                 'clock_out_distance_m' => $a->clock_out_distance_m,
                 'location_flags' => array_values(array_unique([...($a->clock_in_location_flags ?? []), ...($a->clock_out_location_flags ?? [])])),
+                ...$a->redFlagPayload(),
                 'attendance_date' => $a->attendance_date?->format('M d, Y'),
                 'session' => $a->session ?: Attendance::FULL,
                 'session_label' => match ($a->session) { Attendance::AM => 'Morning', Attendance::PM => 'Afternoon', default => null },
@@ -775,6 +779,7 @@ class CoordinatorMonitoringController extends Controller
         $query = Evaluation::with(['deployment.intern', 'evaluator', 'scores.criterion'])
             ->whereIn('deployment_id', $deploymentIds)
             ->orderByDesc('evaluation_date');
+        $query->orderByDesc('id');
 
         if ($internId = $request->query('intern_id')) {
             $query->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
@@ -798,6 +803,7 @@ class CoordinatorMonitoringController extends Controller
             'remarks' => $e->remarks,
             'category_comments' => $e->category_comments ?? [],
             'status' => $e->status,
+            'edited_at' => $e->edited_at?->local()?->format('M d, Y'),
             'scores' => $e->scores->map(fn (EvaluationScore $s) => [
                 'criteria_id' => $s->criteria_id,
                 'category' => $s->criterion?->category,
@@ -918,10 +924,11 @@ class CoordinatorMonitoringController extends Controller
     {
         $schoolId = $request->user()->school_id;
 
+        $this->normalizeEmailInput($request, 'contact_email');
         $data = $request->validate([
             'company_name' => 'required|string|max:255',
             'address' => 'nullable|string|max:500',
-            'contact_email' => 'nullable|email|max:255',
+            'contact_email' => ['nullable', 'bail', new CompleteEmail],
             'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
         ]);
 
@@ -950,10 +957,14 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
 
+        // Only a changed address is checked, so an older saved one never blocks
+        // renaming the company or marking it inactive.
+        $this->normalizeEmailInput($request, 'contact_email');
+        $contactChanged = $request->has('contact_email') && $request->input('contact_email') !== (($company->contact_email === null || $company->contact_email === '') ? null : strtolower($company->contact_email));
         $data = $request->validate([
             'company_name' => 'sometimes|required|string|max:255',
             'address' => 'nullable|string|max:500',
-            'contact_email' => 'nullable|email|max:255',
+            'contact_email' => $contactChanged ? ['nullable', 'bail', new CompleteEmail] : ['nullable', 'string', 'max:255'],
             'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'status' => 'sometimes|required|string|in:active,inactive',
         ]);
@@ -1123,10 +1134,11 @@ class CoordinatorMonitoringController extends Controller
     {
         $schoolId = $request->user()->school_id;
 
+        $this->normalizeEmailInput($request);
         $data = $request->validate([
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')],
             'company_id' => 'required|integer',
             'position' => 'nullable|string|max:150',
         ]);
@@ -1148,14 +1160,11 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'supervisor role is not configured.'], 500);
         }
 
-        // Unlike an intern, a supervisor account is created already-active: the
-        // coordinator hands the supervisor this password directly (in person,
-        // by phone, etc.) instead of relying on the supervisor to receive and
-        // act on an invitation email themselves. Fixed to a known default
-        // rather than randomly generated, per product decision.
-        $plainPassword = 'password';
-
-        $user = DB::transaction(function () use ($data, $schoolId, $supervisorRole, $plainPassword) {
+        // Same safe flow as an intern: the account has no password and cannot
+        // log in until the supervisor opens the emailed link and sets their
+        // own — which also proves the address is a real inbox
+        // (InvitationController::accept sets email_verified_at).
+        $user = DB::transaction(function () use ($data, $schoolId, $supervisorRole) {
             $user = User::create([
                 'role_id' => $supervisorRole->id,
                 'school_id' => $schoolId,
@@ -1163,9 +1172,8 @@ class CoordinatorMonitoringController extends Controller
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
                 'email' => $data['email'],
-                'password' => $plainPassword,
-                'status' => 'active',
-                'email_verified_at' => now(),
+                'password' => null,
+                'status' => 'pending_activation',
             ]);
 
             SupervisorProfile::create([
@@ -1178,19 +1186,20 @@ class CoordinatorMonitoringController extends Controller
             return $user;
         });
 
+        $this->sendAccountInvitation($user, 'Supervisor', "at {$company->company_name}", $request->user());
+
         ActivityLogService::record(
             module: 'Companies',
-            action: 'Added supervisor',
-            description: "{$data['first_name']} {$data['last_name']} added as a supervisor at {$company->company_name}.",
+            action: 'Invited supervisor',
+            description: "{$data['first_name']} {$data['last_name']} invited as a supervisor at {$company->company_name}.",
             schoolId: $schoolId,
             request: $request
         );
 
         return response()->json([
             'success' => true,
-            'message' => 'Supervisor account created.',
+            'message' => 'Invitation sent.',
             'email' => $user->email,
-            'temporary_password' => $plainPassword,
         ]);
     }
 
@@ -1208,18 +1217,35 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Supervisor not found.'], 404);
         }
 
+        // The address is only checked when it actually changes, so renaming a
+        // supervisor never trips over a mailbox that was fine when it was added.
+        $this->normalizeEmailInput($request);
+        $emailChanged = $request->has('email') && $request->input('email') !== strtolower($profile->user->email);
         $data = $request->validate([
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
+            'email' => $emailChanged
+                ? ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')->ignore($userId)]
+                : ['required', 'string'],
             'position' => 'nullable|string|max:150',
         ]);
+
+        // A supervisor who has not set up their account has to be re-invited at
+        // the new address, which the "Change email" path does (new link, old
+        // link dead). Changing it silently here would leave the old link live.
+        if ($emailChanged && $profile->user->status === 'pending_activation') {
+            return response()->json([
+                'success' => false,
+                'message' => "This supervisor hasn't set up their account yet. Use \"Change email\" so a new invitation goes to the new address.",
+            ], 422);
+        }
 
         $profile->user->update([
             'first_name' => $data['first_name'],
             'last_name' => $data['last_name'],
             'name' => "{$data['first_name']} {$data['last_name']}",
-            'email' => $data['email'],
+            // An unchanged address keeps its stored spelling.
+            'email' => $emailChanged ? $data['email'] : $profile->user->email,
         ]);
         $profile->update(['position' => $data['position'] ?? null]);
 
@@ -1283,20 +1309,17 @@ class CoordinatorMonitoringController extends Controller
     {
         $schoolId = $request->user()->school_id;
 
+        $this->normalizeEmailInput($request);
         $data = $request->validate([
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')],
             'course' => 'nullable|string|max:150',
             'year_level' => 'nullable|string|max:50',
             'company_id' => 'required|integer',
             'start_date' => InternshipDeployment::startDateRules(),
             'end_date' => 'nullable|date|after_or_equal:start_date',
         ], InternshipDeployment::startDateMessages());
-
-        if ($problem = EmailDeliverability::problem($data['email'])) {
-            return response()->json(['success' => false, 'message' => $problem], 422);
-        }
 
         // Not client-supplied — required hours are a fixed function of the
         // intern's course (see COURSE_HOURS above), never a free input.
@@ -1550,10 +1573,11 @@ class CoordinatorMonitoringController extends Controller
                 }
             }
 
+            $structure = $row['email'] === '' ? null : CompleteEmail::structureProblem($row['email']);
             if ($row['email'] === '') {
                 $rowErrors['email'] = 'Email is required.';
-            } elseif (mb_strlen($row['email']) > 100 || !filter_var($row['email'], FILTER_VALIDATE_EMAIL)) {
-                $rowErrors['email'] = 'Enter a valid email address.';
+            } elseif ($structure || mb_strlen($row['email']) > 100) {
+                $rowErrors['email'] = $structure ?? 'This email address is too long.';
             } elseif (($emailCounts[$row['email']] ?? 0) > 1) {
                 $rowErrors['email'] = 'This email appears more than once in the file.';
             } elseif (isset($accounts[$row['email']])) {

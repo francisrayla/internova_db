@@ -29,7 +29,7 @@ class DeploymentSummaryService
         $tasksTotal = Task::whereHas('assignees', fn ($q) => $q->where('deployment_id', $d->id))->count();
         $tasksDone = Task::whereHas('assignees', fn ($q) => $q->where('deployment_id', $d->id))->where('status', 'completed')->count();
         $pendingAttendance = Attendance::where('deployment_id', $d->id)->where('status', 'pending')->count();
-        $latestEval = Evaluation::where('deployment_id', $d->id)->latest('evaluation_date')->first();
+        $latestEval = Evaluation::officialFor($d->id);
 
         return [
             'deployment_id' => $d->id,

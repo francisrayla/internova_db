@@ -140,6 +140,8 @@ class SupervisorCompanyScopeTest extends TestCase
 
     public function test_either_supervisor_can_evaluate_and_a_stranger_cannot(): void
     {
+        // Evaluations open once the internship is finished.
+        $this->dep->update(['status' => 'completed']);
         $payload = ['deployment_id' => $this->dep->id, 'evaluation_date' => '2026-06-01', 'overall_score' => 90, 'remarks' => 'good'];
         Sanctum::actingAs($this->stranger);
         $this->postJson('/api/supervisor/evaluations/manual', $payload)->assertStatus(404);

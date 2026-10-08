@@ -34,6 +34,7 @@ const HUBS = {
         items: [
           { href: "/coordinator/settings/school", icon: "building", title: "School information", description: "Your school's details. Only the Dean can change them." },
           { href: "/coordinator/settings/narrative", icon: "file", title: "Narrative report layout", description: "Letterhead, cover page and the sections of every intern's report." },
+          { href: "/coordinator/settings/requirements", icon: "list", title: "Requirements per course", description: "Choose which documents the interns of each course must submit." },
         ],
       },
       { heading: "Personal", items: [ACCOUNT("coordinator")] },

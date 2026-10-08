@@ -59,6 +59,7 @@ class NarrativeDocxService
         $this->letterhead($section, $template);
         $this->cover($section, $data, $template);
         $this->titlePage($section, $data, $template);
+        $template['sections'] = self::visibleSections($template['sections'], $data);
         $this->toc($section, $template);
         foreach ($template['sections'] as $s) {
             $section->addText($s['title'], ['bold' => true, 'size' => 14, 'allCaps' => true], [
@@ -80,6 +81,12 @@ class NarrativeDocxService
         }
 
         return $path;
+    }
+
+    /** The evaluation form is only part of the report once the intern has been evaluated (no empty heading otherwise). */
+    private static function visibleSections(array $sections, array $data): array
+    {
+        return array_values(array_filter($sections, fn ($s) => ($s['source'] ?? null) !== 'auto_evaluation' || !empty($data['evaluation'])));
     }
 
     // ---------------------------------------------------------------- header
@@ -419,6 +426,9 @@ class NarrativeDocxService
         foreach ($e['scores'] as $s) {
             $groups[$s['category'] ?? ''][] = $s;
         }
+        $comments = (array) ($e['category_comments'] ?? []);
+        $by = 'Evaluated by: ' . ($e['evaluator_name'] ?: '—') . ($e['evaluation_date'] ? " · {$e['evaluation_date']}" : '');
+        $section->addText($by, [], ['spaceAfter' => 200, 'keepNext' => true]);
         if ($groups) {
             $w = [6240, 1200, 1200];
             $table = $section->addTable($this->tableStyle());
@@ -426,23 +436,26 @@ class NarrativeDocxService
             foreach ($groups as $cat => $rows) {
                 if ($cat !== '') {
                     $table->addRow(null, ['cantSplit' => true]);
-                    $table->addCell(self::TEXT_WIDTH, ['gridSpan' => 3])->addText((string) $cat, ['bold' => true, 'size' => 11]);
+                    $table->addCell(self::TEXT_WIDTH, ['gridSpan' => 3, 'bgColor' => 'EEEEEE'])->addText((string) $cat, ['bold' => true, 'size' => 11]);
                 }
                 foreach ($rows as $r) {
                     $table->addRow(null, ['cantSplit' => true]);
                     $table->addCell($w[0])->addText((string) $r['criterion_name'], ['size' => 11]);
-                    $table->addCell($w[1])->addText((string) $r['score'], ['size' => 11], ['alignment' => Jc::CENTER]);
-                    $table->addCell($w[2])->addText((string) $r['max_score'], ['size' => 11], ['alignment' => Jc::CENTER]);
+                    $table->addCell($w[1])->addText((string) (float) $r['score'], ['size' => 11], ['alignment' => Jc::CENTER]);
+                    $table->addCell($w[2])->addText((string) (float) $r['max_score'], ['size' => 11], ['alignment' => Jc::CENTER]);
+                }
+                if (!empty($comments[$cat])) {
+                    $table->addRow(null, ['cantSplit' => true]);
+                    $table->addCell(self::TEXT_WIDTH, ['gridSpan' => 3])->addText('Comments: ' . $comments[$cat], ['size' => 10, 'italic' => true]);
                 }
             }
         }
-        $rating = $e['overall_score'] !== null ? "{$e['overall_score']}%" : '—';
+        $rating = $e['overall_score'] !== null ? ((float) $e['overall_score']) . '%' : '—';
         $section->addText("Total / Rating: {$rating}", ['bold' => true], ['spaceBefore' => 280]);
         if (!empty($e['remarks'])) {
-            $section->addText("Remarks: {$e['remarks']}", [], ['alignment' => Jc::BOTH, 'spaceBefore' => 120]);
+            $label = $groups ? 'Areas to focus on for development: ' : 'Remarks: ';
+            $section->addText($label . $e['remarks'], [], ['alignment' => Jc::BOTH, 'spaceBefore' => 120]);
         }
-        $by = 'Evaluated by: ' . ($e['evaluator_name'] ?: '—') . ($e['evaluation_date'] ? " · {$e['evaluation_date']}" : '');
-        $section->addText($by, [], ['spaceBefore' => 200]);
     }
 
     private function fixedText($section, array $s, array $data, array $template): void

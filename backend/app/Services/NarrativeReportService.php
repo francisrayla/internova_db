@@ -41,6 +41,15 @@ class NarrativeReportService
             'student_name' => $studentName,
         ]);
 
+        // The sections that are documents follow what the intern's course requires (see
+        // CourseRequirementService::applyToSections): a type that is not required and has no upload is left out.
+        $allDocs = Document::where('deployment_id', $d->id)->orderByDesc('id')->get();
+        $template['sections'] = CourseRequirementService::applyToSections(
+            $template['sections'],
+            CourseRequirementService::forSchool($school)->typesFor($profile?->course),
+            $allDocs->map(fn (Document $x) => CourseRequirementService::norm($x->document_type))->unique()->values()->all()
+        );
+
         $approved = Attendance::where('deployment_id', $d->id)
             ->where('status', 'approved')
             ->orderBy('attendance_date')
@@ -59,11 +68,8 @@ class NarrativeReportService
             ->get();
 
         $portfolio = Portfolio::with('items')->where('intern_id', $d->intern_id)->first();
-        $evaluation = Evaluation::with(['evaluator', 'scores.criterion'])
-            ->where('deployment_id', $d->id)
-            ->latest('evaluation_date')
-            ->latest('id')
-            ->first();
+        // The intern's one evaluation (the official one if older data holds several).
+        $evaluation = Evaluation::officialQuery($d->id)->with(['evaluator', 'scores.criterion'])->first();
 
         $disk = Storage::disk('public');
         $url = fn (?string $path) => $path ? $disk->url($path) : null;
@@ -189,25 +195,24 @@ class NarrativeReportService
                 'project_url' => $i->project_url,
             ])->values(),
             'evaluation' => $evaluation ? self::mapEvaluation($evaluation) : null,
-            'documents' => self::matchDocuments($d->id, $template['sections']),
+            'documents' => self::matchDocuments($allDocs, $template['sections']),
             'texts' => $portfolio?->report_texts ?? (object) [],
         ];
     }
 
     /**
      * Document per `document` section, keyed by section key: type matched
-     * case-insensitively, approved preferred, otherwise the latest upload.
+     * case-insensitively (trimmed, inner spaces collapsed), approved preferred, otherwise the latest upload.
      */
-    private static function matchDocuments(int $deploymentId, array $sections): array
+    private static function matchDocuments($docs, array $sections): array
     {
-        $docs = Document::where('deployment_id', $deploymentId)->orderByDesc('id')->get();
         $out = [];
         foreach ($sections as $s) {
             if (($s['source'] ?? null) !== 'document') {
                 continue;
             }
-            $type = mb_strtolower(trim($s['document_type'] ?? $s['title']));
-            $matches = $docs->filter(fn (Document $x) => mb_strtolower(trim($x->document_type)) === $type);
+            $type = CourseRequirementService::norm($s['document_type'] ?? $s['title']);
+            $matches = $docs->filter(fn (Document $x) => CourseRequirementService::norm($x->document_type) === $type);
             $doc = $matches->firstWhere('status', 'approved') ?? $matches->first();
             $out[$s['key']] = $doc ? [
                 'id' => $doc->id,

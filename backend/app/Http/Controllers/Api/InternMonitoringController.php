@@ -727,9 +727,16 @@ class InternMonitoringController extends Controller
             'clock_in_distance_m' => $check['distance_m'],
             'clock_in_accuracy_m' => $check['accuracy_m'],
             'clock_in_location_flags' => $check['flags'] ?: null,
+            // An unusual hour (by the resolved clock time, so an offline entry counts when it really happened).
+            'clock_in_odd_hours' => Attendance::isOddHour($clockTime),
             'status' => 'approved',
         ]);
         $attendance->save();
+
+        if ($attendance->clock_in_odd_hours) {
+            // The attendance is already saved: a failed notification must never undo or fail the clock-in.
+            rescue(fn () => $attendance->notifyOddHoursClockIn());
+        }
 
         $what = $session === Attendance::FULL ? 'clocked in' : 'recorded ' . strtolower(AttendanceSessions::label($session, 'clock_in'));
 
@@ -789,6 +796,10 @@ class InternMonitoringController extends Controller
             'clock_out_location_flags' => $check['flags'] ?: null,
             'status' => 'approved',
         ]);
+        // A new red location flag on the time-out is news even if the supervisor already checked the time-in.
+        if (array_intersect($check['flags'], Attendance::RED_LOCATION_FLAGS) && $attendance->red_flag_checked_at) {
+            $attendance->update(['red_flag_checked_by' => null, 'red_flag_checked_at' => null]);
+        }
 
         $what = $attendance->session === Attendance::FULL ? 'clocked out' : 'recorded ' . strtolower(AttendanceSessions::label($attendance->session, 'clock_out'));
 
@@ -1062,6 +1073,7 @@ class InternMonitoringController extends Controller
                 'overall_score' => $e->overall_score,
                 'remarks' => $e->remarks,
                 'category_comments' => $e->category_comments ?? [],
+                'edited_at' => $e->edited_at?->local()?->format('M d, Y'),
                 'scores' => $e->scores->map(fn (EvaluationScore $s) => [
                     'category' => $s->criterion?->category,
                     'criterion_name' => $s->criterion?->name,

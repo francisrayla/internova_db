@@ -53,7 +53,9 @@ function sectionStatus(section, report) {
 }
 
 export default function NarrativeChecklist({ report, title = "Narrative report requirements" }) {
+  // A document the intern's course does not require (kept in the report only because it was uploaded) is not a requirement.
   const rows = (report?.template?.sections ?? [])
+    .filter((section) => !(section.source === "document" && section.required === false))
     .map((section) => ({ section, status: sectionStatus(section, report) }))
     .filter((r) => r.status);
   if (rows.length === 0) return null;

@@ -29,6 +29,7 @@ use App\Services\TaskRatingAverage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -569,8 +570,10 @@ class SupervisorMonitoringController extends Controller
         $supervisorId = $request->user()->id;
         $deploymentIds = $this->deploymentIdsForSupervisor($request->user());
 
-        $query = Attendance::with('deployment.intern')
+        // Red flags nobody has checked yet come first, then the usual newest-first order.
+        $query = Attendance::with('deployment.intern', 'redFlagChecker')
             ->whereIn('deployment_id', $deploymentIds)
+            ->pinUncheckedFlags()
             ->orderByDesc('attendance_date')
             ->orderByDesc('id');
 
@@ -580,6 +583,7 @@ class SupervisorMonitoringController extends Controller
         if ($internId = $request->query('intern_id')) {
             $query->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
         }
+        $query->internNameLike($request->query('search'))->flagged($request->query('flag'));
 
         $records = $query->paginate(20);
 
@@ -604,6 +608,7 @@ class SupervisorMonitoringController extends Controller
                 'clock_in_distance_m' => $a->clock_in_distance_m,
                 'clock_out_distance_m' => $a->clock_out_distance_m,
                 'location_flags' => array_values(array_unique([...($a->clock_in_location_flags ?? []), ...($a->clock_out_location_flags ?? [])])),
+                ...$a->redFlagPayload(),
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
                 'status' => $a->status,
                 // A time-out the system filled in (the intern forgot) can be corrected by the supervisor.
@@ -803,6 +808,33 @@ class SupervisorMonitoringController extends Controller
         return response()->json(['success' => true, 'message' => 'Time corrected.', 'hours' => $hours]);
     }
 
+    /**
+     * The supervisor has looked at a red-flagged record (the odd-hours clock-in or the suspicious location).
+     * It stops being pinned to the top of the list but keeps its red badge, and who/when is stored.
+     */
+    public function checkRedFlag(Request $request, int $id): JsonResponse
+    {
+        $attendance = Attendance::with('deployment.intern')->whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))->find($id);
+        if (!$attendance) {
+            return response()->json(['success' => false, 'message' => 'Attendance record not found.'], 404);
+        }
+        if (!$attendance->red_flag) {
+            return response()->json(['success' => false, 'message' => 'This record has no red flag.'], 422);
+        }
+        if ($attendance->red_flag_checked_at === null) {
+            $attendance->update(['red_flag_checked_by' => $request->user()->id, 'red_flag_checked_at' => now()]);
+            ActivityLogService::record(
+                module: 'Attendance',
+                action: 'Checked a red flag',
+                description: "Red flag on attendance #{$attendance->id} ({$attendance->attendance_date->format('M d, Y')}) was marked as checked.",
+                schoolId: $attendance->deployment?->school_id,
+                request: $request
+            );
+        }
+
+        return response()->json(['success' => true, 'message' => 'Marked as checked.']);
+    }
+
     public function reviewAttendance(Request $request, int $id): JsonResponse
     {
         $supervisorId = $request->user()->id;
@@ -900,20 +932,93 @@ class SupervisorMonitoringController extends Controller
 
     public function evaluations(Request $request): JsonResponse
     {
-        $supervisorId = $request->user()->id;
         $deploymentIds = $this->deploymentIdsForSupervisor($request->user());
 
-        $query = Evaluation::with(['deployment.intern', 'evaluator', 'scores.criterion'])
+        $query = Evaluation::with(['deployment.intern', 'evaluator', 'editor', 'scores.criterion'])
             ->whereIn('deployment_id', $deploymentIds)
-            ->orderByDesc('evaluation_date');
+            ->orderByDesc('evaluation_date')
+            ->orderByDesc('id');
 
         if ($internId = $request->query('intern_id')) {
             $query->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
         }
 
-        $evaluations = $query->get()->map(fn (Evaluation $e) => $this->mapEvaluation($e));
+        // Each intern is meant to have one evaluation; when older data holds several, the first one
+        // per deployment in this ordering is the official one (see Evaluation::officialQuery).
+        $all = $query->get();
+        $officialIds = $all->unique('deployment_id')->pluck('id')->flip();
+        $evaluations = $all->map(fn (Evaluation $e) => $this->mapEvaluation($e) + ['is_official' => isset($officialIds[$e->id])]);
 
-        return response()->json(['evaluations' => $evaluations, 'interns' => $this->internOptions($request->user())]);
+        return response()->json(['evaluations' => $evaluations, 'interns' => $this->evaluationInternOptions($request->user())]);
+    }
+
+    /**
+     * The interns this supervisor can rate, with whether they can be rated yet. An intern who has
+     * not rendered the required hours (or who already has an evaluation) stays in the list so the
+     * supervisor sees why they cannot be picked.
+     */
+    private function evaluationInternOptions(User $user): array
+    {
+        $deployments = InternshipDeployment::with('intern')
+            ->visibleToSupervisor($user)
+            ->accountSetUp()
+            ->whereIn('status', ['active', 'completed'])
+            ->get();
+
+        $existing = Evaluation::whereIn('deployment_id', $deployments->pluck('id'))
+            ->orderByDesc('evaluation_date')->orderByDesc('id')
+            ->get(['id', 'deployment_id'])
+            ->groupBy('deployment_id');
+
+        return $deployments->map(function (InternshipDeployment $d) use ($existing) {
+            $block = $this->evaluationBlock($d, $existing->has($d->id));
+
+            return [
+                'deployment_id' => $d->id,
+                'user_id' => $d->intern_id,
+                'name' => $this->internDisplayName($d),
+                'starts_on' => $d->hasStartedOn() ? null : $d->start_date->toDateString(),
+                'starts_on_label' => $d->hasStartedOn() ? null : $d->start_date->format('M j, Y'),
+                'approved_hours' => round($d->approvedHours(), 1),
+                'required_hours' => (int) $d->required_hours,
+                'finished' => $d->isFinished(),
+                'evaluation_id' => $existing->get($d->id)?->first()->id,
+                'evaluation_count' => $existing->get($d->id)?->count() ?? 0,
+                'can_evaluate' => $block === null,
+                'block_code' => $block['code'] ?? null,
+                'block_reason' => $block['message'] ?? null,
+            ];
+        })->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)->values()->all();
+    }
+
+    private function internDisplayName(InternshipDeployment $d): ?string
+    {
+        return trim("{$d->intern?->first_name} {$d->intern?->last_name}") ?: $d->intern?->name;
+    }
+
+    /**
+     * Why this intern cannot get a new evaluation, or null when they can: the required hours must be
+     * rendered first (the same finish rule that closes attendance), and there is one evaluation per
+     * intern, so a second one is refused and the existing one is edited instead.
+     *
+     * @return array{code:string,message:string}|null
+     */
+    private function evaluationBlock(InternshipDeployment $d, bool $alreadyEvaluated): ?array
+    {
+        $name = $this->internDisplayName($d) ?? 'This intern';
+        if ($alreadyEvaluated) {
+            return ['code' => 'already_evaluated', 'message' => "{$name} already has an evaluation. Open it in the list and use Edit to change it."];
+        }
+        if (!$d->isFinished()) {
+            $required = (int) $d->required_hours;
+            $rendered = round($d->approvedHours(), 1);
+
+            return ['code' => 'not_finished', 'message' => $required > 0
+                ? "{$name} has rendered {$rendered} of {$required} required hours. An evaluation can only be recorded once the required hours are completed."
+                : "{$name} has no required hours set yet, so the internship cannot be marked finished. Ask the coordinator to set the required hours."];
+        }
+
+        return null;
     }
 
     private function mapEvaluation(Evaluation $e): array
@@ -925,10 +1030,13 @@ class SupervisorMonitoringController extends Controller
             'evaluator_name' => $e->evaluator?->name,
             'evaluation_type' => $e->evaluation_type,
             'evaluation_date' => $e->evaluation_date?->format('M d, Y'),
+            'evaluation_date_raw' => $e->evaluation_date?->format('Y-m-d'),
             'overall_score' => $e->overall_score,
             'remarks' => $e->remarks,
             'category_comments' => $e->category_comments ?? [],
             'status' => $e->status,
+            'edited_at' => $e->edited_at?->local()?->format('M d, Y'),
+            'edited_by_name' => $e->edited_at ? $e->editor?->name : null,
             'scores' => $e->scores->map(fn (EvaluationScore $s) => [
                 'criteria_id' => $s->criteria_id,
                 'category' => $s->criterion?->category,
@@ -940,10 +1048,46 @@ class SupervisorMonitoringController extends Controller
         ];
     }
 
+    /**
+     * Weighted overall score (0-100) for a set of criterion scores, or an error message when a score
+     * is above its criterion's maximum.
+     *
+     * @return array{0:?float,1:?string} [overall, error]
+     */
+    private function weightedOverall(array $scores, $criteria): array
+    {
+        $totalWeight = $criteria->sum('weight');
+        $weightedSum = 0;
+        foreach ($scores as $s) {
+            $criterion = $criteria->get($s['criteria_id']);
+            if ((float) $s['score'] > (float) $criterion->max_score) {
+                return [null, "The score for \"{$criterion->name}\" cannot be higher than {$criterion->max_score}."];
+            }
+            $normalized = $criterion->max_score > 0 ? ($s['score'] / $criterion->max_score) * 100 : 0;
+            $weightedSum += $normalized * $criterion->weight;
+        }
+
+        return [$totalWeight > 0 ? round($weightedSum / $totalWeight, 2) : null, null];
+    }
+
+    /** Loads the criteria a score list refers to (they must all belong to the school), keyed by id; null if any does not. */
+    private function criteriaForScores(array $scores, int $schoolId)
+    {
+        $ids = collect($scores)->pluck('criteria_id');
+        $criteria = EvaluationCriterion::whereIn('id', $ids)->where('school_id', $schoolId)->get()->keyBy('id');
+
+        return $criteria->count() === $ids->unique()->count() ? $criteria : null;
+    }
+
+    private function noFormalEvaluationsResponse(): JsonResponse
+    {
+        return response()->json(['success' => false, 'message' => 'Formal, criteria-based evaluations aren\'t included in your school\'s current plan. Use the manual evaluation instead.'], 403);
+    }
+
     public function storeEvaluation(Request $request): JsonResponse
     {
         if (!PlanFeatures::has($request->user()->school, PlanFeatures::FORMAL_EVALUATIONS)) {
-            return response()->json(['success' => false, 'message' => 'Formal, criteria-based evaluations aren\'t included in your school\'s current plan. Use the manual evaluation instead.'], 403);
+            return $this->noFormalEvaluationsResponse();
         }
 
         $supervisorId = $request->user()->id;
@@ -951,7 +1095,9 @@ class SupervisorMonitoringController extends Controller
 
         $data = $request->validate([
             'deployment_id' => 'required|integer',
-            'evaluation_type' => 'required|string|max:100',
+            // There is one evaluation per intern now, so the type is no longer chosen; it stays on the row
+            // ("Final" unless an older client still sends one).
+            'evaluation_type' => 'nullable|string|max:100',
             'evaluation_date' => 'required|date',
             'remarks' => 'nullable|string|max:1000',
             'category_comments' => 'nullable|array',
@@ -961,54 +1107,60 @@ class SupervisorMonitoringController extends Controller
             'scores.*.score' => 'required|numeric|min:0',
             'scores.*.remarks' => 'nullable|string|max:500',
         ]);
+        $type = trim((string) ($data['evaluation_type'] ?? '')) ?: 'Final';
 
         $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
             return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
         }
 
-        $criteria = EvaluationCriterion::whereIn('id', collect($data['scores'])->pluck('criteria_id'))
-            ->where('school_id', $schoolId)
-            ->get()
-            ->keyBy('id');
-
-        if ($criteria->count() !== count($data['scores'])) {
+        $criteria = $this->criteriaForScores($data['scores'], $schoolId);
+        if ($criteria === null) {
             return response()->json(['success' => false, 'message' => 'One or more criteria do not belong to your school.'], 422);
         }
-
-        $totalWeight = $criteria->sum('weight');
-        $weightedSum = 0;
-        foreach ($data['scores'] as $s) {
-            $criterion = $criteria->get($s['criteria_id']);
-            $normalized = $criterion->max_score > 0 ? ($s['score'] / $criterion->max_score) * 100 : 0;
-            $weightedSum += $normalized * $criterion->weight;
+        [$overallScore, $scoreError] = $this->weightedOverall($data['scores'], $criteria);
+        if ($scoreError) {
+            return response()->json(['success' => false, 'message' => $scoreError], 422);
         }
-        $overallScore = $totalWeight > 0 ? round($weightedSum / $totalWeight, 2) : null;
 
-        $evaluation = Evaluation::create([
-            'deployment_id' => $deployment->id,
-            'evaluator_id' => $supervisorId,
-            'evaluation_type' => $data['evaluation_type'],
-            'evaluation_date' => $data['evaluation_date'],
-            'overall_score' => $overallScore,
-            'remarks' => $data['remarks'] ?? null,
-            'category_comments' => $data['category_comments'] ?? null,
-            'status' => 'submitted',
-        ]);
+        // Locking the deployment row makes two submits at the same moment line up, so the second one
+        // sees the first evaluation and is refused instead of creating a duplicate.
+        $result = DB::transaction(function () use ($deployment, $data, $type, $overallScore, $supervisorId) {
+            $locked = InternshipDeployment::where('id', $deployment->id)->lockForUpdate()->first();
+            if ($block = $this->evaluationBlock($locked, Evaluation::where('deployment_id', $locked->id)->exists())) {
+                return $block;
+            }
 
-        foreach ($data['scores'] as $s) {
-            EvaluationScore::create([
-                'evaluation_id' => $evaluation->id,
-                'criteria_id' => $s['criteria_id'],
-                'score' => $s['score'],
-                'remarks' => $s['remarks'] ?? null,
+            $evaluation = Evaluation::create([
+                'deployment_id' => $locked->id,
+                'evaluator_id' => $supervisorId,
+                'evaluation_type' => $type,
+                'evaluation_date' => $data['evaluation_date'],
+                'overall_score' => $overallScore,
+                'remarks' => $data['remarks'] ?? null,
+                'category_comments' => $data['category_comments'] ?? null,
+                'status' => 'submitted',
             ]);
+            foreach ($data['scores'] as $s) {
+                EvaluationScore::create([
+                    'evaluation_id' => $evaluation->id,
+                    'criteria_id' => $s['criteria_id'],
+                    'score' => $s['score'],
+                    'remarks' => $s['remarks'] ?? null,
+                ]);
+            }
+
+            return $evaluation;
+        });
+        if (is_array($result)) {
+            return response()->json(['success' => false, 'code' => $result['code'], 'message' => $result['message']], 422);
         }
+        $evaluation = $result;
 
         ActivityLogService::record(
             module: 'Evaluations',
             action: 'Submitted evaluation',
-            description: "{$data['evaluation_type']} evaluation for {$deployment->intern?->name} — score {$overallScore}.",
+            description: "Evaluation for {$deployment->intern?->name} — score {$overallScore}.",
             schoolId: $schoolId,
             request: $request
         );
@@ -1019,7 +1171,7 @@ class SupervisorMonitoringController extends Controller
             $schoolId,
             'evaluation_submitted',
             'New evaluation received',
-            "{$data['evaluation_type']} evaluation — overall score {$overallScore}%.",
+            "Evaluation — overall score {$overallScore}%.",
             '/intern/evaluations'
         );
 
@@ -1050,15 +1202,26 @@ class SupervisorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'This intern is not at your company.'], 404);
         }
 
-        $evaluation = Evaluation::create([
-            'deployment_id' => $deployment->id,
-            'evaluator_id' => $supervisorId,
-            'evaluation_type' => 'Manual',
-            'evaluation_date' => $data['evaluation_date'],
-            'overall_score' => $data['overall_score'],
-            'remarks' => $data['remarks'] ?? null,
-            'status' => 'submitted',
-        ]);
+        $result = DB::transaction(function () use ($deployment, $data, $supervisorId) {
+            $locked = InternshipDeployment::where('id', $deployment->id)->lockForUpdate()->first();
+            if ($block = $this->evaluationBlock($locked, Evaluation::where('deployment_id', $locked->id)->exists())) {
+                return $block;
+            }
+
+            return Evaluation::create([
+                'deployment_id' => $locked->id,
+                'evaluator_id' => $supervisorId,
+                'evaluation_type' => 'Manual',
+                'evaluation_date' => $data['evaluation_date'],
+                'overall_score' => $data['overall_score'],
+                'remarks' => $data['remarks'] ?? null,
+                'status' => 'submitted',
+            ]);
+        });
+        if (is_array($result)) {
+            return response()->json(['success' => false, 'code' => $result['code'], 'message' => $result['message']], 422);
+        }
+        $evaluation = $result;
 
         ActivityLogService::record(
             module: 'Evaluations',
@@ -1079,6 +1242,115 @@ class SupervisorMonitoringController extends Controller
         );
 
         return response()->json(['success' => true, 'message' => 'Evaluation submitted.', 'id' => $evaluation->id]);
+    }
+
+    /**
+     * Change an evaluation after it was submitted. Any supervisor of the company can do it, at any time
+     * (same scoping as creating one). Both kinds are editable: a criteria-based evaluation sends every
+     * criterion score again (suggested Technical Ability scores are only suggestions, any value up to the
+     * criterion's maximum is accepted, as when creating); one without a breakdown sends its overall score.
+     * The total is recomputed, evaluator_id stays the original evaluator, and edited_at / edited_by record
+     * the change. The intern is told.
+     */
+    public function updateEvaluation(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $schoolId = $user->school_id;
+
+        $evaluation = Evaluation::with(['deployment.intern', 'scores'])
+            ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($user))
+            ->find($id);
+        if (!$evaluation) {
+            return response()->json(['success' => false, 'message' => 'Evaluation not found.'], 404);
+        }
+
+        $formal = $request->has('scores');
+        if (!$formal && $evaluation->scores->isNotEmpty()) {
+            return response()->json(['success' => false, 'message' => 'This evaluation is scored per criterion, so every criterion score is needed.'], 422);
+        }
+
+        $before = $evaluation->overall_score;
+        if ($formal) {
+            if (!PlanFeatures::has($user->school, PlanFeatures::FORMAL_EVALUATIONS)) {
+                return $this->noFormalEvaluationsResponse();
+            }
+            $data = $request->validate([
+                'evaluation_date' => 'required|date',
+                'remarks' => 'nullable|string|max:1000',
+                'category_comments' => 'nullable|array',
+                'category_comments.*' => 'nullable|string|max:500',
+                'scores' => 'required|array|min:1',
+                'scores.*.criteria_id' => 'required|integer|exists:evaluation_criteria,id',
+                'scores.*.score' => 'required|numeric|min:0',
+                'scores.*.remarks' => 'nullable|string|max:500',
+            ]);
+            $criteria = $this->criteriaForScores($data['scores'], $schoolId);
+            if ($criteria === null) {
+                return response()->json(['success' => false, 'message' => 'One or more criteria do not belong to your school.'], 422);
+            }
+            [$overallScore, $scoreError] = $this->weightedOverall($data['scores'], $criteria);
+            if ($scoreError) {
+                return response()->json(['success' => false, 'message' => $scoreError], 422);
+            }
+
+            // A manual evaluation that is now scored per criterion becomes a regular one.
+            $type = $evaluation->scores->isEmpty() && strcasecmp((string) $evaluation->evaluation_type, 'Manual') === 0 ? 'Final' : $evaluation->evaluation_type;
+            DB::transaction(function () use ($evaluation, $data, $overallScore, $type, $user) {
+                $evaluation->update([
+                    'evaluation_date' => $data['evaluation_date'],
+                    'evaluation_type' => $type,
+                    'overall_score' => $overallScore,
+                    'remarks' => $data['remarks'] ?? null,
+                    'category_comments' => $data['category_comments'] ?? null,
+                    'edited_at' => now(),
+                    'edited_by' => $user->id,
+                ]);
+                $evaluation->scores()->delete();
+                foreach ($data['scores'] as $s) {
+                    EvaluationScore::create([
+                        'evaluation_id' => $evaluation->id,
+                        'criteria_id' => $s['criteria_id'],
+                        'score' => $s['score'],
+                        'remarks' => $s['remarks'] ?? null,
+                    ]);
+                }
+            });
+        } else {
+            $data = $request->validate([
+                'evaluation_date' => 'required|date',
+                'overall_score' => 'required|numeric|min:0|max:100',
+                'remarks' => 'nullable|string|max:2000',
+            ]);
+            $overallScore = $data['overall_score'];
+            $evaluation->update([
+                'evaluation_date' => $data['evaluation_date'],
+                'overall_score' => $overallScore,
+                'remarks' => $data['remarks'] ?? null,
+                'edited_at' => now(),
+                'edited_by' => $user->id,
+            ]);
+        }
+
+        $internName = $evaluation->deployment?->intern?->name;
+        ActivityLogService::record(
+            module: 'Evaluations',
+            action: 'Edited evaluation',
+            description: "Evaluation for {$internName} edited — score " . ($before !== null ? (float) $before : '—') . " to {$overallScore}.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        NotificationService::toUser(
+            'intern',
+            $evaluation->deployment->intern_id,
+            $schoolId,
+            'evaluation_updated',
+            'Your evaluation was updated',
+            "Your supervisor updated your evaluation — overall score {$overallScore}%.",
+            '/intern/evaluations'
+        );
+
+        return response()->json(['success' => true, 'message' => 'Evaluation updated.', 'id' => $evaluation->id]);
     }
 
     // ---------------------------------------------------------------

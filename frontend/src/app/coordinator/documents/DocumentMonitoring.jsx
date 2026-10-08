@@ -15,7 +15,26 @@ const STATUS_STYLES = {
 
 
 function UploadModal({ interns, onClose, onSaved }) {
-  const [form, setForm] = useState({ deployment_id: interns[0]?.deployment_id ?? "", document_type: "Endorsement Letter" });
+  const [form, setForm] = useState({ deployment_id: interns[0]?.deployment_id ?? "", document_type: "" });
+  // The chosen intern's course requirements first, then the other types (null until loaded: built-in list).
+  const [types, setTypes] = useState(null);
+  const [typesKey, setTypesKey] = useState(0);
+
+  useEffect(() => {
+    if (!form.deployment_id) return;
+    let live = true;
+    fetchCoordinatorData(`document-types?deployment_id=${form.deployment_id}`)
+      .then((d) => {
+        if (!live) return;
+        setTypes({ required: (d.requirements ?? []).map((r) => r.document_type), others: d.others ?? [] });
+        setTypesKey((k) => k + 1);
+        setForm((f) => ({ ...f, document_type: d.requirements?.[0]?.document_type ?? "" }));
+      })
+      .catch(() => live && setTypes(null));
+    return () => {
+      live = false;
+    };
+  }, [form.deployment_id]);
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -61,7 +80,7 @@ function UploadModal({ interns, onClose, onSaved }) {
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Document type</span>
-            <DocumentTypeField value={form.document_type} onChange={(v) => setForm((f) => ({ ...f, document_type: v }))} />
+            <DocumentTypeField key={typesKey} options={types ?? undefined} value={form.document_type} onChange={(v) => setForm((f) => ({ ...f, document_type: v }))} />
           </label>
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">File</span>

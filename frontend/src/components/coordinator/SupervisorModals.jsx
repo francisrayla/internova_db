@@ -4,30 +4,40 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import EmailField from "@/components/EmailField";
+import { emailProblem, normalizeEmail, serverFieldError } from "@/lib/emailCheck";
 
 export function AddSupervisorModal({ companyId, companyName, onClose, onSaved }) {
   const [form, setForm] = useState({ first_name: "", last_name: "", email: "", position: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [attempted, setAttempted] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setAttempted(true);
     if (!form.first_name.trim() || !form.last_name.trim()) return setError("Enter the supervisor's full name.");
-    if (!/\S+@\S+\.\S+/.test(form.email)) return setError("Enter a valid email address.");
+    if (!form.email.trim()) return setError("Enter the supervisor's email address.");
+    if (emailProblem(form.email)) return setError("");
 
     setSaving(true);
     setError("");
+    setEmailError("");
     try {
       const res = await apiFetch("/api/coordinator/supervisors", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, company_id: companyId }),
+        body: JSON.stringify({ ...form, email: normalizeEmail(form.email), company_id: companyId }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not add supervisor.");
-      setCreated({ email: data.email, password: data.temporary_password });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const fieldMessage = serverFieldError(data, "email");
+        if (fieldMessage) return setEmailError(fieldMessage);
+        throw new Error(data.message || "Could not add supervisor.");
+      }
+      setCreated({ email: data.email });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -35,38 +45,18 @@ export function AddSupervisorModal({ companyId, companyName, onClose, onSaved })
     }
   }
 
-  async function copyCredentials() {
-    const text = `Email: ${created.email}\nPassword: ${created.password}`;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   if (created) {
     return (
       <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
         <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-          <h3 className="text-base font-semibold text-slate-900">Supervisor account created</h3>
-          <p className="mt-1 text-sm text-slate-600">
-            The account is active right away. Share these sign-in details with the supervisor yourself — this password is shown only once and can&apos;t be viewed again after you close this window.
+          <h3 className="text-base font-semibold text-slate-900">Invitation sent</h3>
+          <p className="mt-1 break-words text-sm text-slate-600">
+            Invitation sent to <span className="font-medium text-slate-900">{created.email}</span>. They will set their own password from the link.
           </p>
-          <div className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <div className="flex justify-between gap-3">
-              <span className="text-slate-500">Email</span>
-              <span className="font-medium text-slate-900">{created.email}</span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-slate-500">Temporary password</span>
-              <span className="font-mono font-semibold text-slate-900">{created.password}</span>
-            </div>
-          </div>
+          <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            Until they open the link the supervisor shows as Pending and cannot sign in. If the email does not arrive, use Resend invitation or Change email in the supervisor&apos;s menu.
+          </p>
           <div className="mt-4 flex items-center justify-end gap-2">
-            <button type="button" onClick={copyCredentials} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              {copied ? "Copied!" : "Copy details"}
-            </button>
             <button type="button" onClick={onSaved} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Done</button>
           </div>
         </div>
@@ -90,11 +80,14 @@ export function AddSupervisorModal({ companyId, companyName, onClose, onSaved })
               <input {...inputProps("personName")} value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
           </div>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-            <input {...inputProps("email")} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="supervisor@example.com" />
-            <span className="mt-1 block text-xs text-slate-400">Used as their sign-in email. The account is created active with a password you&apos;ll hand them yourself.</span>
-          </label>
+          <EmailField
+            value={form.email}
+            onChange={(email) => { setForm((f) => ({ ...f, email })); setEmailError(""); }}
+            serverError={emailError}
+            showErrors={attempted}
+            placeholder="supervisor@example.com"
+            help="Their sign-in email. We email them a link to set their own password."
+          />
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Position</span>
             <select value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
@@ -106,7 +99,7 @@ export function AddSupervisorModal({ companyId, companyName, onClose, onSaved })
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Creating…" : "Create account"}</button>
+            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Sending…" : "Send invitation"}</button>
           </div>
         </form>
       </div>
@@ -128,22 +121,37 @@ export function EditSupervisorModal({ supervisor, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [attempted, setAttempted] = useState(false);
+  // Someone who has not set up their account yet is re-invited through "Change email" instead.
+  const awaitingSetup = supervisor.status === "pending" || supervisor.status === "bounced";
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setAttempted(true);
     if (!form.first_name.trim() || !form.last_name.trim()) return setError("Enter the supervisor's full name.");
-    if (!/\S+@\S+\.\S+/.test(form.email)) return setError("Enter a valid email address.");
+    if (!form.email.trim()) return setError("Enter the supervisor's email address.");
+    if (emailProblem(form.email)) return setError("");
 
     setSaving(true);
     setError("");
+    setEmailError("");
     try {
       const res = await apiFetch(`/api/coordinator/supervisors/${supervisor.user_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, email: normalizeEmail(form.email) }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not update supervisor.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const fieldMessage = serverFieldError(data, "email");
+        if (fieldMessage) {
+          setEmailError(fieldMessage);
+          setSaving(false);
+          return;
+        }
+        throw new Error(data.message || "Could not update supervisor.");
+      }
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -183,10 +191,14 @@ export function EditSupervisorModal({ supervisor, onClose, onSaved }) {
               <input {...inputProps("personName")} value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: clean("personName", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
             </label>
           </div>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-            <input {...inputProps("email")} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: clean("email", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-          </label>
+          <EmailField
+            value={form.email}
+            onChange={(email) => { setForm((f) => ({ ...f, email })); setEmailError(""); }}
+            serverError={emailError}
+            showErrors={attempted}
+            disabled={awaitingSetup}
+            help={awaitingSetup ? "Not set up yet. To change the email, close this and use Change email so a new invitation is sent." : null}
+          />
           <label className="block text-sm">
             <span className="mb-1.5 block font-semibold text-slate-700">Position</span>
             <select value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">

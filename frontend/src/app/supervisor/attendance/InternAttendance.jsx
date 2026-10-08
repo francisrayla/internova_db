@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { inputProps } from "@/lib/inputRules";
+import RedFlagBadge from "@/components/RedFlagBadge";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
@@ -148,30 +151,78 @@ function LogAttendanceModal({ interns, mode, onClose, onSaved }) {
   );
 }
 
+const FLAG_FILTERS = ["red", "unchecked"];
+
 export default function InternAttendance() {
+  const urlParams = useSearchParams();
   const [records, setRecords] = useState([]);
   const [interns, setInterns] = useState([]);
   const [mode, setMode] = useState("single");
   const [statusFilter, setStatusFilter] = useState("");
+  // The notification about an odd-hours clock-in links here with ?flag=unchecked.
+  const [flagFilter, setFlagFilter] = useState(() => (FLAG_FILTERS.includes(urlParams.get("flag")) ? urlParams.get("flag") : ""));
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [editing, setEditing] = useState(null);
+  const requestRef = useRef(0);
 
-  function load() {
-    const params = statusFilter ? `?status=${statusFilter}` : "";
-    fetchSupervisorData(`attendance${params}`)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Reloads the list from page 1 (filters changed or something was updated), or appends the next page.
+  function load(nextPage = 1) {
+    const params = new URLSearchParams({ page: String(nextPage) });
+    if (statusFilter) params.set("status", statusFilter);
+    if (flagFilter) params.set("flag", flagFilter);
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    const request = ++requestRef.current; // a slower, older answer must not replace a newer one
+    fetchSupervisorData(`attendance?${params}`)
       .then((r) => {
-        setRecords(r.records ?? []);
+        if (request !== requestRef.current) return;
+        setRecords((prev) => (nextPage > 1 ? [...prev, ...(r.records ?? [])] : r.records ?? []));
+        setHasMore(Boolean(r.has_more));
+        setPage(nextPage);
         setInterns(r.interns ?? []);
         setMode(r.attendance_mode ?? "single");
+        setError("");
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => request === requestRef.current && setError(e.message))
+      .finally(() => {
+        if (request !== requestRef.current) return;
+        setLoading(false);
+        setLoadingMore(false);
+      });
   }
 
-  useEffect(load, [statusFilter]);
+  useEffect(load, [statusFilter, flagFilter, debouncedSearch]);
+
+  function loadMore() {
+    setLoadingMore(true);
+    load(page + 1);
+  }
+
+  async function checkFlag(id) {
+    setBusyId(id);
+    try {
+      const res = await apiFetch(`/api/supervisor/attendance/${id}/red-flag`, { method: "PATCH" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.message || "Could not mark this as checked.");
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function review(id, status) {
     setBusyId(id);
@@ -217,13 +268,32 @@ export default function InternAttendance() {
         </Link>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+      <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <input
+          {...inputProps("search")}
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search intern name…"
+          aria-label="Search intern name"
+          className="min-w-0 flex-1 basis-48 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+        />
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
         </select>
+        <select value={flagFilter} onChange={(e) => setFlagFilter(e.target.value)} aria-label="Filter by red flag" className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+          <option value="">All records</option>
+          <option value="red">Red flags only</option>
+          <option value="unchecked">Unchecked red flags</option>
+        </select>
+        {(search || statusFilter || flagFilter) && (
+          <button type="button" onClick={() => { setSearch(""); setStatusFilter(""); setFlagFilter(""); }} className="text-xs font-semibold text-blue-600 hover:underline">
+            Clear filters
+          </button>
+        )}
       </section>
 
       {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
@@ -232,17 +302,21 @@ export default function InternAttendance() {
         {loading ? (
           <p className="px-6 py-10 text-center text-sm text-slate-500">Loading attendance…</p>
         ) : records.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">No attendance records yet.</p>
+          <p className="px-6 py-10 text-center text-sm text-slate-400">{search || statusFilter || flagFilter ? "No attendance records match these filters." : "No attendance records yet."}</p>
         ) : (
           records.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 last:border-b-0">
-              <div className="flex items-center gap-3">
+            <div
+              key={r.id}
+              className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 border-l-4 py-4 pl-5 pr-6 last:border-b-0 sm:pl-6 ${r.red_flag ? (r.red_flag_checked ? "border-l-red-300" : "border-l-red-600 bg-red-50/40") : "border-l-transparent"}`}
+            >
+              <div className="flex min-w-0 items-center gap-3">
                 <AttendanceSelfies record={r} name={r.intern_name} />
-                <div>
+                <div className="min-w-0">
                   <p className="font-medium text-slate-900">
                     {r.intern_name}
                     {r.session_label && <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{r.session_label}</span>}
                   </p>
+                  <RedFlagBadge record={r} className="mt-1" />
                   <p className="text-xs text-slate-500">
                     {r.attendance_date} · {r.clock_in ?? "—"} to {r.clock_out ?? "—"} {r.hours != null && `(${r.hours}h)`}
                     {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}
@@ -264,7 +338,12 @@ export default function InternAttendance() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {r.red_flag && !r.red_flag_checked && (
+                  <button onClick={() => checkFlag(r.id)} disabled={busyId === r.id} className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50">
+                    {busyId === r.id ? "Saving…" : "Mark as checked"}
+                  </button>
+                )}
                 {r.can_edit_times && (
                   <button onClick={() => setEditing(r)} className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-100">
                     Correct time
@@ -281,9 +360,16 @@ export default function InternAttendance() {
             </div>
           ))
         )}
+        {hasMore && !loading && (
+          <div className="border-t border-slate-100 py-3 text-center">
+            <button type="button" onClick={loadMore} disabled={loadingMore} className="rounded-lg border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          </div>
+        )}
       </section>
 
-      {editing && <EditTimesModal record={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {editing &&<EditTimesModal record={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
 
       {showModal && (
         <LogAttendanceModal
