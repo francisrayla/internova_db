@@ -1,5 +1,5 @@
 # Dashboards (all five roles): shared definitions, "needs attention" list (in the bell) + the dash UI kit
-last_commit: 8c21eaf + uncommitted
+last_commit: e79c6eb
 updated: 2026-10-10
 
 ## Map (where the code lives)

@@ -1,5 +1,5 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: 8c21eaf + uncommitted
+last_commit: e79c6eb
 updated: 2026-10-10
 
 ## Map (where the code lives)

@@ -1,5 +1,5 @@
 # Coordinator and supervisor monitoring (dashboards, interns, companies, settings, pending, preview, profile)
-last_commit: 8c21eaf + uncommitted
+last_commit: e79c6eb
 updated: 2026-10-10
 
 ## Map (where the code lives)

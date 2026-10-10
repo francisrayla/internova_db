@@ -1,5 +1,5 @@
 # Superadmin area (dashboard, schools, settings, AI usage, logs, inquiries, support, maintenance)
-last_commit: 8c21eaf + uncommitted
+last_commit: e79c6eb
 updated: 2026-10-10
 
 ## Map (where the code lives)
