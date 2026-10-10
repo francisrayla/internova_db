@@ -1,34 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { validateImageFile } from "@/lib/imageValidation";
 import { shrinkImage } from "@/lib/imageCompress";
-import Icon from "@/components/Icon";
+import { Pencil, Plus, Sparkles } from "lucide-react";
+import { Btn, DataList, DataRow, EmptyState, FormField, Input, Page, PageHeader, Pill, Section, SkeletonList, Textarea } from "@/components/dash/page";
 import FileLink from "@/components/FileViewer";
+import { LoadMore } from "@/components/Pagination";
 import { useCurrentUser } from "@/lib/UserContext";
 import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
+import { manilaToday } from "@/lib/dueDateUrgency";
+import { syncTrustedClock } from "@/lib/trustedClock";
 
 import { inputProps } from "@/lib/inputRules";
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
-const STATUS_STYLES = {
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-  recorded: "bg-slate-100 text-slate-600",
-};
+const STATUS_TONES = { pending: "amber", approved: "green", rejected: "red", recorded: "slate" };
 
 const LIVE_TYPES = ["activity_reviewed"];
 
+// "Today" is the Philippine date (the same one the server uses), not the phone's own date.
 function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return manilaToday();
 }
 
-const EMPTY_FORM = { activity_date: todayISO(), title: "", description: "" };
+const emptyForm = () => ({ activity_date: todayISO(), title: "", description: "" });
 
 export default function DailyActivities() {
   const { user } = useCurrentUser();
@@ -36,8 +35,14 @@ export default function DailyActivities() {
   const [activities, setActivities] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const requestRef = useRef(0);
+  const submittingRef = useRef(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(emptyForm);
   const [source, setSource] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -51,33 +56,60 @@ export default function DailyActivities() {
   const [editPolishing, setEditPolishing] = useState(false);
   const [editPolished, setEditPolished] = useState(null);
 
-  function load() {
-    Promise.all([fetchInternData("activities"), fetchInternData("activities/suggestions")])
+  // Page 1 replaces the list (first load, saved/edited entry, live update); a later page is appended.
+  function load(nextPage = 1) {
+    const request = ++requestRef.current; // a slower, older answer must not replace a newer one
+    Promise.all([fetchInternData(`activities?page=${nextPage}`), nextPage === 1 ? fetchInternData("activities/suggestions") : Promise.resolve(null)])
       .then(([a, s]) => {
-        setActivities(a.activities ?? []);
-        setSuggestions(s.suggestions ?? []);
+        if (request !== requestRef.current) return;
+        const rows = a.activities ?? [];
+        setActivities((prev) => {
+          if (nextPage === 1) return rows;
+          const have = new Set(prev.map((x) => x.id));
+          return [...prev, ...rows.filter((x) => !have.has(x.id))];
+        });
+        if (s) setSuggestions(s.suggestions ?? []);
+        setPage(nextPage);
+        setHasMore(Boolean(a.has_more));
+        setTotal(a.total ?? rows.length);
       })
       .catch(() => {
+        if (request !== requestRef.current || nextPage > 1) return;
         setActivities([]);
         setSuggestions([]);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (request !== requestRef.current) return;
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  }
+
+  function refresh() {
+    load(1);
+  }
+
+  function loadMore() {
+    setLoadingMore(true);
+    load(page + 1);
   }
 
   useEffect(() => {
-    load();
+    load(1);
+    // Anchor "today" to the server clock so a wrong phone date cannot shift it.
+    syncTrustedClock().then(() => setForm((f) => (f.title || f.description ? f : { ...f, activity_date: todayISO() })));
   }, []);
-  useLiveRefresh(LIVE_TYPES, load);
+  useLiveRefresh(LIVE_TYPES, refresh);
 
   function applySuggestion(s) {
-    setForm({ ...EMPTY_FORM, title: s.title, description: s.description ?? "" });
+    setForm({ ...emptyForm(), title: s.title, description: s.description ?? "" });
     setSource({ type: s.type, id: s.id });
     setShowForm(true);
   }
 
   function cancelForm() {
     setShowForm(false);
-    setForm(EMPTY_FORM);
+    setForm(emptyForm());
     setSource(null);
     setPhoto(null);
     setError("");
@@ -193,10 +225,12 @@ export default function DailyActivities() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (submittingRef.current) return; // a double tap lands before the button is disabled
     if (!form.title.trim()) {
       setError("Give this entry a short title.");
       return;
     }
+    submittingRef.current = true;
     setSaving(true);
     setError("");
     try {
@@ -216,166 +250,118 @@ export default function DailyActivities() {
     } catch (err) {
       setError(err.message);
     } finally {
+      submittingRef.current = false;
       setSaving(false);
     }
   }
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Narrative Report</p>
-          <h1 className="mt-1 text-2xl font-semibold text-slate-900">Daily Activities</h1>
-          <p className="mt-1 text-sm text-slate-600">Log what you accomplished today — your supervisor reviews these.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => (showForm ? cancelForm() : setShowForm(true))}
-          className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          {showForm ? "Cancel" : "+ Log an entry"}
-        </button>
-      </section>
+    <Page size="narrow">
+      <PageHeader title="Daily activities" sentence="Log what you accomplished today. Your supervisor reviews these.">
+        <Btn variant={showForm ? "secondary" : "primary"} onClick={() => (showForm ? cancelForm() : setShowForm(true))}>
+          {showForm ? "Cancel" : <><Plus size={16} aria-hidden="true" /> Log an entry</>}
+        </Btn>
+      </PageHeader>
 
       {!loading && suggestions.length > 0 && !showForm && (
-        <section className="rounded-3xl border border-blue-100 bg-blue-50/60 p-6">
-          <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-blue-800">
-            <Icon name="spark" size={16} /> Finished today — log it as your narrative?
-          </p>
-          <div className="space-y-2">
+        <Section flush title="Finished today. Log it as your narrative?">
+          <DataList>
             {suggestions.map((s) => (
-              <div key={`${s.type}-${s.id}`} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-white px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{s.title}</p>
-                  {s.context && <p className="text-xs text-slate-500">Subtask of: {s.context}</p>}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => applySuggestion(s)}
-                  className="shrink-0 rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                >
-                  Use this
-                </button>
-              </div>
+              <DataRow
+                key={`${s.type}-${s.id}`}
+                title={s.title}
+                sub={s.context ? `Subtask of: ${s.context}` : undefined}
+                actions={<Btn sm onClick={() => applySuggestion(s)}>Use this</Btn>}
+              />
             ))}
-          </div>
-        </section>
+          </DataList>
+        </Section>
       )}
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          {source && (
-            <p className="flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
-              <Icon name="check" size={12} /> Based on your finished {source.type === "task" ? "task" : "subtask"} — feel free to edit it below.
-            </p>
-          )}
-          <label className="block max-w-xs text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Date</span>
-            <input
-              type="date"
-              value={form.activity_date}
-              max={todayISO()}
-              onChange={(e) => setForm((f) => ({ ...f, activity_date: e.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Title</span>
-            <input {...inputProps("title")}
-              value={form.title}
-              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-              placeholder="e.g. Built the login page UI"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              autoFocus
-            />
-          </label>
-          <label className="block text-sm">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <span className="font-semibold text-slate-700">Narrative / reflection (optional)</span>
+        <Section title="New entry">
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            {source && (
+              <p className="k-note">
+                Based on your finished {source.type === "task" ? "task" : "subtask"}. Feel free to edit it below.
+              </p>
+            )}
+            <FormField label="Date" className="sm:max-w-xs">
+              <Input
+                type="date"
+                value={form.activity_date}
+                max={todayISO()}
+                onChange={(e) => setForm((f) => ({ ...f, activity_date: e.target.value }))}
+              />
+            </FormField>
+            <FormField label="Title">
+              <Input {...inputProps("title")}
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Built the login page UI"
+                autoFocus
+              />
+            </FormField>
+            <div className="grid gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label htmlFor="act-narrative" className="k-label">Narrative / reflection (optional)</label>
+                {aiEnabled && (
+                  <Btn sm onClick={handlePolish} disabled={polishing || !form.description.trim()}>
+                    <Sparkles size={14} aria-hidden="true" /> {polishing ? "Polishing…" : "Improve with AI"}
+                  </Btn>
+                )}
+              </div>
+              <Textarea {...inputProps("longText")}
+                id="act-narrative"
+                value={form.description}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, description: e.target.value }));
+                  setPolished(null);
+                }}
+                rows={5}
+                placeholder="Describe what you did, what you learned, or any challenges you ran into…"
+              />
               {aiEnabled && (
-                <button
-                  type="button"
-                  onClick={handlePolish}
-                  disabled={polishing || !form.description.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Icon name="spark" size={12} /> {polishing ? "Polishing…" : "Improve with AI"}
-                </button>
+                <span className="k-hint">
+                  Wrote it in Filipino or Taglish? Improve with AI turns it into clear, formal English for your portfolio. You choose whether to use it.
+                </span>
               )}
             </div>
-            <textarea {...inputProps("longText")}
-              value={form.description}
-              onChange={(e) => {
-                setForm((f) => ({ ...f, description: e.target.value }));
-                setPolished(null);
-              }}
-              rows={4}
-              placeholder="Describe what you did, what you learned, or any challenges you ran into…"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            />
-            {aiEnabled && (
-              <span className="mt-1 block text-xs text-slate-400">
-                Wrote it in Filipino or Taglish? Improve with AI turns it into clear, formal English for your portfolio — you choose whether to use it.
-              </span>
-            )}
-          </label>
 
-          {polished && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-blue-800">
-                <Icon name="spark" size={12} /> AI-polished version
-              </p>
-              <p className="whitespace-pre-line text-sm text-slate-700">{polished}</p>
-              <div className="mt-2.5 flex gap-2">
-                <button
-                  type="button"
-                  onClick={acceptPolished}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-                >
-                  Use this version
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPolished(null)}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white"
-                >
-                  Keep mine
-                </button>
+            {polished && (
+              <div className="rounded-xl bg-blue-50 p-3.5">
+                <p className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-blue-800">
+                  <Sparkles size={14} aria-hidden="true" /> AI-polished version
+                </p>
+                <p className="whitespace-pre-line text-sm text-slate-700">{polished}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Btn variant="primary" sm onClick={acceptPolished}>Use this version</Btn>
+                  <Btn sm onClick={() => setPolished(null)}>Keep mine</Btn>
+                </div>
               </div>
+            )}
+            <FormField label="Photo of today's work (optional)">
+              <input type="file" accept="image/*" onChange={handlePhoto} className="k-input" />
+            </FormField>
+            {error && <p role="alert" className="k-note is-risk">{error}</p>}
+            <div className="flex justify-end">
+              <button type="submit" disabled={saving} className="k-btn is-primary max-sm:w-full">
+                {saving ? "Saving…" : "Save entry"}
+              </button>
             </div>
-          )}
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Photo of today&apos;s work (optional)</span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handlePhoto}
-              className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700"
-            />
-          </label>
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save entry"}
-            </button>
-          </div>
-        </form>
+          </form>
+        </Section>
       )}
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Your entries</h2>
+      <Section flush title="Your entries">
         {loading ? (
-          <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
+          <div className="k-pad"><SkeletonList rows={2} height="h-24" /></div>
         ) : activities.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No entries yet — log your first one above.</p>
+          <div className="k-pad"><EmptyState icon="activities" title="No entries yet" text="Log your first one with the button above." /></div>
         ) : (
-          <ul className="space-y-3">
+          <ul className="k-list">
             {activities.map((a) => (
-              <li key={a.id} className="flex gap-3 rounded-2xl border border-slate-100 p-4">
+              <li key={a.id} className="k-item flex gap-3">
                 {a.photo_url && (
                   <FileLink url={a.photo_url} name={a.title} type="image/jpeg" className="shrink-0 cursor-zoom-in">
                     <img src={a.photo_url} alt="" className="h-16 w-16 rounded-xl object-cover" />
@@ -383,105 +369,83 @@ export default function DailyActivities() {
                 )}
                 <div className="min-w-0 flex-1">
                   {editingId === a.id ? (
-                    <div className="space-y-2.5">
-                      <input {...inputProps("title")}
+                    <div className="grid gap-3">
+                      <Input {...inputProps("title")}
+                        aria-label="Title"
                         value={editForm.title}
                         onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
                       />
-                      <textarea {...inputProps("longText")}
+                      <Textarea {...inputProps("longText")}
+                        aria-label="Narrative"
                         value={editForm.description}
                         onChange={(e) => { setEditForm((f) => ({ ...f, description: e.target.value })); setEditPolished(null); }}
-                        rows={4}
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                        rows={5}
                       />
                       {aiEnabled && !editPolished && (
-                        <button
-                          type="button"
-                          onClick={handleEditPolish}
-                          disabled={editPolishing || !editForm.description.trim()}
-                          className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Icon name="spark" size={12} /> {editPolishing ? "Polishing…" : "Improve with AI"}
-                        </button>
+                        <div>
+                          <Btn sm onClick={handleEditPolish} disabled={editPolishing || !editForm.description.trim()}>
+                            <Sparkles size={14} aria-hidden="true" /> {editPolishing ? "Polishing…" : "Improve with AI"}
+                          </Btn>
+                        </div>
                       )}
                       {editPolished && (
-                        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-                          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-blue-800">
-                            <Icon name="spark" size={12} /> AI-polished version
+                        <div className="rounded-xl bg-blue-50 p-3.5">
+                          <p className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-blue-800">
+                            <Sparkles size={14} aria-hidden="true" /> AI-polished version
                           </p>
                           <p className="whitespace-pre-line text-sm text-slate-700">{editPolished}</p>
-                          <div className="mt-2.5 flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => { setEditForm((f) => ({ ...f, description: editPolished })); setEditPolished(null); }}
-                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-                            >
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Btn variant="primary" sm onClick={() => { setEditForm((f) => ({ ...f, description: editPolished })); setEditPolished(null); }}>
                               Use this version
-                            </button>
-                            <button type="button" onClick={() => setEditPolished(null)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-white">
-                              Keep mine
-                            </button>
+                            </Btn>
+                            <Btn sm onClick={() => setEditPolished(null)}>Keep mine</Btn>
                           </div>
                         </div>
                       )}
-                      {editError && <p className="text-xs text-red-600">{editError}</p>}
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => saveEdit(a.id)}
-                          disabled={savingEdit}
-                          className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                        >
+                      {editError && <p role="alert" className="k-error">{editError}</p>}
+                      <div className="flex flex-wrap gap-2">
+                        <Btn variant="primary" sm onClick={() => saveEdit(a.id)} disabled={savingEdit}>
                           {savingEdit ? "Saving…" : "Save"}
-                        </button>
-                        <button type="button" onClick={cancelEdit} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                          Cancel
-                        </button>
+                        </Btn>
+                        <Btn sm onClick={cancelEdit}>Cancel</Btn>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="text-sm font-semibold text-slate-900">{a.title}</p>
-                            {a.is_auto_generated && (
-                              <span className="flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700">
-                                <Icon name="spark" size={10} /> Auto-generated
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500">{a.activity_date}</p>
+                      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+                        <div className="min-w-0">
+                          <p className="break-words text-[0.9375rem] font-semibold text-slate-900">{a.title}</p>
+                          <p className="text-sm text-slate-500">{a.activity_date}</p>
                         </div>
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[a.status] ?? "bg-slate-100 text-slate-600"}`}>
-                          {a.status}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {a.is_auto_generated && (
+                            <Pill tone="blue" size="sm"><Sparkles size={11} aria-hidden="true" className="mr-1" /> Auto-generated</Pill>
+                          )}
+                          <Pill tone={STATUS_TONES[a.status] ?? "slate"} className="capitalize">{a.status}</Pill>
+                        </div>
                       </div>
-                      {a.source_title && <p className="mt-1 text-xs text-slate-400">Based on: {a.source_title}</p>}
-                      {a.description && <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{a.description}</p>}
+                      {a.source_title && <p className="mt-1 text-sm text-slate-500">Based on: {a.source_title}</p>}
+                      {a.description && <p className="mt-2 whitespace-pre-line break-words text-sm text-slate-700">{a.description}</p>}
                       {a.status === "recorded" && (
-                        <p className="mt-1.5 text-xs text-slate-400">
-                          Recorded from your attendance and completed tasks that day — it already counts in your narrative report.
+                        <p className="mt-2 text-sm text-slate-500">
+                          Recorded from your attendance and completed tasks that day. It already counts in your narrative report.
                           If you edit it to add your own context, it goes to your supervisor for approval.
                         </p>
                       )}
                       {a.status === "pending" && (
-                        <p className="mt-1.5 text-xs text-slate-400">Waiting for your supervisor — it goes into your narrative report once approved.</p>
+                        <p className="mt-2 text-sm text-slate-500">Waiting for your supervisor. It goes into your narrative report once approved.</p>
                       )}
                       {a.review_remarks && (
-                        <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
                           <span className="font-semibold">Supervisor remarks:</span> {a.review_remarks}
                         </p>
                       )}
                       {a.editable && (
-                        <button
-                          type="button"
-                          onClick={() => startEdit(a)}
-                          className="mt-2 text-xs font-semibold text-blue-600 hover:underline"
-                        >
-                          Edit
-                        </button>
+                        <div className="mt-2">
+                          <Btn variant="ghost" sm onClick={() => startEdit(a)} className="-ml-3">
+                            <Pencil size={14} aria-hidden="true" /> Edit
+                          </Btn>
+                        </div>
                       )}
                     </>
                   )}
@@ -490,7 +454,8 @@ export default function DailyActivities() {
             ))}
           </ul>
         )}
-      </section>
-    </div>
+        {!loading && <LoadMore shown={activities.length} total={total} hasMore={hasMore} loading={loadingMore} onClick={loadMore} />}
+      </Section>
+    </Page>
   );
 }

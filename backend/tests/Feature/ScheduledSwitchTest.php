@@ -161,7 +161,12 @@ class ScheduledSwitchTest extends TestCase
     public function test_an_upgrade_is_still_immediate_and_blocked_while_a_switch_is_scheduled(): void
     {
         // Upgrade path unchanged (Basic yearly -> Premium yearly starts a prorated payment now).
-        Http::fake(['api.paymongo.com/v1/checkout_sessions' => Http::response(['data' => ['id' => 'cs_up', 'attributes' => ['checkout_url' => 'https://pm.test/u']]])]);
+        Http::fake([
+            'api.paymongo.com/v1/checkout_sessions' => Http::response(['data' => ['id' => 'cs_up', 'attributes' => ['checkout_url' => 'https://pm.test/u']]]),
+            // Cancelling reads the session (to be sure it was not paid) and then closes it.
+            'api.paymongo.com/v1/checkout_sessions/cs_up/expire' => Http::response(['data' => ['id' => 'cs_up', 'attributes' => ['status' => 'expired']]]),
+            'api.paymongo.com/v1/checkout_sessions/cs_up' => Http::response(['data' => ['id' => 'cs_up', 'attributes' => ['status' => 'active', 'checkout_url' => 'https://pm.test/u', 'payment_intent' => ['attributes' => ['status' => 'awaiting_payment_method']]]]]),
+        ]);
         Sanctum::actingAs($this->dean());
         $this->postJson("/api/dean/schools/{$this->school->id}/upgrade-plan", ['plan_name' => 'Premium', 'billing_period' => 'yearly', 'payment_method' => 'gcash'])->assertOk();
         $this->assertSame(1, SchoolSubscription::where('status', 'pending_payment')->count());

@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
+import { useAttention } from "@/lib/useAttention";
+import AttentionQueue from "@/components/AttentionQueue";
+import Pagination from "@/components/Pagination";
+import { Btn, DataList, EmptyState, Page, PageHeader, Section, SkeletonList } from "@/components/dash/page";
 
 /**
  * Full paginated notification history for one audience — reached via the
@@ -13,6 +16,7 @@ import { apiFetch } from "@/lib/apiFetch";
  */
 export default function NotificationHistory({ audienceRole, schoolId, userId, title = "Notifications" }) {
   const router = useRouter();
+  const attention = useAttention({ enabled: Boolean(audienceRole) });
   const [notifications, setNotifications] = useState([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -65,70 +69,45 @@ export default function NotificationHistory({ audienceRole, schoolId, userId, ti
   const hasUnread = notifications.some((n) => !n.read);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-          <p className="mt-1 text-sm text-slate-600">{total} notification{total === 1 ? "" : "s"} total</p>
-        </div>
-        {hasUnread && (
-          <button onClick={handleMarkAllRead} className="text-sm font-semibold text-blue-600 hover:underline">
-            Mark all read
-          </button>
-        )}
-      </div>
+    <Page size="narrow" className="mx-0">
+      <PageHeader title={title} sentence={`${total} notification${total === 1 ? "" : "s"} in all.`}>
+        {hasUnread && <Btn onClick={handleMarkAllRead}>Mark all read</Btn>}
+      </PageHeader>
 
-      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        {loading ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-500">Loading…</p>
+      <AttentionQueue
+        title="Needs your attention"
+        subtitle="Worked out live from your own data, so it is always up to date. These are not stored notifications."
+        items={attention.items}
+        loading={attention.loading}
+      />
+
+      <Section flush>
+        {loading && notifications.length === 0 ? (
+          <div className="k-pad"><SkeletonList rows={3} height="h-16" /></div>
         ) : notifications.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">No notifications yet.</p>
+          <div className="k-pad">
+            <EmptyState icon="bell" title="No notifications yet." text="Important updates show up here and in the bell at the top." />
+          </div>
         ) : (
-          notifications.map((n) => (
-            <button
-              key={n.id}
-              onClick={() => handleOpen(n)}
-              className={`block w-full border-b border-slate-100 px-6 py-4 text-left last:border-b-0 hover:bg-slate-50 ${
-                !n.read ? "bg-blue-50/40" : ""
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                {!n.read && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-blue-600" />}
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm text-slate-900 ${!n.read ? "font-semibold" : "font-medium"}`}>{n.title}</p>
-                  {n.body && <p className="mt-1 text-sm text-slate-500">{n.body}</p>}
-                  <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-slate-400">
-                    <Icon name="calendar" size={12} className="shrink-0" />
-                    {n.created_at}
-                  </p>
-                </div>
-              </div>
-            </button>
-          ))
+          <DataList>
+            {notifications.map((n) => (
+              <li key={n.id}>
+                <button type="button" onClick={() => handleOpen(n)} className="k-row w-full items-start text-left" style={!n.read ? { background: "var(--ui-info-bg)" } : undefined}>
+                  <span className="k-row-main">
+                    <span className={`k-row-title ${!n.read ? "font-semibold" : ""}`}>
+                      {!n.read && <span className="mr-2 inline-block h-2 w-2 rounded-full bg-blue-600 align-middle" aria-label="Unread" />}
+                      {n.title}
+                    </span>
+                    {n.body && <span className="k-row-sub">{n.body}</span>}
+                    <span className="k-row-sub">{n.created_at}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </DataList>
         )}
-      </div>
-
-      {total > 20 && (
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <span className="text-xs text-slate-500">
-            Page {page} of {totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => p + 1)}
-            disabled={!hasMore}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-40"
-          >
-            Next
-          </button>
-        </div>
-      )}
-    </div>
+        <Pagination page={page} totalPages={totalPages} total={total} loading={loading} onPageChange={setPage} />
+      </Section>
+    </Page>
   );
 }

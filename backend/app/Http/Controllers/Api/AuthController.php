@@ -53,7 +53,7 @@ class AuthController extends Controller
         // above) — so it does the same Super-Admin-only check itself, right
         // here, once it actually knows. A Super Admin can always still log
         // in to turn maintenance back off.
-        if (Setting::value('maintenance_mode', '0') === '1' && (int) $user->role_id !== 1) {
+        if (Setting::value('maintenance_mode', '0') === '1' && $user->roles?->name !== 'super_admin') {
             return response()->json([
                 'success'     => false,
                 'maintenance' => true,
@@ -191,7 +191,7 @@ class AuthController extends Controller
         $pendingUpgrade = $user->school?->pendingUpgrade();
         $approvedChange = $user->school?->approvedChange();
 
-        return [
+        $payload = [
             'id'         => $user->id,
             'name'       => trim("{$user->first_name} {$user->last_name}") ?: $user->name,
             'first_name' => $user->first_name,
@@ -234,12 +234,23 @@ class AuthController extends Controller
             'pending_upgrade'     => $pendingUpgrade ? [
                 'plan'            => $pendingUpgrade->plan?->name,
                 'billing_period'  => $pendingUpgrade->billing_period,
-                'amount'          => $pendingUpgrade->amount,
+                // What has to be paid now (prorated for an upgrade), not the row's full new-plan price.
+                'amount'          => \App\Services\SubscriptionBreakdown::forPendingUpgrade($pendingUpgrade)['total'] ?? $pendingUpgrade->amount,
                 'payment_method'  => $pendingUpgrade->payment_method,
                 'payment_status'  => $pendingUpgrade->payment_status,
                 'payment_reference' => $pendingUpgrade->payment_reference,
                 'breakdown'       => \App\Services\SubscriptionBreakdown::forPendingUpgrade($pendingUpgrade),
             ] : null,
         ];
+
+        // Money details (amount, payment reference, breakdown, pending changes) belong to the people who run
+        // the billing: the Dean and the platform admin. Everyone else only needs the plan, its features and the dates.
+        if (!in_array($user->roles?->name, ['dean', 'super_admin'], true)) {
+            foreach (['subscription_amount', 'payment_method', 'payment_status', 'payment_reference', 'scheduled_switch', 'subscription_breakdown', 'approved_change', 'pending_upgrade'] as $billingKey) {
+                $payload[$billingKey] = null;
+            }
+        }
+
+        return $payload;
     }
 }

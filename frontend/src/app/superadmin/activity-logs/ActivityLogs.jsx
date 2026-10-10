@@ -3,18 +3,20 @@
 import { useEffect, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import Icon from "@/components/Icon";
+import { LoadMore } from "@/components/Pagination";
+import { Btn, DataList, DataRow, EmptyState, FilterBar, Page, PageHeader, Pill, SearchField, Select, SkeletonList } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
-const MODULE_COLORS = {
-  Schools: "bg-blue-100 text-blue-700",
-  Payment: "bg-emerald-100 text-emerald-700",
-  Subscription: "bg-purple-100 text-purple-700",
-  Plans: "bg-amber-100 text-amber-700",
-  Inquiries: "bg-cyan-100 text-cyan-700",
+const MODULE_TONES = {
+  Schools: "blue",
+  Payment: "green",
+  Subscription: "slate",
+  Plans: "amber",
+  Inquiries: "blue",
 };
 
-function moduleColor(module) {
-  return MODULE_COLORS[module] ?? "bg-slate-100 text-slate-700";
+function moduleTone(module) {
+  return MODULE_TONES[module] ?? "slate";
 }
 
 function toCsv(rows) {
@@ -29,19 +31,22 @@ function toCsv(rows) {
 
 function LogCard({ log }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:border-slate-300 hover:bg-slate-50">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${moduleColor(log.module)}`}>{log.module}</span>
-            <p className="font-medium text-slate-900">{log.action}</p>
-          </div>
-          {log.description && <p className="mt-1 text-sm text-slate-500">{log.description}</p>}
-          <p className="mt-1.5 text-xs text-slate-400">{log.user}</p>
-        </div>
-        <span className="shrink-0 text-xs text-slate-400">{log.timestamp}</span>
-      </div>
-    </div>
+    <DataRow
+      wrap
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          <Pill tone={moduleTone(log.module)} size="sm">{log.module}</Pill>
+          <span>{log.action}</span>
+        </span>
+      }
+      sub={
+        <>
+          {log.description && <span className="block">{log.description}</span>}
+          <span className="block text-xs">{log.user}</span>
+        </>
+      }
+      side={<span className="text-xs">{log.timestamp}</span>}
+    />
   );
 }
 
@@ -116,48 +121,38 @@ function SchoolSection({ schoolId, name, total, moduleFilter, query, onLogsChang
     : logs;
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <section className="dash-card is-flush">
       <button
         type="button"
         onClick={handleToggle}
         aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left hover:bg-slate-50"
+        className="k-row w-full text-left"
       >
-        <span className="flex items-center gap-2">
-          <Icon name="chevronDown" size={16} className={`shrink-0 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          <h3 className="text-sm font-semibold text-slate-800">{name}</h3>
+        <Icon name="chevronDown" size={16} className={`shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <span className="k-row-main">
+          <h3 className="k-row-title">{name}</h3>
         </span>
-        <span className="text-xs text-slate-400">
+        <span className="k-row-side">
           {total} {total === 1 ? "entry" : "entries"}
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-100 p-4">
+        <div style={{ borderTop: "1px solid var(--ui-line)" }}>
           {loading ? (
-            <p className="py-6 text-center text-sm text-slate-500">Loading…</p>
+            <div className="k-pad"><SkeletonList rows={2} height="h-12" /></div>
           ) : filtered.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">
+            <p className="px-6 py-8 text-center text-sm" style={{ color: "var(--ui-muted)" }}>
               {query.trim() ? "No loaded logs match your search." : "No logs match this filter."}
             </p>
           ) : (
-            <div className="space-y-2.5">
+            <DataList>
               {filtered.map((log) => (
                 <LogCard key={log.id} log={log} />
               ))}
-            </div>
+            </DataList>
           )}
-          {hasMore && (
-            <div className="pt-3 text-center">
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="rounded-lg border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {loadingMore ? "Loading…" : "Load more"}
-              </button>
-            </div>
-          )}
+          <LoadMore shown={logs.length} total={total} hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
         </div>
       )}
     </section>
@@ -211,48 +206,39 @@ export default function ActivityLogsPage() {
   const grandTotal = schools.reduce((sum, s) => sum + s.total, 0) + systemTotal;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Activity Logs</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          A running record of platform actions — payments, approvals, and account changes — grouped by school, newest first.
-        </p>
-      </div>
+    <Page>
+      <PageHeader
+        title="Activity Logs"
+        sentence="A running record of platform actions — payments, approvals, and account changes — grouped by school, newest first."
+      >
+        <Btn onClick={handleExport} disabled={totalLoaded === 0}>
+          Export loaded logs (CSV)
+        </Btn>
+      </PageHeader>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <input {...inputProps("search")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search loaded logs by action, module, or details…"
-            className="w-full max-w-sm rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500"
-          />
-          <select
-            value={moduleFilter}
-            onChange={(e) => handleModuleChange(e.target.value)}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-          >
-            <option value="All">All modules</option>
-            {modules.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleExport}
-            disabled={totalLoaded === 0}
-            className="ml-auto rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >
-            Export loaded logs (CSV)
-          </button>
-        </div>
-      </section>
+      <FilterBar>
+        <SearchField {...inputProps("search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search loaded logs…"
+          aria-label="Search loaded logs"
+        />
+        <Select value={moduleFilter} onChange={(e) => handleModuleChange(e.target.value)} aria-label="Filter by module" className="sm:w-auto">
+          <option value="All">All modules</option>
+          {modules.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </Select>
+      </FilterBar>
 
       {summaryLoading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white py-10 text-center text-sm text-slate-500 shadow-sm">Loading schools…</p>
+        <section className="dash-card"><SkeletonList rows={3} height="h-12" /></section>
       ) : grandTotal === 0 ? (
-        <p className="rounded-3xl border border-slate-200 bg-white py-10 text-center text-sm text-slate-400 shadow-sm">No activity recorded yet.</p>
+        <section className="dash-card">
+          <EmptyState icon="activity" title="No activity recorded yet." text="Payments, approvals and account changes will be listed here." />
+        </section>
       ) : (
-        <div className="space-y-4">
+        <div className="grid gap-3">
           {schools.map((s) => (
             <SchoolSection
               key={`${s.id}-${moduleFilter}`}
@@ -277,6 +263,6 @@ export default function ActivityLogsPage() {
           )}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

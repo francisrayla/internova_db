@@ -1,5 +1,6 @@
 "use client";
 
+import NavIcon from "@/components/NavIcon";
 import { plural } from "@/lib/format";
 
 // Requirements checklist for one intern's narrative report, built from the
@@ -45,7 +46,7 @@ function sectionStatus(section, report) {
     }
     case "auto_evaluation": {
       const e = report.evaluation;
-      return { done: Boolean(e), detail: e ? `${e.evaluation_type} evaluation · ${Number(e.overall_score)}%` : "No performance evaluation yet" };
+      return { done: Boolean(e), detail: e ? `Evaluation · ${Number(e.overall_score)}%` : "No performance evaluation yet" };
     }
     default:
       return null;
@@ -63,27 +64,25 @@ export default function NarrativeChecklist({ report, title = "Narrative report r
   const percent = Math.round((doneCount / rows.length) * 100);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="rounded-xl bg-slate-50 p-4 sm:p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
         <p className="text-sm text-slate-600">
           <span className="font-semibold text-slate-900">{doneCount}</span> of {rows.length} complete
         </p>
       </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div className={`h-full rounded-full ${percent === 100 ? "bg-emerald-500" : "bg-blue-600"}`} style={{ width: `${percent}%` }} />
-      </div>
+      <div className="k-bar mt-2"><span className={percent === 100 ? "is-ok" : ""} style={{ width: `${percent}%` }} /></div>
 
-      <ul className="mt-4 divide-y divide-slate-100 text-sm">
+      <ul className="mt-4 divide-y divide-slate-200 text-sm">
         {rows.map(({ section, status }) => (
-          <li key={section.key} className="flex items-start gap-3 py-2">
+          <li key={section.key} className="flex items-start gap-3 py-2.5">
             <span
               aria-hidden
-              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
                 !status.done ? "bg-amber-100 text-amber-700" : status.warn ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
               }`}
             >
-              {status.done ? "✓" : "!"}
+              <NavIcon name={status.done ? "check" : "alert"} size={12} />
             </span>
             <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:justify-between sm:gap-4">
               <p className="font-medium text-slate-800">{titleCase(section.title)}</p>

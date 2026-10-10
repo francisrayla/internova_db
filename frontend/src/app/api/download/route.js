@@ -22,10 +22,21 @@ export async function GET(request) {
     return NextResponse.json({ success: false, message: "File not found." }, { status: 404 });
   }
 
+  // Never hand the browser a type it could render as a page from our origin, and never let it guess one.
+  let contentType = (upstream.headers.get("content-type") || "application/octet-stream").toLowerCase();
+  if (/(html|svg|xml|javascript|ecmascript)/.test(contentType)) contentType = "application/octet-stream";
+
+  // The name goes into a header: strip quotes, slashes and control characters (no header injection),
+  // and give non-ASCII names in the RFC 5987 form.
+  const safeName = (name.replace(/[\u0000-\u001f\u007f"\\/]/g, "").trim().slice(0, 150)) || "download";
+  const asciiName = safeName.replace(/[^\x20-\x7e]/g, "_");
+
   return new NextResponse(upstream.body, {
     headers: {
-      "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${name.replace(/"/g, "")}"`,
+      "Content-Type": contentType,
+      "Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
 }

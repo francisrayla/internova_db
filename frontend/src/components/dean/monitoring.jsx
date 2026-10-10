@@ -34,10 +34,10 @@ export function Projection({ projection, className = "", compact = false }) {
 
 const WORD = { P: "Present", M: "Waiting for approval", X: "Rejected", A: "Absent", O: "No work day", F: "Not yet" };
 const CELL = {
-  P: "bg-emerald-500 text-white",
-  A: "bg-red-500 text-white",
-  M: "bg-amber-400 text-amber-950",
-  X: "bg-amber-400 text-amber-950",
+  P: "bg-emerald-100 text-emerald-700",
+  A: "bg-red-100 text-red-700",
+  M: "bg-amber-100 text-amber-800",
+  X: "bg-amber-100 text-amber-800",
   O: "bg-slate-100 text-slate-400",
   F: "border border-dashed border-slate-300 text-slate-400",
 };
@@ -100,7 +100,7 @@ export function AttendanceCalendar({ calendar }) {
   return (
     <div className="space-y-3">
       <div role="group" aria-label={`Attendance for the last 4 weeks: ${count(days, "P")} days present, ${count(days, "A")} absent`} className="max-w-lg">
-        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-slate-500">
+        <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-500">
           {heads.map((h) => <span key={h}>{h}</span>)}
         </div>
         <div className="mt-1 grid grid-cols-7 gap-1">

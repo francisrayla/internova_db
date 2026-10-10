@@ -2,62 +2,71 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchApiData } from "@/lib/apiFetch";
-import { ErrorNote, Pill, SectionTitle, Skeleton } from "@/components/dean/ui";
+import { ChevronDown } from "lucide-react";
+import NavIcon from "@/components/NavIcon";
+import { ErrorNote, Pill, Skeleton } from "@/components/dean/ui";
+import { Cols } from "@/components/dash";
+import { DataList, DataRow, Section } from "@/components/dash/page";
 
 function Scorecard({ scorecard }) {
   return (
-    <section>
-      <SectionTitle title="Coordinator scorecard" help="How the coordinator is doing, in plain numbers." />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <Section title="Coordinator scorecard" help="How the coordinator is doing, in plain numbers." flush>
+      <DataList>
         {scorecard.metrics.map((m) => (
-          <div key={m.key} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <p className="min-w-0 text-sm font-semibold text-slate-700">{m.title}</p>
-              <Pill tone={m.verdict.tone}>{m.verdict.label}</Pill>
-            </div>
-            <p className={`mt-2 text-xl font-bold ${m.verdict.key === "none" ? "text-slate-400" : "text-slate-900"}`}>{m.display}</p>
-            <p className="mt-1 text-xs text-slate-500">{m.detail}</p>
-          </div>
+          <DataRow
+            key={m.key}
+            wrap
+            title={m.title}
+            sub={m.detail}
+            side={
+              <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                <span className={`text-lg font-semibold ${m.verdict.key === "none" ? "text-slate-500" : "text-slate-900"}`}>{m.display}</span>
+                <Pill tone={m.verdict.tone}>{m.verdict.label}</Pill>
+              </span>
+            }
+          />
         ))}
-      </div>
-      <details className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-        <summary className="cursor-pointer font-semibold text-slate-700">How these are worked out</summary>
-        <p className="mt-2">{scorecard.help.review_time}</p>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          {scorecard.help.thresholds.map((t) => <li key={t}>{t}</li>)}
-        </ul>
-      </details>
-    </section>
+        <li className="k-item">
+          <details className="group text-sm text-slate-600">
+            <summary className="flex min-h-[32px] cursor-pointer list-none items-center justify-between gap-2 font-semibold text-slate-700 max-sm:min-h-[44px] [&::-webkit-details-marker]:hidden">
+              How these are worked out
+              <ChevronDown aria-hidden="true" size={16} className="shrink-0 text-slate-500 transition group-open:rotate-180" />
+            </summary>
+            <p className="mt-2">{scorecard.help.review_time}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {scorecard.help.thresholds.map((t) => <li key={t}>{t}</li>)}
+            </ul>
+          </details>
+        </li>
+      </DataList>
+    </Section>
   );
 }
 
 function Checklist({ checklist }) {
   return (
-    <section>
-      <SectionTitle
-        title={`Setup checklist: ${checklist.done} of ${checklist.total}`}
-        help="What a school needs in place for monitoring to work well."
-      />
-      <ul className="relative divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+    <Section title={`Setup checklist: ${checklist.done} of ${checklist.total}`} help="What a school needs in place for monitoring to work well." flush>
+      <DataList>
         {checklist.items.map((item) => (
-          <li key={item.key} className="flex items-start gap-3 px-4 py-3">
-            <span
-              aria-hidden
-              className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm font-bold ${item.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
-            >
-              {item.ok ? "✓" : "!"}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-900">
+          <DataRow
+            key={item.key}
+            wrap
+            lead={
+              <span aria-hidden className={`shrink-0 self-start pt-0.5 ${item.ok ? "text-emerald-700" : "text-amber-700"}`}>
+                <NavIcon name={item.ok ? "check" : "alert"} size={18} />
+              </span>
+            }
+            title={
+              <>
                 {item.label}
                 <span className="sr-only">{item.ok ? " (done)" : " (not done yet)"}</span>
-              </p>
-              <p className="break-words text-sm text-slate-500">{item.hint}</p>
-            </div>
-          </li>
+              </>
+            }
+            sub={<span className="break-words">{item.hint}</span>}
+          />
         ))}
-      </ul>
-    </section>
+      </DataList>
+    </Section>
   );
 }
 
@@ -65,9 +74,8 @@ function ActivityChart({ chart }) {
   const diff = chart.this_week - chart.last_week;
   const trend = diff === 0 ? "the same as last week" : diff > 0 ? `${diff} more than last week` : `${-diff} fewer than last week`;
   return (
-    <section>
-      <SectionTitle title="Coordinator activity" help="Actions per day over the last 4 weeks. Lighter bars are weekends." />
-      <div className="relative rounded-2xl border border-slate-200 bg-white p-4">
+    <Section title="Coordinator activity" help="Actions per day over the last 4 weeks. Lighter bars are weekends.">
+      <div className="relative">
         <p className="text-sm text-slate-700">
           <span className="font-bold text-slate-900">{chart.this_week}</span> {chart.this_week === 1 ? "action" : "actions"} this week, <span className="font-semibold">{trend}</span> ({chart.last_week}).
         </p>
@@ -83,16 +91,16 @@ function ActivityChart({ chart }) {
             );
           })}
         </div>
-        <div className="mt-2 grid grid-cols-4 gap-1 text-center text-[10px] leading-tight text-slate-500 sm:text-xs" aria-hidden>
+        <div className="mt-2 grid grid-cols-4 gap-1 text-center text-xs leading-tight text-slate-600" aria-hidden>
           {chart.weeks.map((w) => (
             <div key={w.label} className="min-w-0">
-              <p className="truncate">{w.label}</p>
+              <p className="break-words">{w.label}</p>
               <p className="font-semibold text-slate-700">{w.total}</p>
             </div>
           ))}
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -110,19 +118,19 @@ export default function Insights() {
   if (error) return <ErrorNote onRetry={load}>We couldn&apos;t load the scorecard.</ErrorNote>;
   if (!data) {
     return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-4">
         {[0, 1, 2].map((i) => <Skeleton key={i} className="h-28" />)}
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Scorecard scorecard={data.scorecard} />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <Cols>
         <ActivityChart chart={data.activity_chart} />
         <Checklist checklist={data.checklist} />
-      </div>
+      </Cols>
     </div>
   );
 }

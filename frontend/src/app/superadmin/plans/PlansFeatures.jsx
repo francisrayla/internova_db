@@ -8,22 +8,11 @@ import { clampOnBlur } from "@/lib/clampNumber";
 
 import { inputProps, cleanNumber } from "@/lib/inputRules";
 import { CORE_FEATURES, CORE_LABELS, OPTIONAL_FEATURES } from "@/lib/planCatalog";
+import { Check } from "lucide-react";
+import { Btn, EmptyState, FormField, Input, KeyValueList, Page, PageHeader, Pill, Section, SheetFrame, SkeletonList, Textarea } from "@/components/dash/page";
+import SaToast, { useSaToast } from "../SaToast";
 function peso(amount) {
   return "₱" + Number(amount ?? 0).toLocaleString();
-}
-
-function Modal({ title, onClose, children }) {
-  return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-lg rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
-        </div>
-        <div className="mt-4">{children}</div>
-      </div>
-    </div>
-  );
 }
 
 export default function PlansPage() {
@@ -31,14 +20,9 @@ export default function PlansPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState("");
+  const [toast, showToast] = useSaToast();
   const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const echoChannelRef = useRef(null);
-
-  function showToast(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(""), 3000);
-  }
 
   function load() {
     setLoading(true);
@@ -66,10 +50,10 @@ export default function PlansPage() {
     // NotificationBell and the Schools/Billing screens share this same public
     // channel — echo.leave() would tear it down for all of them, so this
     // only unbinds this component's own listener on cleanup.
-    echoChannelRef.current = echo.channel("superadmin-notifications").listen(".notification.created", handlePush);
+    echoChannelRef.current = echo.private("superadmin.notifications").listen(".notification.created", handlePush);
 
     return () => {
-      echo.channel("superadmin-notifications").stopListening(".notification.created", handlePush);
+      echo.private("superadmin.notifications").stopListening(".notification.created", handlePush);
       echoChannelRef.current = null;
     };
   }, []);
@@ -125,181 +109,145 @@ export default function PlansPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 px-5 py-3 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
+    <Page>
+      <SaToast msg={toast} />
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Subscription Plans</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Editing a plan changes what schools pay on their <span className="font-medium">next</span> purchase or
-            upgrade — active subscriptions keep the rate they already locked in.
-          </p>
-        </div>
-        {lastLiveUpdate && (
-          <span className="flex items-center gap-1.5 text-xs text-slate-400">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-            Live — updated {lastLiveUpdate.toLocaleTimeString()}
-          </span>
-        )}
-      </div>
+      <PageHeader
+        title="Subscription Plans"
+        sentence="Editing a plan changes what schools pay on their next purchase or upgrade — active subscriptions keep the rate they already locked in."
+        meta={lastLiveUpdate ? `Live: updated ${lastLiveUpdate.toLocaleTimeString()}` : undefined}
+      />
 
       {loading ? (
-        <p className="text-sm text-slate-600">Loading plans…</p>
+        <SkeletonList rows={2} height="h-48" />
+      ) : plans.length === 0 ? (
+        <Section>
+          <EmptyState icon="plans" title="No plans yet" text="Plans appear here once they are set up on the server." />
+        </Section>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:gap-6">
           {plans.map((plan) => (
-            <div key={plan.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              {/* min-w-0 on the text side matters here specifically because
-                  the price row below has two side-by-side blocks with no
-                  wrap — without it, that row's natural width pushed this
-                  whole card (and the page) wider than the viewport on
-                  narrow screens instead of wrapping or shrinking. */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-2xl font-bold text-slate-900">{plan.name}</h3>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        plan.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {plan.is_active ? "Available" : "Hidden"}
-                    </span>
-                  </div>
-                  {plan.description && <p className="mt-1 text-sm text-slate-500">{plan.description}</p>}
-                  <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <div>
-                      <span className="text-2xl font-semibold text-blue-700">{peso(plan.monthly_price)}</span>
-                      <span className="ml-1 text-sm text-slate-500">/month</span>
-                    </div>
-                    <div>
-                      <span className="text-lg font-semibold text-slate-700">{peso(plan.yearly_price)}</span>
-                      <span className="ml-1 text-sm text-slate-500">/year</span>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs font-medium text-slate-400">
-                    {plan.active_schools} active school{plan.active_schools === 1 ? "" : "s"} on this plan
-                  </p>
-                </div>
-                <button
-                  onClick={() => openEdit(plan)}
-                  className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Edit Plan
-                </button>
-              </div>
-              <div className="mt-6">
-                <h4 className="font-semibold text-slate-900">Features included:</h4>
-                <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                  {(plan.features ?? []).map((f) => (
-                    <li key={f}>✓ {f}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+            <Section
+              key={plan.id}
+              title={
+                <span className="flex flex-wrap items-center gap-2">
+                  {plan.name}
+                  <Pill tone={plan.is_active ? "green" : "slate"}>{plan.is_active ? "Available" : "Hidden"}</Pill>
+                </span>
+              }
+              help={plan.description || undefined}
+              action={<Btn sm className="shrink-0" onClick={() => openEdit(plan)} aria-label={`Edit ${plan.name} plan`}>Edit Plan</Btn>}
+            >
+              <KeyValueList
+                items={[
+                  { label: "Per month", value: peso(plan.monthly_price) },
+                  { label: "Per year", value: peso(plan.yearly_price) },
+                  { label: "Schools on this plan", value: `${plan.active_schools} active` },
+                ]}
+              />
+              <h3 className="mt-5 text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>Features included</h3>
+              <ul className="mt-2 grid gap-2 text-sm" style={{ color: "var(--ui-muted)" }}>
+                {(plan.features ?? []).map((f) => (
+                  <li key={f} className="flex items-start gap-2">
+                    <Check size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: "var(--ui-ok)" }} />
+                    <span className="min-w-0 break-words">{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
           ))}
         </div>
       )}
 
       {editing && (
-        <Modal title={`Edit ${editing.name}`} onClose={() => !saving && setEditing(null)}>
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">Description</label>
-              <textarea {...inputProps("note")}
+        <SheetFrame
+          title={`Edit ${editing.name}`}
+          size="md"
+          onClose={() => !saving && setEditing(null)}
+          footer={
+            <>
+              <Btn onClick={() => setEditing(null)} disabled={saving}>Cancel</Btn>
+              <Btn variant="primary" onClick={saveEdit} disabled={saving}>{saving ? "Saving…" : "Save Plan"}</Btn>
+            </>
+          }
+        >
+          <div className="grid gap-4">
+            <FormField label="Description">
+              <Textarea
+                {...inputProps("note")}
                 value={editing.description}
                 onChange={(e) => setEditing((ed) => ({ ...ed, description: e.target.value }))}
                 rows={2}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">Monthly price (₱)</label>
-                <input
+            </FormField>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Monthly price (₱)">
+                <Input
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
                   value={editing.monthly_price}
                   onChange={(e) => setEditing((ed) => ({ ...ed, monthly_price: cleanNumber(e.target.value, { max: 1000000, decimals: 2 }) }))}
                   onBlur={(e) => setEditing((ed) => ({ ...ed, monthly_price: clampOnBlur(e.target.value, 0, 1000000) }))}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600">Yearly price (₱)</label>
-                <input
+              </FormField>
+              <FormField label="Yearly price (₱)">
+                <Input
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
                   value={editing.yearly_price}
                   onChange={(e) => setEditing((ed) => ({ ...ed, yearly_price: cleanNumber(e.target.value, { max: 10000000, decimals: 2, maxDigits: 8 }) }))}
                   onBlur={(e) => setEditing((ed) => ({ ...ed, yearly_price: clampOnBlur(e.target.value, 0, 10000000) }))}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
                 />
-              </div>
+              </FormField>
             </div>
+
             <div>
-              <p className="mb-1 text-xs font-semibold text-slate-600">Included in every plan</p>
-              <ul className="mb-4 space-y-1.5 rounded-xl bg-slate-50 p-3">
+              <p className="k-label mb-2">Included in every plan</p>
+              <ul className="grid gap-2 rounded-xl p-3" style={{ background: "var(--ui-soft)" }}>
                 {CORE_FEATURES.map((f) => (
-                  <li key={f.label} className="text-sm text-slate-700">
-                    <span className="mr-1.5 text-emerald-600">✓</span>{f.label}
-                    <span className="block pl-5 text-xs text-slate-500">{f.hint}</span>
+                  <li key={f.label} className="flex items-start gap-2 text-sm" style={{ color: "var(--ui-ink)" }}>
+                    <Check size={16} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: "var(--ui-ok)" }} />
+                    <span className="min-w-0">
+                      {f.label}
+                      <span className="block text-xs" style={{ color: "var(--ui-muted)" }}>{f.hint}</span>
+                    </span>
                   </li>
                 ))}
               </ul>
-              <p className="mb-2 text-xs font-semibold text-slate-600">Optional features: tick what this plan includes</p>
-              <div className="space-y-3">
+            </div>
+
+            <div>
+              <p className="k-label mb-1">Optional features: tick what this plan includes</p>
+              <div className="grid gap-1">
                 {OPTIONAL_FEATURES.map((f) => (
-                  <label key={f.label} className="flex cursor-pointer items-start gap-3">
+                  <label key={f.label} className="k-check">
                     <input
                       type="checkbox"
                       checked={editing.features.includes(f.label)}
                       onChange={() => toggleFeature(f.label)}
-                      className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
                     />
-                    <span className="min-w-0 text-sm text-slate-700">
+                    <span className="min-w-0">
                       {f.label}
-                      <span className="block text-xs text-slate-500">{f.hint}</span>
+                      <span className="block text-xs" style={{ color: "var(--ui-muted)" }}>{f.hint}</span>
                     </span>
                   </label>
                 ))}
               </div>
             </div>
-            <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
-              <span className="text-sm text-slate-700">Available for new signups / switches</span>
+
+            <label className="k-check justify-between rounded-xl border px-3" style={{ borderColor: "var(--ui-line)" }}>
+              <span>Available for new signups / switches</span>
               <input
                 type="checkbox"
                 checked={editing.is_active}
                 onChange={(e) => setEditing((ed) => ({ ...ed, is_active: e.target.checked }))}
-                className="h-4 w-4 accent-blue-600"
               />
             </label>
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={() => setEditing(null)}
-                disabled={saving}
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveEdit}
-                disabled={saving}
-                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save Plan"}
-              </button>
-            </div>
           </div>
-        </Modal>
+        </SheetFrame>
       )}
-    </div>
+    </Page>
   );
 }

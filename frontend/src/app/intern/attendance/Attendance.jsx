@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { MapPin } from "lucide-react";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
-import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
+import { Banner, Btn, EmptyState, ErrorNote, GroupTitle, Page, PageHeader, Pill, Section, SkeletonList, btnClass } from "@/components/dash/page";
 import { ATTENDANCE_SYNCED_EVENT } from "@/components/OfflineStatus";
 import { enqueueAttendance, getPendingAttendance, isNetworkError, QUEUE_CHANGED_EVENT, SUBMIT_TIMEOUT_MS } from "@/lib/offlineQueue";
 import { DISPLAY_TIME_ZONE, syncTrustedClock, trustedNow } from "@/lib/trustedClock";
-import AttendanceCard, { STATUS_STYLES } from "./AttendanceCard";
+import AttendanceCard, { STATUS_TONES } from "./AttendanceCard";
 
 const LIVE_TYPES = ["attendance_reviewed"];
 
@@ -131,7 +132,10 @@ function StampOverlay({ now, location, pending }) {
       <p className="text-sm font-semibold leading-tight">
         {formatStampDate(now)} · {formatStampTime(now)}
       </p>
-      <p className="mt-0.5 text-xs leading-tight text-white/90">📍 {formatStampLocation(location, pending)}</p>
+      <p className="mt-0.5 flex items-start gap-1 text-xs leading-tight text-white/90">
+        <MapPin size={13} aria-hidden="true" className="mt-px shrink-0" />
+        <span className="min-w-0 break-words">{formatStampLocation(location, pending)}</span>
+      </p>
     </div>
   );
 }
@@ -335,6 +339,23 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     return () => clearInterval(id);
   }, []);
 
+  // Escape closes the camera, and focus goes back to the button that opened it.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    const opener = document.activeElement;
+    function onKey(e) {
+      if (e.key === "Escape") closeRef.current?.();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (opener instanceof HTMLElement && document.contains(opener)) opener.focus();
+    };
+  }, []);
+
   useEffect(() => {
     const update = () => {
       setOnline(navigator.onLine);
@@ -373,7 +394,23 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
     ctx.font = `700 ${bigFont}px sans-serif`;
     ctx.fillText(`${formatStampDate(stampAt)} · ${formatStampTime(stampAt)}`, padding, canvas.height - padding - smallFont - 6);
     ctx.font = `${smallFont}px sans-serif`;
-    ctx.fillText(`📍 ${formatStampLocation(location)}`, padding, canvas.height - padding);
+    // A small map pin drawn as a path (no emoji, so it looks the same on every phone).
+    const pinW = Math.round(smallFont * 0.8);
+    const pinX = padding + pinW / 2;
+    const pinBottom = canvas.height - padding;
+    const pinR = pinW / 2;
+    const pinCy = pinBottom - smallFont * 0.95 + pinR;
+    ctx.beginPath();
+    ctx.arc(pinX, pinCy, pinR, Math.PI * 0.8, Math.PI * 0.2, false);
+    ctx.lineTo(pinX, pinBottom);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.arc(pinX, pinCy, pinR * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(formatStampLocation(location), padding + pinW + Math.round(smallFont * 0.4), canvas.height - padding);
     if (!verified) {
       ctx.fillStyle = "#fde68a";
       ctx.fillText("Phone time — checked by the server when synced", padding, canvas.height - padding - smallFont - bigFont - 14);
@@ -493,13 +530,13 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
   const canCapture = ready && !!location && !needsPlace;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
-      <div className="flex items-center justify-between px-4 py-3 text-white">
-        <button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-2 hover:bg-white/10">
-          <Icon name="x" size={22} />
+    <div className="fixed inset-0 z-50 flex flex-col bg-black" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] text-white">
+        <button type="button" onClick={onClose} aria-label="Close" className="grid h-11 w-11 place-items-center rounded-full hover:bg-white/10">
+          <NavIcon name="close" size={22} />
         </button>
-        <p className="text-sm font-semibold">{title}</p>
-        <div className="w-9" />
+        <p className="text-base font-semibold">{title}</p>
+        <div className="w-11" />
       </div>
 
       <div className="relative flex-1 overflow-hidden bg-slate-900">
@@ -511,27 +548,30 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
             <StampOverlay now={now} location={location} pending={online} />
           </>
         ) : (
-          <div className="flex h-full items-center justify-center px-8 text-center">
-            <p className="text-sm text-slate-300">{camError || "Starting camera…"}</p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-slate-200">
+              <NavIcon name="user" size={22} />
+            </span>
+            <p className="max-w-xs text-base leading-relaxed text-slate-200">{camError || "Starting camera…"}</p>
           </div>
         )}
         <canvas ref={canvasRef} className="hidden" />
       </div>
 
-      <div className="space-y-3 bg-black px-6 py-6">
+      <div className="space-y-3 bg-black px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4">
         {camError && !ready && !preview && (
           <div className="text-center">
-            <button type="button" onClick={startCamera} className="text-sm font-semibold text-blue-400 hover:underline">
+            <button type="button" onClick={startCamera} className="min-h-[44px] px-3 text-sm font-semibold text-blue-300 underline underline-offset-4">
               Try again
             </button>
           </div>
         )}
         {ready && !location && !preview && (
-          <p className="text-center text-xs text-slate-400">
+          <p className="rounded-xl bg-white/10 px-3 py-2.5 text-center text-sm leading-snug text-slate-200">
             {locError ? (
               <>
-                <span className="text-red-400">{locError}</span>{" "}
-                <button type="button" onClick={retryLocation} className="font-semibold text-blue-400 hover:underline">
+                <span className="text-red-300">{locError}</span>{" "}
+                <button type="button" onClick={retryLocation} className="min-h-[44px] px-2 font-semibold text-blue-300 underline underline-offset-4">
                   Try again
                 </button>
               </>
@@ -541,11 +581,11 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
           </p>
         )}
         {ready && !!location && needsPlace && !preview && (
-          <p className="text-center text-xs text-slate-300" role="status">
+          <p className="rounded-xl bg-white/10 px-3 py-2.5 text-center text-sm leading-snug text-slate-200" role="status">
             {placeState === "failed" ? (
               <>
-                <span className="text-red-400">We couldn&apos;t find your place name. Check your internet connection.</span>{" "}
-                <button type="button" onClick={retryPlace} className="font-semibold text-blue-400 hover:underline">
+                <span className="text-red-300">We couldn&apos;t find your place name. Check your internet connection.</span>{" "}
+                <button type="button" onClick={retryPlace} className="min-h-[44px] px-2 font-semibold text-blue-300 underline underline-offset-4">
                   Try again
                 </button>
               </>
@@ -557,23 +597,28 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
           </p>
         )}
         {!online && (
-          <p className="text-center text-xs text-amber-300">
+          <p className="rounded-xl bg-white/10 px-3 py-2.5 text-center text-sm leading-snug text-amber-200">
             You&apos;re offline — this will be saved on your device and sent automatically once you&apos;re back online.
             {" "}No internet: your place name will not be on the photo.
           </p>
         )}
-        {submitError && <p className="rounded-xl bg-red-500/10 px-3 py-2 text-center text-sm text-red-400">{submitError}</p>}
+        {online && ready && !preview && (
+          <p className="text-center text-xs leading-snug text-slate-400">
+            To name your location, your GPS position is checked with OpenStreetMap and BigDataCloud.
+          </p>
+        )}
+        {submitError && <p className="rounded-xl bg-red-500/15 px-3 py-2.5 text-center text-sm leading-snug text-red-200">{submitError}</p>}
 
         {preview ? (
           <div className="flex items-center justify-center gap-3">
-            <button type="button" onClick={retake} disabled={saving} className="rounded-xl border border-white/30 px-5 py-3 text-sm font-medium text-white hover:bg-white/10 disabled:opacity-50">
+            <button type="button" onClick={retake} disabled={saving} className="min-h-[48px] flex-1 rounded-xl border border-white/30 px-5 text-base font-medium text-white hover:bg-white/10 disabled:opacity-50 sm:max-w-[10rem]">
               Retake
             </button>
             <button
               type="button"
               onClick={handleSubmit}
               disabled={saving}
-              className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className={btnClass("primary", { className: "min-h-[48px] flex-[2] text-base sm:max-w-[14rem]" })}
             >
               {saving ? "Saving…" : title}
             </button>
@@ -585,9 +630,9 @@ function ClockCamera({ mode, session, label, onClose, onDone }) {
               onClick={capture}
               disabled={!canCapture}
               aria-label="Capture"
-              className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white disabled:opacity-40"
+              className="grid h-[72px] w-[72px] place-items-center rounded-full border-4 border-white disabled:opacity-40"
             >
-              <span className="h-12 w-12 rounded-full bg-white" />
+              <span className="h-14 w-14 rounded-full bg-white" />
             </button>
           </div>
         )}
@@ -716,31 +761,32 @@ export default function Attendance() {
   }, []);
 
   const view = loading ? null : resolveTodayView(today, pending, online);
-  const syncNote = <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Waiting to sync</span>;
+  const syncNote = <span className="ml-1.5 align-middle"><Pill tone="amber" size="sm">Waiting to sync</Pill></span>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Attendance</h2>
-        <p className="mt-1 text-sm text-slate-600">Clock in and out with a selfie and your location — your supervisor reviews each entry.</p>
-      </div>
+    <Page size="narrow">
+      <PageHeader title="Attendance" sentence="Clock in and out with a selfie and your location. Your supervisor reviews each entry." />
 
-      {notice && <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm text-blue-700">{notice}</p>}
-      {error && !view && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {notice && <Banner tone="blue">{notice}</Banner>}
+      {error && !view && <ErrorNote>{error}</ErrorNote>}
+      {loading && <SkeletonList rows={1} height="h-36" />}
 
       {view && (
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <Section title="Today">
           {view.split && (
             <ol className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {view.steps.map((st) => (
                 <li
                   key={`${st.session}-${st.action}`}
-                  className={`rounded-xl border px-3 py-2 ${st.time ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}
+                  className={`min-w-0 rounded-xl px-3 py-2.5 ${st.time ? "bg-emerald-50" : "bg-slate-50"}`}
                 >
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{st.label}</p>
+                  <p className="flex items-center gap-1 text-xs font-medium text-slate-600">
+                    {st.time && <NavIcon name="check" size={13} className="shrink-0" />}
+                    <span className="min-w-0">{st.label}</span>
+                  </p>
                   <p className="mt-0.5 text-sm font-semibold text-slate-900">
                     {st.time ?? "—"}
-                    {st.pending && <span className="ml-1 text-[10px] font-semibold text-amber-700">· waiting to sync</span>}
+                    {st.pending && <span className="ml-1 text-xs font-medium text-amber-700">waiting to sync</span>}
                   </p>
                 </li>
               ))}
@@ -748,82 +794,86 @@ export default function Attendance() {
           )}
 
           {view.action === "clock_in" && view.block && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-sm font-semibold text-amber-900">{BLOCK_TITLES[view.block.code] ?? "Attendance is closed"}</p>
-              <p className="mt-0.5 text-sm text-amber-800">{view.block.message}</p>
+            <div className="k-note is-warn">
+              <div className="min-w-0">
+                <p className="font-semibold">{BLOCK_TITLES[view.block.code] ?? "Attendance is closed"}</p>
+                <p className="mt-0.5">{view.block.message}</p>
+              </div>
             </div>
           )}
           {view.action === "clock_in" && !view.block && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-4">
+              <div className="min-w-0">
+                <p className="text-base font-semibold text-slate-900">
                   {view.split ? `Next: ${view.label}` : "You haven't clocked in today."}
                 </p>
-                <p className="mt-0.5 text-sm text-slate-500">
+                <p className="mt-0.5 text-sm text-slate-600">
                   {view.split ? "Take a selfie and log it when you are ready." : "Log your arrival to start today's attendance."}
                 </p>
               </div>
-              <button onClick={() => setModalMode({ mode: "clock_in", session: view.session, label: view.label })} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+              <Btn variant="primary" className="max-sm:min-h-[52px] max-sm:w-full max-sm:text-base" onClick={() => setModalMode({ mode: "clock_in", session: view.session, label: view.label })}>
+                <NavIcon name="attendance" size={16} />
                 {view.split ? view.label : "Clock In"}
-              </button>
+              </Btn>
             </div>
           )}
           {view.action === "clock_out" && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-4">
+              <div className="min-w-0">
+                <p className="text-base font-semibold text-slate-900">
                   {view.split ? `Next: ${view.label}` : `Clocked in at ${view.clockIn}`}
                   {!view.split && view.waitingToSync && syncNote}
                 </p>
-                <p className="mt-0.5 text-sm text-slate-500">
+                <p className="mt-0.5 text-sm text-slate-600">
                   {view.split ? `Timed in at ${view.clockIn}.` : "Clock out when you're done for the day."}
                 </p>
               </div>
-              <button onClick={() => setModalMode({ mode: "clock_out", session: view.session, label: view.label })} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+              <Btn variant="primary" className="max-sm:min-h-[52px] max-sm:w-full max-sm:text-base" onClick={() => setModalMode({ mode: "clock_out", session: view.session, label: view.label })}>
+                <NavIcon name="attendance" size={16} />
                 {view.split ? view.label : "Clock Out"}
-              </button>
+              </Btn>
             </div>
           )}
           {view.action === "done" && view.waitingToSync && (
             <div>
-              <p className="text-sm font-semibold text-slate-900">
+              <p className="text-base font-semibold text-slate-900">
                 {view.split ? "Today's attendance is complete" : `Clocked out at ${view.clockOut}`}
                 {syncNote}
               </p>
-              <p className="mt-0.5 text-sm text-slate-500">Saved on this device — it&apos;ll be sent automatically once you&apos;re back online.</p>
+              <p className="mt-0.5 text-sm text-slate-600">Saved on this device — it&apos;ll be sent automatically once you&apos;re back online.</p>
             </div>
           )}
           {view.action === "done" && view.record && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Today&apos;s attendance complete</p>
-                <p className="mt-0.5 text-sm text-slate-500">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="min-w-0">
+                <p className="text-base font-semibold text-slate-900">Today&apos;s attendance complete</p>
+                <p className="mt-0.5 text-sm text-slate-600">
                   {view.split
                     ? `${view.steps[0].time} to ${view.clockOut} (${Math.round(view.hours * 10) / 10}h)`
                     : `${view.record.clock_in} to ${view.record.clock_out} ${view.record.hours != null ? `(${view.record.hours}h)` : ""}`}
                 </p>
               </div>
-              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[view.record.status] ?? "bg-slate-100 text-slate-700"}`}>
-                {view.record.status}
-              </span>
+              <Pill tone={STATUS_TONES[view.record.status] ?? "slate"} className="capitalize">{view.record.status}</Pill>
             </div>
           )}
-        </section>
+        </Section>
       )}
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Latest Attendance</h3>
-          <Link href="/intern/attendance/history" className="text-sm font-semibold text-blue-600 hover:underline">
-            View all history →
-          </Link>
-        </div>
+      <section className="grid gap-3">
+        <GroupTitle
+          title="Latest attendance"
+          action={
+            <Btn variant="ghost" sm href="/intern/attendance/history">
+              View all history <NavIcon name="arrow" size={14} />
+            </Btn>
+          }
+        />
         {loading ? (
-          <p className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">Loading attendance…</p>
+          <SkeletonList rows={1} height="h-56" />
         ) : records.length === 0 ? (
-          <p className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400">No attendance records yet.</p>
+          <EmptyState icon="attendance" title="No attendance yet" text="Your clock-ins will show up here, with the selfie and place stamped on each photo." />
         ) : (
-          <div className="max-w-xs">
+          <div className="sm:max-w-md">
             <AttendanceCard record={records[0]} />
           </div>
         )}
@@ -847,6 +897,6 @@ export default function Attendance() {
           }}
         />
       )}
-    </div>
+    </Page>
   );
 }

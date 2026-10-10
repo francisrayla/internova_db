@@ -32,7 +32,7 @@ export default function CompanySupervisorsNote({ companyId, companyName, classNa
   if (!text) return null;
 
   return (
-    <p className={`rounded-xl border px-3 py-2 text-xs ${names.length === 0 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-100 bg-blue-50 text-blue-800"} ${className}`}>
+    <p className={`k-note ${names.length === 0 ? "is-warn" : ""} ${className}`}>
       {text}
     </p>
   );

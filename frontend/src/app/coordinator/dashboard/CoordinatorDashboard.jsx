@@ -3,14 +3,37 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import { greeting } from "@/lib/timeAgo";
+import { Card, Col, Cols, DashHeader, DashPage, Notice, PersonRow, Skel, StatStrip, TextLink } from "@/components/dash";
+
+/** The one thing worth saying about an intern in a list: finished, behind, or not clocking in. */
+function internChip(i) {
+  if (i.display_status === "completed") return { tone: "ok", label: "Finished" };
+  const keys = (i.attention ?? []).map((a) => a.key);
+  if (keys.includes("no_clock_in")) return { tone: "risk", label: "Not clocking in" };
+  if (keys.includes("behind_hours")) return { tone: "warn", label: "Behind" };
+  if (keys.length > 0) return { tone: "warn", label: "Needs a look" };
+  return null;
+}
 
 export default function CoordinatorDashboard() {
   const [interns, setInterns] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [pendingDocuments, setPendingDocuments] = useState([]);
+  const [pendingDocumentsTotal, setPendingDocumentsTotal] = useState(0);
   const [evaluations, setEvaluations] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [name, setName] = useState("Coordinator");
+  const [name, setName] = useState("");
+  const [error, setError] = useState(false);
+  const [reloads, setReloads] = useState(0);
+
+  // A failed load shows a message with "Try again" (never a row of zeros that looks like real numbers).
+  function retry() {
+    setError(false);
+    setLoading(true);
+    setReloads((n) => n + 1);
+  }
 
   useEffect(() => {
     try {
@@ -19,148 +42,140 @@ export default function CoordinatorDashboard() {
     } catch {
       // ignore
     }
-
-    Promise.all([
-      fetchCoordinatorData("interns"),
-      fetchCoordinatorData("tasks"),
-      fetchCoordinatorData("documents?status=pending"),
-      fetchCoordinatorData("evaluations"),
-    ])
-      .then(([internsRes, tasksRes, documentsRes, evalRes]) => {
-        setInterns(internsRes.interns ?? []);
-        setTasks(tasksRes.tasks ?? []);
-        setPendingDocuments(documentsRes.documents ?? []);
-        setEvaluations(evalRes.evaluations ?? []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
   }, []);
 
-  const activeInterns = interns.filter((i) => i.status === "active");
-  const avgHoursProgress = activeInterns.length
-    ? Math.round(activeInterns.reduce((sum, i) => sum + i.hours_progress_pct, 0) / activeInterns.length)
-    : 0;
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      fetchCoordinatorData("interns"),
+      // Only the totals are needed here, not every task.
+      fetchCoordinatorData("tasks?view=summary"),
+      // Only the newest few rows are shown; the count comes from `total`.
+      fetchCoordinatorData("documents?status=pending&per_page=5"),
+      fetchCoordinatorData("evaluations?per_page=4"),
+      // The figures come from the server so they use the same definitions as the Interns page.
+      fetchCoordinatorData("dashboard").catch(() => null),
+    ])
+      .then(([internsRes, tasksRes, documentsRes, evalRes, dashboardRes]) => {
+        if (!live) return;
+        setDashboard(dashboardRes);
+        setInterns(internsRes.interns ?? []);
+        setTasks(tasksRes.companies ?? []);
+        setPendingDocuments(documentsRes.documents ?? []);
+        setPendingDocumentsTotal(documentsRes.total ?? (documentsRes.documents ?? []).length);
+        setEvaluations(evalRes.evaluations ?? []);
+      })
+      .catch(() => live && setError(true))
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [reloads]);
 
-  const tasksTotal = tasks.length;
-  const tasksDone = tasks.filter((t) => t.status === "completed").length;
+  // "Completed" = finished their required hours (or marked completed); "active" = still working with an account.
+  const summary = dashboard?.summary;
+  const activeCount = summary?.active ?? interns.filter((i) => i.display_status === "active").length;
+  const completedCount = summary?.completed ?? interns.filter((i) => i.display_status === "completed").length;
+  const onList = summary?.on_list ?? activeCount + completedCount;
+  const avgHoursProgress = summary?.average_hours_pct ?? 0;
+
+  // Same list as the Interns page: archived interns and pending accounts are not part of it.
+  const rosterInterns = interns.filter((i) => !["inactive", "invitation_pending"].includes(i.display_status));
+
+  const tasksTotal = tasks.reduce((n, c) => n + (c.total ?? 0), 0);
+  const tasksDone = tasks.reduce((n, c) => n + (c.completed ?? 0), 0);
   const taskCompletionPct = tasksTotal ? Math.round((tasksDone / tasksTotal) * 100) : 0;
+  const docs = pendingDocumentsTotal;
 
-  const stats = [
-    { label: "Total Interns", value: interns.length, note: `${activeInterns.length} active`, href: "/coordinator/interns" },
-    { label: "Avg. Hours Progress", value: `${avgHoursProgress}%`, note: "Across active interns", href: "/coordinator/interns" },
-    { label: "Task Completion", value: `${taskCompletionPct}%`, note: `${tasksDone}/${tasksTotal} tasks done`, href: "/coordinator/tasks" },
-    { label: "Documents to Review", value: pendingDocuments.length, note: pendingDocuments.length > 0 ? "Awaiting your review" : "All caught up", href: "/coordinator/documents", urgent: pendingDocuments.length > 0 },
+  const figures = [
+    { label: "Interns", value: onList, note: `${activeCount} active`, href: "/coordinator/interns" },
+    { label: "Completed", value: completedCount, note: completedCount > 0 ? "Finished their hours" : "None yet", href: "/coordinator/interns?filter=completed" },
+    { label: "Average hours", value: `${avgHoursProgress}%`, note: "Across your list", href: "/coordinator/interns" },
+    { label: "Task completion", value: `${taskCompletionPct}%`, note: `${tasksDone} of ${tasksTotal} tasks done`, href: "/coordinator/tasks" },
+    { label: "Documents to review", value: docs, note: docs > 0 ? "Waiting for you" : "All caught up", href: "/coordinator/documents", tone: docs > 0 ? "warn" : undefined },
   ];
 
-  // Attendance is verified by each intern's supervisor now, not the coordinator —
-  // shown here as read-only awareness, not something framed as "your" review.
-  const reviewItems = pendingDocuments
-    .map((d) => ({ key: `d-${d.id}`, label: `${d.intern_name} — ${d.document_type}`, meta: d.uploaded_at, href: "/coordinator/documents" }))
-    .slice(0, 5);
-
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-600 to-blue-800 p-6 text-white shadow-sm">
-        <h2 className="text-2xl font-bold">Good day, {name} 👋</h2>
-        <p className="mt-1 text-sm text-blue-100">A clear pulse on every intern, task, and requirement.</p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/coordinator/interns" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
-            View Interns
-          </Link>
-          <Link href="/coordinator/tasks" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
-            Assign a Task
-          </Link>
-        </div>
-      </section>
+    <DashPage>
+      <DashHeader title={`${greeting()}${name ? `, ${name}` : ""}`} sentence="Here's how your interns and their work are doing today.">
+        <TextLink href="/coordinator/interns" arrow>View interns</TextLink>
+        <TextLink href="/coordinator/tasks" arrow>View tasks</TextLink>
+      </DashHeader>
 
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        {loading
-          ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />)
-          : stats.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:p-5 hover:border-blue-300 hover:shadow-md"
-              >
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                <p className="mt-2 text-2xl font-bold text-slate-900 sm:mt-3 sm:text-3xl">{item.value}</p>
-                <p className={`mt-2 text-xs font-medium ${item.urgent ? "text-red-600" : "text-blue-600"}`}>{item.note}</p>
-              </Link>
-            ))}
-      </section>
+      {error && <Notice onRetry={retry}>We couldn&apos;t load your dashboard. Check your connection and try again.</Notice>}
 
-      <section className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">Intern Progress</h3>
-            <Link href="/coordinator/interns" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
-          </div>
-          <div className="mt-4 space-y-3">
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading…</p>
-            ) : interns.length === 0 ? (
-              <p className="text-sm text-slate-500">No interns have been deployed yet.</p>
-            ) : (
-              interns.slice(0, 5).map((i) => (
-                <div key={i.deployment_id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-900">{i.intern_name}</p>
-                    <p className="text-xs text-slate-500">{i.company_name ?? "—"}</p>
-                  </div>
-                  <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-200">
-                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${i.hours_progress_pct}%` }} />
-                  </div>
-                  <span className="w-10 shrink-0 text-right text-xs font-semibold text-slate-600">{i.hours_progress_pct}%</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+      {!error && (loading ? <Skel height={104} /> : <StatStrip items={figures} />)}
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">Documents to Review</h3>
-          </div>
-          <div className="mt-4 space-y-2">
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading…</p>
-            ) : reviewItems.length === 0 ? (
-              <p className="text-sm text-slate-500">Nothing pending — you&apos;re all caught up.</p>
-            ) : (
-              reviewItems.map((item) => (
-                <Link key={item.key} href={item.href} className="flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2.5 hover:bg-amber-100">
-                  <span className="truncate text-sm font-medium text-slate-900">{item.label}</span>
-                  <span className="shrink-0 text-xs text-slate-500">{item.meta}</span>
-                </Link>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900">Recent Evaluations</h3>
-          <Link href="/coordinator/evaluations" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
-        </div>
-        <div className="mt-4 space-y-2">
+      {!error && <Cols layout="wide-left">
+        <Card title="Intern progress" help="Hours rendered out of the hours required." action={<TextLink href="/coordinator/interns" arrow>View all</TextLink>}>
           {loading ? (
-            <p className="text-sm text-slate-500">Loading…</p>
-          ) : evaluations.length === 0 ? (
-            <p className="text-sm text-slate-500">No evaluations submitted yet.</p>
+            <p className="dash-empty">Loading…</p>
+          ) : rosterInterns.length === 0 ? (
+            <p className="dash-empty">No interns have been deployed yet.</p>
           ) : (
-            evaluations.slice(0, 5).map((e) => (
-              <div key={e.id} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{e.intern_name} — {e.evaluation_type}</p>
-                  <p className="text-xs text-slate-500">{e.evaluation_date}</p>
-                </div>
-                {e.overall_score != null && <span className="shrink-0 text-sm font-semibold text-slate-900">{e.overall_score}%</span>}
-              </div>
-            ))
+            <ul className="dash-list">
+              {rosterInterns.slice(0, 6).map((i) => (
+                <li key={i.deployment_id}>
+                  <PersonRow
+                    name={i.intern_name}
+                    sub={i.company_name ?? "No company yet"}
+                    pct={i.hours_progress_pct}
+                    tone={i.display_status === "completed" ? "ok" : undefined}
+                    chip={internChip(i)}
+                    href="/coordinator/interns"
+                  />
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      </section>
-    </div>
+        </Card>
+
+        <Col>
+          <Card title="Documents to review" action={docs > 0 ? <TextLink href="/coordinator/documents" arrow>Review</TextLink> : null}>
+            {loading ? (
+              <p className="dash-empty">Loading…</p>
+            ) : docs === 0 ? (
+              <p className="dash-empty">Nothing is waiting. You&apos;re all caught up.</p>
+            ) : (
+              <ul className="dash-list">
+                {pendingDocuments.slice(0, 5).map((d) => (
+                  <li key={d.id}>
+                    <Link href="/coordinator/documents" className="dash-row">
+                      <span className="dash-row-main">
+                        <span className="dash-row-title">{d.intern_name}</span>
+                        <span className="dash-row-sub">{d.document_type}</span>
+                      </span>
+                      <span className="dash-row-side">{d.uploaded_at}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Recent evaluations" action={<TextLink href="/coordinator/evaluations" arrow>View all</TextLink>}>
+            {loading ? (
+              <p className="dash-empty">Loading…</p>
+            ) : evaluations.length === 0 ? (
+              <p className="dash-empty">No evaluations submitted yet.</p>
+            ) : (
+              <ul className="dash-list">
+                {evaluations.slice(0, 4).map((e) => (
+                  <li key={e.id}>
+                    <div className="dash-row">
+                      <span className="dash-row-main">
+                        <span className="dash-row-title">{e.intern_name}</span>
+                        <span className="dash-row-sub">Evaluation · {e.evaluation_date}</span>
+                      </span>
+                      {e.overall_score != null && <span className="dash-row-pct">{Number(e.overall_score)}%</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </Col>
+      </Cols>}
+    </DashPage>
   );
 }

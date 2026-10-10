@@ -26,6 +26,7 @@ use App\Services\NarrativeProgressService;
 use App\Services\NarrativeReportService;
 use App\Services\NotificationService;
 use App\Services\SchoolStaff;
+use App\Support\Paging;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -190,7 +191,7 @@ class DeanMonitoringController extends Controller
             });
 
         foreach ($internRows as $r) {
-            if ($r['status'] === 'active' && !$r['supervisor_name']) {
+            if ($r['display_status'] === 'active' && !$r['supervisor_name']) {
                 $age = $ageDays($r['_created_at']);
                 $items[] = [
                     'type' => 'no_supervisor',
@@ -238,21 +239,26 @@ class DeanMonitoringController extends Controller
         return array_map(fn ($i) => $i + ['stale' => $i['age_days'] > self::STALE_DOCUMENT_DAYS], $items);
     }
 
-    // ---------------------------------------------------------------
-    // Overview
-    // ---------------------------------------------------------------
-
-    public function overview(Request $request): JsonResponse
+    /**
+     * The Dean's "needs attention" list, worked out from the school's real activity (the school comes from the
+     * signed-in Dean only). Shown in the bell, not on the dashboard; same item shape as DashboardQueueService.
+     */
+    public function attentionQueue(User $dean): array
     {
-        $dean = $request->user();
-        $school = $this->schoolOf($request);
+        $school = School::findOrFail($dean->school_id);
         $rows = $this->internRows($school);
         $pending = $this->pendingItems($school, $rows);
         $coordinator = $this->currentCoordinator($school->id);
         $brief = $this->coordinatorBrief($coordinator, count($pending));
-        $subscription = $school->currentSubscription();
-        $today = \App\Support\LocalTime::todayDate();
 
+        return array_map(fn (array $a) => [
+            'key' => $a['key'], 'tone' => $a['level'], 'count' => null, 'title' => $a['title'], 'detail' => $a['text'], 'href' => $a['link'], 'info' => false,
+        ], $this->buildAlerts($rows, $pending, $coordinator, $brief, $school->currentSubscription()));
+    }
+
+    private function buildAlerts($rows, array $pending, ?User $coordinator, array $brief, $subscription): array
+    {
+        $today = \App\Support\LocalTime::todayDate();
         $alerts = [];
         $add = function (string $key, string $level, string $title, string $text, string $link) use (&$alerts) {
             $alerts[] = compact('key', 'level', 'title', 'text', 'link');
@@ -313,8 +319,31 @@ class DeanMonitoringController extends Controller
             $add('stale_invites', 'blue', "{$staleInvites} " . self::plural($staleInvites, 'invitation is', 'invitations are') . ' still unanswered after a week', 'Interns or supervisors who have not set up their account.', '/dean/coordinator?tab=pending');
         }
 
+        return $alerts;
+    }
+
+    // ---------------------------------------------------------------
+    // Overview
+    // ---------------------------------------------------------------
+
+    public function overview(Request $request): JsonResponse
+    {
+        $dean = $request->user();
+        $school = $this->schoolOf($request);
+        $rows = $this->internRows($school);
+        $pending = $this->pendingItems($school, $rows);
+        $coordinator = $this->currentCoordinator($school->id);
+        $brief = $this->coordinatorBrief($coordinator, count($pending));
+        $subscription = $school->currentSubscription();
+        $today = \App\Support\LocalTime::todayDate();
+
+        $subStatus = $subscription?->effectiveStatus();
+        $alerts = $this->buildAlerts($rows, $pending, $coordinator, $brief, $subscription);
+
         $live = $rows->where('status', '!=', 'inactive');
         $totalInterns = $live->count();
+        // Same definitions as the coordinator and supervisor tiles (DeploymentSummaryService::stats).
+        $stats = DeploymentSummaryService::stats($rows);
 
         $recent = $coordinator
             ? ActivityLog::where('user_id', $coordinator->id)->where('school_id', $school->id)->latest('id')->limit(6)->get()->map(fn (ActivityLog $a) => $this->activityPayload($a))
@@ -326,11 +355,12 @@ class DeanMonitoringController extends Controller
             'school' => ['name' => $school->school_name, 'is_suspended' => (bool) $school->is_suspended],
             'alerts' => $alerts,
             'progress' => [
-                'interns_active' => $live->where('status', 'active')->count(),
-                'interns_completed' => $live->where('status', 'completed')->count(),
+                'interns_active' => $stats['active'],
+                'interns_completed' => $stats['completed'],
+                'interns_pending_accounts' => $stats['pending_accounts'],
                 'interns_total' => $totalInterns,
                 'groups' => InternMonitoringService::groupCounts($rows),
-                'average_hours_pct' => $totalInterns ? (int) round($live->avg('hours_progress_pct')) : 0,
+                'average_hours_pct' => $stats['average_hours_pct'],
                 'narrative_complete' => $live->filter(fn ($r) => $r['narrative_total'] > 0 && $r['narrative_done'] >= $r['narrative_total'])->count(),
                 'evaluations_done' => $live->where('has_evaluation', true)->count(),
             ],
@@ -551,6 +581,44 @@ class DeanMonitoringController extends Controller
     // Interns (read-only)
     // ---------------------------------------------------------------
 
+    /** Sortable columns of the interns table (same keys as frontend/src/components/dean/InternTable.jsx). */
+    private const SORT_KEYS = ['name', 'group', 'company', 'hours', 'finish', 'clock', 'journal', 'tasks', 'eval', 'narrative'];
+
+    private static function sortValue(array $r, string $key): string|int|float|null
+    {
+        return match ($key) {
+            'name' => mb_strtolower((string) ($r['intern_name'] ?? '')),
+            'group' => (($i = array_search($r['status_group'] ?? null, ['at_risk', 'needs_attention', 'on_track', 'completed'], true)) === false) ? 9 : $i,
+            'company' => mb_strtolower((string) ($r['company_name'] ?? '')),
+            'hours' => $r['hours_progress_pct'] ?? null,
+            'finish' => $r['projection']['finish_date'] ?? null,
+            'clock' => !empty($r['last_clock_in_at']) ? strtotime($r['last_clock_in_at']) : null,
+            'journal' => $r['journal_entries'] ?? null,
+            'tasks' => $r['tasks_done'] ?? null,
+            'eval' => isset($r['latest_evaluation_score']) ? (float) $r['latest_evaluation_score'] : null,
+            'narrative' => !empty($r['narrative_total']) ? $r['narrative_done'] / $r['narrative_total'] : -1,
+            default => null,
+        };
+    }
+
+    /** Stable sort by one column; rows without a value always come last, in either direction. */
+    private static function sortRows(Collection $rows, string $key, int $dir): Collection
+    {
+        if (!in_array($key, self::SORT_KEYS, true)) {
+            return $rows;
+        }
+
+        return $rows->values()->sort(function (array $a, array $b) use ($key, $dir) {
+            $x = self::sortValue($a, $key);
+            $y = self::sortValue($b, $key);
+            if ($x === null || $y === null) {
+                return ($x === null ? 1 : 0) - ($y === null ? 1 : 0);
+            }
+
+            return ($x <=> $y) * $dir;
+        })->values();
+    }
+
     public function interns(Request $request): JsonResponse
     {
         $school = $this->schoolOf($request);
@@ -574,6 +642,21 @@ class DeanMonitoringController extends Controller
         }
         if ($request->boolean('attention')) {
             $rows = $rows->where('needs_attention', true);
+        }
+        // A column the Dean sorts by orders the WHOLE filtered list (so page 2 continues page 1); without one the risk-first order stays.
+        $rows = self::sortRows($rows, (string) $request->query('sort'), $request->query('dir') === 'desc' ? -1 : 1);
+
+        // Opt-in paging (the coordinator tab reads the whole list): filters above already ran on every row.
+        if (Paging::requested($request)) {
+            $page = Paging::collection($rows->values(), $request, 18, 50);
+
+            return response()->json([
+                'success' => true,
+                'interns' => collect($page->items())->map(fn ($r) => self::publicRow($r))->values(),
+                ...Paging::meta($page),
+                'summary' => $summary,
+                'companies' => $companies,
+            ]);
         }
 
         return response()->json([
@@ -640,7 +723,6 @@ class DeanMonitoringController extends Controller
             ->map(fn (Evaluation $e) => [
                 'id' => $e->id,
                 'evaluator_name' => $e->evaluator?->name,
-                'evaluation_type' => $e->evaluation_type,
                 'evaluation_date' => $e->evaluation_date?->toDateString(),
                 'overall_score' => $e->overall_score,
                 'remarks' => $e->remarks,
@@ -672,6 +754,12 @@ class DeanMonitoringController extends Controller
                 'tasks_completed' => $summary['tasks_completed'],
                 'pending_attendance' => $summary['pending_attendance'],
                 'latest_evaluation_score' => $summary['latest_evaluation_score'],
+            ],
+            // The lists below are capped (newest first); the totals let the screen say so instead of hiding older rows.
+            'totals' => [
+                'attendance' => Attendance::where('deployment_id', $d->id)->count(),
+                'activities' => DailyActivity::where('deployment_id', $d->id)->count(),
+                'tasks' => Task::whereHas('assignees', fn ($q) => $q->where('deployment_id', $d->id))->count(),
             ],
             'attendance' => $attendance->values(),
             'activities' => $activities->values(),

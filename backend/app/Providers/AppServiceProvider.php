@@ -19,6 +19,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        \App\Support\RateLimits::register();
+
+        // Record ids in URLs are always numbers: /interns/abc is a 404, not a TypeError (HTTP 500) in the controller.
+        foreach (['id', 'deploymentId', 'taskId', 'subtaskId', 'userId'] as $param) {
+            \Illuminate\Support\Facades\Route::pattern($param, '[0-9]+');
+        }
+
         // ->local() = same instant in the display timezone, for human formatting.
         \Carbon\Carbon::macro('local', fn () => \App\Support\LocalTime::of($this));
         \Carbon\CarbonImmutable::macro('local', fn () => \App\Support\LocalTime::of($this));

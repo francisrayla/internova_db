@@ -3,39 +3,36 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch } from "@/lib/apiFetch";
 import SubtaskBoard from "@/components/SubtaskBoard";
 import DueDateBadge from "@/components/DueDateBadge";
 import ProofUploadModal from "@/components/ProofUploadModal";
 import ProofPreviewModal from "@/components/ProofPreviewModal";
 import EditTaskModal from "@/components/EditTaskModal";
+import NavIcon from "@/components/NavIcon";
+import { Plus, X } from "lucide-react";
+import { Btn, EmptyState, ErrorNote, FormField, Input, Pill, Section, Select, SheetFrame, SkeletonList, Textarea } from "@/components/dash/page";
 import { isAwaitingRating } from "@/lib/taskState";
+import { manilaToday } from "@/lib/dueDateUrgency";
 
 import { inputProps } from "@/lib/inputRules";
-const STATUS_STYLES = {
-  pending: "bg-slate-100 text-slate-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  completed: "bg-emerald-100 text-emerald-700",
-};
-
-const PRIORITY_STYLES = {
-  low: "bg-slate-100 text-slate-600",
-  medium: "bg-amber-100 text-amber-700",
-  high: "bg-red-100 text-red-700",
-};
+const STATUS_TONES = { pending: "slate", in_progress: "blue", completed: "green" };
+const PRIORITY_TONES = { low: "slate", medium: "amber", high: "red" };
 
 function StatusSelect({ value, onChange, disabled }) {
   return (
-    <select
+    <Select
       value={value}
       disabled={disabled}
+      aria-label="Task status"
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-blue-500"
+      className="sm:w-auto"
     >
       <option value="pending">Pending</option>
       <option value="in_progress">Ongoing</option>
       <option value="completed">Done</option>
-    </select>
+    </Select>
   );
 }
 
@@ -58,30 +55,31 @@ function CommentThread({ comments, onSubmit, placeholder }) {
   return (
     <div className="space-y-3">
       {comments.length === 0 ? (
-        <p className="text-xs text-slate-400">No comments yet.</p>
+        <p className="k-hint">No comments yet.</p>
       ) : (
-        <div className="space-y-2">
+        <ul className="k-list" aria-label="Comments">
           {comments.map((c) => (
-            <div key={c.id} className="rounded-xl bg-slate-50 px-3 py-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="text-xs font-semibold text-slate-700">{c.author_name ?? "Unknown"}</p>
-                <p className="text-[11px] text-slate-400">{c.created_at}</p>
+            <li key={c.id} className="py-2.5 first:pt-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <p className="text-sm font-semibold text-slate-800">{c.author_name ?? "Unknown"}</p>
+                <p className="text-xs text-slate-500">{c.created_at}</p>
               </div>
-              <p className="mt-0.5 text-sm text-slate-700">{c.comment}</p>
-            </div>
+              <p className="mt-0.5 whitespace-pre-line break-words text-sm text-slate-700">{c.comment}</p>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <input {...inputProps("comment")}
+        <Input {...inputProps("comment")}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={placeholder}
-          className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          aria-label={placeholder}
+          className="min-w-0 flex-1"
         />
-        <button type="submit" disabled={sending || !text.trim()} className="shrink-0 rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
-          {sending ? "…" : "Post"}
-        </button>
+        <Btn type="submit" variant="primary" disabled={sending || !text.trim()} className="shrink-0">
+          {sending ? "Posting…" : "Post"}
+        </Btn>
       </form>
     </div>
   );
@@ -117,13 +115,13 @@ function SubtaskAssigneePicker({ candidates, selected, onChange }) {
   }
 
   return (
-    <div ref={containerRef} className="relative">
-      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-300 p-1.5 focus-within:border-blue-500">
+    <div ref={containerRef}>
+      <div className="flex min-h-[44px] flex-wrap items-center gap-1.5 rounded-[10px] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1.5 focus-within:border-[var(--ui-accent)]">
         {selectedPeople.map((p) => (
-          <span key={p.user_id} className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+          <span key={p.user_id} className="k-pill is-info gap-1">
             {p.name}
-            <button type="button" onClick={() => remove(p.user_id)} className="text-blue-500 hover:text-blue-800" aria-label={`Remove ${p.name}`}>
-              ×
+            <button type="button" onClick={() => remove(p.user_id)} className="grid h-6 w-6 place-items-center rounded-full" aria-label={`Remove ${p.name}`}>
+              <X size={14} aria-hidden="true" />
             </button>
           </span>
         ))}
@@ -132,13 +130,14 @@ function SubtaskAssigneePicker({ candidates, selected, onChange }) {
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder={selectedPeople.length === 0 ? "Pick who this is for…" : "Add another…"}
-          className="min-w-[100px] flex-1 border-none px-1 py-0.5 text-xs outline-none"
+          aria-label="Pick members"
+          className="min-w-[120px] flex-1 border-none bg-transparent px-1 py-1 text-base outline-none sm:text-sm"
         />
       </div>
       {open && filtered.length > 0 && (
-        <div className="absolute z-10 mt-1 max-h-40 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+        <div className="mt-1 max-h-40 w-full overflow-y-auto rounded-[10px] border border-[var(--ui-line)] bg-[var(--ui-surface)]">
           {filtered.map((c) => (
-            <button key={c.user_id} type="button" onClick={() => add(c.user_id)} className="block w-full px-3 py-1.5 text-left text-xs hover:bg-blue-50">
+            <button key={c.user_id} type="button" onClick={() => add(c.user_id)} className="block min-h-[44px] w-full px-3 py-2 text-left text-sm hover:bg-[var(--ui-soft)] sm:min-h-0">
               {c.name}
             </button>
           ))}
@@ -148,17 +147,24 @@ function SubtaskAssigneePicker({ candidates, selected, onChange }) {
   );
 }
 
-function AddSubtaskForm({ assignees, onAdd }) {
+function AddSubtaskForm({ assignees, onAdd, noPastDue = false }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", due_date: "" });
   const [assigneeIds, setAssigneeIds] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // The supervisor cannot put a subtask due date in the past (Manila today or later).
+  const today = noPastDue ? manilaToday() : undefined;
+  const dueProblem = today && form.due_date && form.due_date < today ? "The due date cannot be in the past. Choose today or a later date." : "";
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.title.trim()) {
       setError("Enter a title.");
+      return;
+    }
+    if (dueProblem) {
+      setError(dueProblem);
       return;
     }
     if (assignees.length > 1 && assigneeIds.length === 0) {
@@ -179,57 +185,72 @@ function AddSubtaskForm({ assignees, onAdd }) {
     }
   }
 
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="rounded-xl border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600">
-        + Add subtask
-      </button>
-    );
+  function close() {
+    setOpen(false);
+    setError("");
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <input {...inputProps("title")}
-        value={form.title}
-        onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-        placeholder="Subtask title"
-        className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
-        autoFocus
-      />
-      <textarea {...inputProps("longText")}
-        value={form.description}
-        onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-        placeholder="Description (optional)"
-        rows={2}
-        className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
-      />
-      <input
-        type="date"
-        value={form.due_date}
-        onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
-        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-blue-500"
-      />
-      {assignees.length > 1 && (
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold text-slate-500">Assign to <span className="text-red-500">*</span></span>
-            <button type="button" onClick={() => setAssigneeIds(assignees.map((a) => a.user_id))} className="text-[11px] font-semibold text-blue-600 hover:underline">
-              Select everyone
-            </button>
+    <>
+      <Btn sm onClick={() => setOpen(true)}>
+        <Plus size={15} aria-hidden="true" /> Add subtask
+      </Btn>
+      {open && createPortal(
+        <SheetFrame
+          title="Add subtask"
+          description="A smaller step of this task."
+          onClose={saving ? undefined : close}
+          onSubmit={handleSubmit}
+          noValidate
+          footer={
+            <>
+              <Btn onClick={close} disabled={saving}>Cancel</Btn>
+              <Btn type="submit" variant="primary" disabled={saving}>{saving ? "Adding…" : "Add subtask"}</Btn>
+            </>
+          }
+        >
+          <div className="grid gap-4">
+            <FormField label="Title" required>
+              <Input {...inputProps("title")}
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="Subtask title"
+                autoFocus
+              />
+            </FormField>
+            <FormField label="Description (optional)">
+              <Textarea {...inputProps("longText")}
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                rows={3}
+              />
+            </FormField>
+            <FormField label="Due date (optional)" error={dueProblem}>
+              <Input
+                type="date"
+                min={today}
+                value={form.due_date}
+                aria-invalid={!!dueProblem}
+                onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
+              />
+            </FormField>
+            {assignees.length > 1 && (
+              <div>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="k-label">Assign to <span className="k-req" aria-hidden="true">*</span></span>
+                  <button type="button" onClick={() => setAssigneeIds(assignees.map((a) => a.user_id))} className="dash-link">
+                    Select everyone
+                  </button>
+                </div>
+                <SubtaskAssigneePicker candidates={assignees} selected={assigneeIds} onChange={setAssigneeIds} />
+              </div>
+            )}
+            {error && error !== dueProblem && <p role="alert" className="k-note is-risk">{error}</p>}
           </div>
-          <SubtaskAssigneePicker candidates={assignees} selected={assigneeIds} onChange={setAssigneeIds} />
-        </div>
+        </SheetFrame>,
+        document.body
       )}
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      <div className="flex gap-2">
-        <button type="submit" disabled={saving} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-          {saving ? "Adding…" : "Add"}
-        </button>
-        <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-white">
-          Cancel
-        </button>
-      </div>
-    </form>
+    </>
   );
 }
 
@@ -257,37 +278,37 @@ function RatingForm({ onSubmit }) {
   }
 
   return (
-    <div className="rounded-3xl border border-purple-200 bg-purple-50/60 p-6 shadow-sm">
-      <h2 className="text-sm font-semibold text-purple-900">Rate this task</h2>
-      <p className="mt-1 text-xs text-purple-700">This task is done — score it to move it to History.</p>
+    <div className="dash-card">
+      <h2 className="text-base font-semibold text-slate-900">Rate this task</h2>
+      <p className="mt-1 text-sm text-slate-600">This task is done — score it to move it to History.</p>
       <form onSubmit={handleSubmit} className="mt-4 space-y-4">
         <div>
-          <span className="mb-1.5 block text-xs font-semibold text-purple-900">Score (1–10)</span>
+          <span className="k-label mb-1.5 block">Score (1–10)</span>
           <div className="flex flex-wrap gap-1.5">
             {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => setRating(n)}
-                className={`h-9 w-9 rounded-xl text-sm font-semibold transition ${rating === n ? "bg-purple-600 text-white" : "bg-white text-slate-600 hover:bg-purple-100"}`}
+                className={`grid h-10 w-10 place-items-center rounded-xl border text-sm font-semibold transition max-sm:h-[44px] max-sm:w-[44px] ${rating === n ? "border-transparent bg-[var(--ui-btn)] text-white" : "border-[var(--ui-border)] bg-white text-slate-700 hover:bg-slate-50"}`}
               >
                 {n}
               </button>
             ))}
           </div>
         </div>
-        <label className="block text-xs">
-          <span className="mb-1.5 block font-semibold text-purple-900">Comments</span>
+        <label className="k-field">
+          <span className="k-label">Comments</span>
           <textarea {...inputProps("longText")}
             value={comments}
             onChange={(e) => setComments(e.target.value)}
             rows={3}
             placeholder="How did they do?"
-            className="w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm outline-none focus:border-purple-500"
+            className="k-input"
           />
         </label>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <button type="submit" disabled={saving} className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-60">
+        {error && <p role="alert" className="k-error">{error}</p>}
+        <button type="submit" disabled={saving} className="k-btn is-primary max-sm:w-full">
           {saving ? "Saving…" : "Submit rating"}
         </button>
       </form>
@@ -297,13 +318,13 @@ function RatingForm({ onSubmit }) {
 
 function RatingDisplay({ evaluation }) {
   return (
-    <div className="rounded-3xl border border-emerald-200 bg-emerald-50/60 p-6 shadow-sm">
+    <div className="dash-card">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-emerald-900">Supervisor rating</h2>
-        <span className="rounded-full bg-emerald-600 px-3 py-1 text-sm font-bold text-white">{evaluation.rating}/10</span>
+        <h2 className="text-base font-semibold text-slate-900">Supervisor rating</h2>
+        <span className="k-pill is-ok">{evaluation.rating}/10</span>
       </div>
-      {evaluation.comments && <p className="mt-2 text-sm text-emerald-800">“{evaluation.comments}”</p>}
-      <p className="mt-2 text-xs text-emerald-600">Rated {evaluation.evaluated_at}</p>
+      {evaluation.comments && <p className="mt-2 text-sm text-slate-700">“{evaluation.comments}”</p>}
+      <p className="mt-2 text-xs text-slate-500">Rated {evaluation.evaluated_at}</p>
     </div>
   );
 }
@@ -322,8 +343,8 @@ function ProofGallery({ proofs, onPreview }) {
   if (!proofs || proofs.length === 0) return null;
 
   return (
-    <div className="mt-3 border-t border-slate-100 pt-3">
-      <p className="mb-2 text-xs font-semibold text-slate-500">Proof of completion</p>
+    <div className="mt-3 border-t border-[var(--ui-line)] pt-3">
+      <p className="mb-2 text-sm font-semibold text-slate-600">Proof of completion</p>
       <div className="flex flex-wrap gap-2">
         {proofs.map((p) => {
           const isImage = p.mime_type?.startsWith("image/");
@@ -334,17 +355,17 @@ function ProofGallery({ proofs, onPreview }) {
               type="button"
               onClick={() => onPreview(p)}
               title={`${p.file_name} · uploaded by ${p.uploaded_by_name ?? "intern"} · ${p.created_at}`}
-              className="group flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5 pr-3 hover:border-blue-300 hover:bg-blue-50"
+              className="group flex items-center gap-2 rounded-[10px] border border-[var(--ui-line)] bg-[var(--ui-soft)] p-1.5 pr-3 hover:border-[var(--ui-accent)] max-sm:min-h-[44px]"
             >
               {isImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={p.file_url} alt={p.file_name} className="h-10 w-10 rounded-lg object-cover" />
               ) : (
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-bold text-slate-500">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--ui-line)] text-xs font-bold text-slate-600">
                   {PROOF_EXT_BADGES[ext] ?? "FILE"}
                 </span>
               )}
-              <span className="max-w-[10rem] truncate text-xs font-medium text-slate-600 group-hover:text-blue-700">{p.file_name}</span>
+              <span className="max-w-[10rem] truncate text-sm font-medium text-slate-700 group-hover:text-blue-700">{p.file_name}</span>
             </button>
           );
         })}
@@ -355,24 +376,24 @@ function ProofGallery({ proofs, onPreview }) {
 
 function SelectedSubtaskPanel({ subtask, onComment, onDelete, canManage, onPreviewProof }) {
   return (
-    <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
+    <div className="mt-4 border-t border-[var(--ui-line)] pt-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-medium text-slate-900">{subtask.title}</p>
-          {subtask.description && <p className="mt-1 text-sm text-slate-600">{subtask.description}</p>}
+        <div className="min-w-0">
+          <h3 className="break-words font-semibold text-slate-900">{subtask.title}</h3>
+          {subtask.description && <p className="mt-1 whitespace-pre-line break-words text-sm text-slate-600">{subtask.description}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <p className="text-xs text-slate-500">{subtask.assignees?.length > 0 ? subtask.assignees.map((a) => a.name).join(", ") : "Unassigned"}</p>
+            <p className="text-sm text-slate-600">{subtask.assignees?.length > 0 ? subtask.assignees.map((a) => a.name).join(", ") : "Unassigned"}</p>
             <DueDateBadge dueDateRaw={subtask.due_date_raw} status={subtask.status} />
           </div>
         </div>
         {canManage && (
-          <button onClick={onDelete} className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50">
-            Remove
-          </button>
+          <Btn sm variant="danger-quiet" onClick={onDelete} className="shrink-0">
+            Remove subtask
+          </Btn>
         )}
       </div>
       <ProofGallery proofs={subtask.proofs} onPreview={onPreviewProof} />
-      <div className="mt-3 border-t border-blue-100 pt-3">
+      <div className="mt-3 border-t border-[var(--ui-line)] pt-3">
         <CommentThread comments={subtask.comments} onSubmit={onComment} placeholder="Comment on this subtask…" />
       </div>
     </div>
@@ -548,25 +569,25 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   const canManageSubtasks = task ? (typeof canAddSubtask === "function" ? canAddSubtask(task) : canAddSubtask) : false;
 
   return (
-    <div className="space-y-6 sm:p-2 lg:p-6">
-      <Link href={resolvedBackHref} className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700">
-        ← {backLabel}
+    <div className="k-page">
+      <Link href={resolvedBackHref} className="k-back justify-self-start">
+        <NavIcon name="back" size={16} />{backLabel}
       </Link>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {loading ? (
-        <p className="text-sm text-slate-500">Loading task…</p>
+        <SkeletonList rows={2} height="h-28" />
       ) : !task ? (
-        <p className="text-sm text-slate-400">Task not found.</p>
+        <EmptyState icon="tasks" title="Task not found" text="It may have been removed. Go back to the list and open another task." />
       ) : (
         <>
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="dash-card">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
-                  {task.priority && <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${PRIORITY_STYLES[task.priority]}`}>{task.priority}</span>}
-                  <h1 className="text-xl font-semibold text-slate-900">{task.title}</h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  {task.priority && <Pill tone={PRIORITY_TONES[task.priority] ?? "slate"} className="capitalize">{task.priority}</Pill>}
+                  <h1 className="break-words text-xl font-semibold text-slate-900">{task.title}</h1>
                 </div>
                 <p className="mt-1 text-sm text-slate-500">
                   {task.company_name ?? ""}{task.assigned_by_name ? ` · Assigned by ${task.assigned_by_name}` : ""}
@@ -578,18 +599,18 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                 {task.is_group && task.leader_id && (
                   <p className="mt-1 text-sm text-slate-500">
                     Leader: <span className="font-medium text-slate-700">{task.assignees.find((a) => a.user_id === task.leader_id)?.name ?? "—"}</span>
-                    {task.is_leader && <span className="ml-1.5 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-700">You</span>}
+                    {task.is_leader && <Pill tone="blue" size="sm" className="ml-1.5">You</Pill>}
                   </p>
                 )}
                 <div className="mt-2"><DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} /></div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[task.status]}`}>{task.status.replace("_", " ")}</span>
+                <Pill tone={STATUS_TONES[task.status] ?? "slate"} className="shrink-0 whitespace-nowrap capitalize">{task.status.replace("_", " ")}</Pill>
                 {canChangeStatus && task.subtask_total === 0 && canManageSubtasks && <StatusSelect value={task.status} onChange={updateTaskStatus} />}
                 {canEditTask && task.can_edit !== false && (
-                  <button type="button" onClick={() => setEditing(true)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                  <Btn sm onClick={() => setEditing(true)}>
                     Edit task
-                  </button>
+                  </Btn>
                 )}
               </div>
             </div>
@@ -597,24 +618,24 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
 
             {task.subtask_total > 0 && task.subtask_done < task.subtask_total && task.status !== "completed" && (
               canManageSubtasks && canChangeStatus ? (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-sm text-slate-600">Finish all subtasks first ({task.subtask_done}/{task.subtask_total} done).</p>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--ui-info-bg)] px-4 py-3 text-sm text-[var(--ui-info)]">
+                  <p className="min-w-0 text-sm">Finish all subtasks first ({task.subtask_done}/{task.subtask_total} done).</p>
                   <button
                     type="button"
                     disabled
                     title={`Finish all subtasks first (${task.subtask_done}/${task.subtask_total} done)`}
-                    className="shrink-0 cursor-not-allowed rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-400"
+                    className="k-btn is-secondary shrink-0 max-sm:w-full"
                   >
                     Mark task complete
                   </button>
                 </div>
               ) : (
-                <p className="mt-3 text-xs text-slate-400">Status is driven by its subtasks below ({task.subtask_done}/{task.subtask_total} done).</p>
+                <p className="k-hint mt-3">Status is driven by its subtasks below ({task.subtask_done}/{task.subtask_total} done).</p>
               )
             )}
 
             {task.subtask_total > 0 && task.subtask_done < task.subtask_total && task.status === "completed" && (
-              <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <p className="k-note is-warn mt-3">
                 This task is marked done, but {task.subtask_total - task.subtask_done} of its {task.subtask_total} subtask{task.subtask_total === 1 ? " is" : "s are"} not done ({task.subtask_done}/{task.subtask_total} done).
                 {canChangeStatus ? " Set each unfinished subtask to Done." : canAddSubtask === true ? " Remove the unfinished subtasks, or ask the intern to finish them." : ""}
               </p>
@@ -622,31 +643,31 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
 
             {task.subtask_total > 0 && task.subtask_done === task.subtask_total && task.status !== "completed" && (
               canManageSubtasks ? (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-purple-200 bg-purple-50 px-4 py-3">
-                  <p className="text-sm font-medium text-purple-800">Every subtask is done — mark the whole task complete to send it for the supervisor&apos;s rating.</p>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--ui-info-bg)] px-4 py-3 text-sm text-[var(--ui-info)]">
+                  <p className="min-w-0 text-sm font-medium">Every subtask is done — mark the whole task complete to send it for the supervisor&apos;s rating.</p>
                   <button
                     type="button"
                     onClick={() => (requireProof ? setCompletingTarget({ type: "task", id: taskId, title: task.title }) : completeWithoutProof("task", taskId))}
-                    className="shrink-0 rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700"
+                    className="k-btn is-primary shrink-0 max-sm:w-full"
                   >
                     Mark task complete
                   </button>
                 </div>
               ) : (
-                <p className="mt-3 rounded-2xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-700">
+                <p className="k-note mt-3">
                   Every subtask is done — waiting for the task leader to mark the whole task complete.
                 </p>
               )
             )}
 
             {task.subtask_total === 0 && task.is_group && !task.is_leader && canChangeStatus && (
-              <p className="mt-3 text-xs text-slate-400">Only the task leader can update this task&apos;s status directly.</p>
+              <p className="k-hint mt-3">Only the task leader can update this task&apos;s status directly.</p>
             )}
 
             <ProofGallery proofs={task.proofs} onPreview={setPreviewProof} />
 
-            <div className="mt-5 border-t border-slate-100 pt-5">
-              <h2 className="mb-3 text-sm font-semibold text-slate-700">Comments</h2>
+            <div className="mt-5 border-t border-[var(--ui-line)] pt-5">
+              <h2 className="mb-3 text-base font-semibold text-slate-900">Comments</h2>
               <CommentThread comments={task.comments} onSubmit={addTaskComment} placeholder="Comment on this task…" />
             </div>
           </div>
@@ -657,28 +678,27 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
             task.subtask_done === task.subtask_total ? (
               <RatingForm onSubmit={submitRating} />
             ) : (
-              <p className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-700">
+              <p className="k-note">
                 This task can be rated once every subtask is done ({task.subtask_done}/{task.subtask_total} done).
               </p>
             )
           ) : isAwaitingRating(task) ? (
-            <p className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-700">
+            <p className="k-note">
               Waiting on the supervisor rating before this moves to History.
             </p>
           ) : null}
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-700">Subtasks</h2>
-              {canManageSubtasks && task.status !== "completed" && <AddSubtaskForm assignees={task.assignees} onAdd={addSubtask} />}
-            </div>
+          <Section
+            title="Subtasks"
+            action={canManageSubtasks && task.status !== "completed" ? <AddSubtaskForm assignees={task.assignees} onAdd={addSubtask} noPastDue={apiBase.includes("/supervisor")} /> : undefined}
+          >
             {canManageSubtasks && task.status === "completed" && (
-              <p className="text-xs text-slate-400">
+              <p className="k-hint mb-3">
                 {task.evaluation ? "This task has been rated, so no more subtasks can be added." : "This task is done, so no more subtasks can be added. A done task needs all of its subtasks done."}
               </p>
             )}
             {task.subtasks.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-xs text-slate-400">No subtasks yet.</p>
+              <p className="k-hint py-2">No subtasks yet.</p>
             ) : (
               <SubtaskBoard
                 subtasks={task.subtasks}
@@ -699,7 +719,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                 canManage={typeof canAddSubtask !== "function" && canManageSubtasks}
               />
             )}
-          </section>
+          </Section>
         </>
       )}
 

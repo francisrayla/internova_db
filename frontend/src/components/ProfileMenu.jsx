@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
 import { useMounted } from "@/lib/useMounted";
 import { initialsOf } from "@/lib/format";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 /**
  * The single header account menu used by every role — avatar/name trigger,
@@ -19,6 +22,10 @@ export default function ProfileMenu({ user, onLogout, fallbackName, links = [] }
   const [open, setOpen] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const rootRef = useRef(null);
+  const pathname = usePathname();
+  // A link counts as current on its own page and on pages below it (/x/settings/school).
+  const isCurrent = (href) => pathname === href || pathname.startsWith(`${href}/`);
+  const onAccountPage = links.some((l) => isCurrent(l.href));
 
   // Portals to <body> for the same reason MessengerWidget's floating windows
   // do — the header this menu lives in has backdrop-blur, which makes it a
@@ -41,68 +48,65 @@ export default function ProfileMenu({ user, onLogout, fallbackName, links = [] }
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-1.5 pr-3 hover:bg-slate-100"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 max-sm:min-h-[44px] ${
+          onAccountPage ? "border-blue-300 bg-blue-50 hover:bg-blue-100" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+        }`}
       >
-        <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-blue-600 text-xs font-semibold text-white">
-          {user?.avatar_url ? <img src={user.avatar_url} alt="" className="h-full w-full object-cover" /> : initials}
+        <span className="relative grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+          {initials}
+          {user?.avatar_url && <img src={user.avatar_url} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
         </span>
         <span className="hidden max-w-[9rem] truncate text-sm font-medium text-slate-800 sm:inline">{user?.name ?? fallbackName}</span>
         <Icon name="chevronDown" size={14} className="text-slate-500" />
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-60 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+        <div className="absolute right-0 z-30 mt-2 w-60 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
           <div className="px-3 py-2">
             <p className="text-sm font-semibold text-slate-900">{user?.name ?? fallbackName}</p>
             <p className="truncate text-xs text-slate-500">{user?.email ?? "—"}</p>
           </div>
           <div className="my-1 border-t border-slate-100" />
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              <Icon name={l.icon} size={16} /> {l.label}
-            </Link>
-          ))}
+          {links.map((l) => {
+            const current = isCurrent(l.href);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                onClick={() => setOpen(false)}
+                aria-current={current ? "page" : undefined}
+                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm max-sm:min-h-[44px] ${
+                  current ? "bg-blue-100 font-medium text-blue-800" : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <NavIcon name={l.icon} size={16} className="shrink-0" /> {l.label}
+              </Link>
+            );
+          })}
           <div className="my-1 border-t border-slate-100" />
           <button
             type="button"
             onClick={() => { setOpen(false); setShowConfirm(true); }}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 max-sm:min-h-[44px]"
           >
-            <Icon name="logout" size={16} /> Log Out
+            <NavIcon name="logout" size={16} className="shrink-0" /> Log Out
           </button>
         </div>
       )}
 
       {mounted &&
-        showConfirm &&
         createPortal(
-          <div className="sheet-overlay fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="sheet-panel w-full max-w-sm rounded-3xl bg-white p-6 shadow-xl">
-              <h3 className="text-lg font-semibold text-slate-900">Log out?</h3>
-              <p className="mt-1.5 text-sm text-slate-600">You&apos;ll need to sign in again to access your account.</p>
-              <div className="mt-5 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowConfirm(false); onLogout(); }}
-                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-                >
-                  Log Out
-                </button>
-              </div>
-            </div>
-          </div>,
+          <ConfirmDialog
+            open={showConfirm}
+            title="Log out?"
+            confirmLabel="Log Out"
+            onCancel={() => setShowConfirm(false)}
+            onConfirm={() => { setShowConfirm(false); onLogout(); }}
+          >
+            <p>You&apos;ll need to sign in again to access your account.</p>
+          </ConfirmDialog>,
           document.body
         )}
     </div>

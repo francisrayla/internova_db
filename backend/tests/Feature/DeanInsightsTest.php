@@ -257,7 +257,7 @@ class DeanInsightsTest extends TestCase
         $make(3, 15);
         $many = $count();
         $this->assertSame($few, $many);
-        $this->assertLessThan(30, $many);
+        $this->assertLessThan(40, $many); // budget includes the school-access gate (school + subscription lookups)
     }
 
     // ------------------------------------------------------------ scorecard + checklist + chart

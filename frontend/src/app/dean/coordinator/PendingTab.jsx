@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { fetchApiData } from "@/lib/apiFetch";
-import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
 import { EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/dean/ui";
+import { DataList, DataRow, Section } from "@/components/dash/page";
 
 const TYPE = {
   document_review: { icon: "file", label: "Document review" },
@@ -39,34 +39,29 @@ export default function PendingTab() {
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-slate-500">
+    <div className="space-y-4">
+      <p className="text-sm text-slate-600">
         What your coordinator still needs to do, oldest first.
         {data.stale_count > 0 && <> <span className="font-semibold text-amber-700">{data.stale_count} {data.stale_count === 1 ? "item has" : "items have"} been waiting more than {data.stale_threshold_days} days.</span></>}
       </p>
-      <ul className="space-y-2">
-        {data.items.map((item, i) => {
-          const meta = TYPE[item.type] ?? { icon: "list", label: "To do" };
-          const body = (
-            <>
-              <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${item.stale ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                <Icon name={meta.icon} size={16} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-slate-900">{item.title}</span>
-                <span className={`block text-sm ${item.stale ? "font-medium text-amber-700" : "text-slate-500"}`}>{item.detail}</span>
-              </span>
-              <Pill tone={item.stale ? "amber" : "slate"}>{meta.label}</Pill>
-            </>
-          );
-          const cls = `flex items-start gap-3 rounded-2xl border bg-white p-4 ${item.stale ? "border-amber-200" : "border-slate-200"}`;
-          return (
-            <li key={`${item.type}-${i}`}>
-              {item.link ? <Link href={item.link} className={`${cls} transition hover:border-blue-300`}>{body}</Link> : <div className={cls}>{body}</div>}
-            </li>
-          );
-        })}
-      </ul>
+      <Section flush>
+        <DataList>
+          {data.items.map((item, i) => {
+            const meta = TYPE[item.type] ?? { icon: "list", label: "To do" };
+            return (
+              <DataRow
+                key={`${item.type}-${i}`}
+                href={item.link || undefined}
+                wrap
+                lead={<span className={`shrink-0 self-start pt-0.5 ${item.stale ? "text-amber-700" : "text-slate-500"}`}><NavIcon name={meta.icon} size={18} /></span>}
+                title={item.title}
+                sub={<span className={item.stale ? "font-medium text-amber-700" : undefined}>{item.detail}</span>}
+                side={<Pill tone={item.stale ? "amber" : "slate"}>{meta.label}</Pill>}
+              />
+            );
+          })}
+        </DataList>
+      </Section>
     </div>
   );
 }

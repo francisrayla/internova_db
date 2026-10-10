@@ -149,16 +149,16 @@ class DeploymentWindowTest extends TestCase
 
     public function test_a_supervisor_cannot_log_attendance_before_the_start_date(): void
     {
-        $this->startOn('2026-10-20');
+        $this->startOn('2026-10-12');
         Sanctum::actingAs(User::where('email', 'supervisor@internova.test')->firstOrFail());
 
         $this->postJson('/api/supervisor/attendance', [
-            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-13', 'clock_in' => '08:00', 'clock_out' => '17:00',
+            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-11', 'clock_in' => '08:00', 'clock_out' => '17:00',
         ])->assertStatus(422);
         $this->assertSame(0, Attendance::where('deployment_id', $this->dep->id)->count());
 
         $this->postJson('/api/supervisor/attendance', [
-            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-20', 'clock_in' => '08:00', 'clock_out' => '17:00',
+            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-12', 'clock_in' => '08:00', 'clock_out' => '16:00',
         ])->assertSuccessful();
     }
 
@@ -211,7 +211,7 @@ class DeploymentWindowTest extends TestCase
         Sanctum::actingAs(User::where('email', 'supervisor@internova.test')->firstOrFail());
 
         $this->postJson('/api/supervisor/attendance', [
-            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-14', 'clock_in' => '08:00', 'clock_out' => '17:00',
+            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-14', 'clock_in' => '08:00', 'clock_out' => '08:30',
         ])->assertStatus(422);
     }
 }

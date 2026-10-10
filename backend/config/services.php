@@ -40,6 +40,9 @@ return [
     'paymongo' => [
         'secret_key' => env('PAYMONGO_SECRET_KEY'),
         'public_key' => env('PAYMONGO_PUBLIC_KEY'),
+        // Signing secret (whsk_...) of the webhook created in the PayMongo dashboard
+        // for POST {backend}/api/webhooks/paymongo. Without it the webhook refuses every call.
+        'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
     ],
 
     'gemini' => [

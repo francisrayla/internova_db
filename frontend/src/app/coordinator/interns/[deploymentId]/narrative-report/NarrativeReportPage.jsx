@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import NarrativeReport from "@/components/narrative-report/NarrativeReport";
 import ReportToolbar from "@/components/narrative-report/ReportToolbar";
+import { ErrorNote, SkeletonList } from "@/components/ui";
+import { Page, PageHeader } from "@/components/dash/page";
 
 export default function CoordinatorNarrativeReport() {
   const { deploymentId } = useParams();
@@ -21,21 +22,21 @@ export default function CoordinatorNarrativeReport() {
   }, [deploymentId]);
 
   if (loading) {
-    return <p className="py-10 text-center text-sm text-slate-400">Preparing report…</p>;
+    return <Page><SkeletonList rows={2} height="h-24" /></Page>;
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-4">
-        <Link href="/coordinator/interns" className="text-sm font-semibold text-blue-600 hover:underline">← Back to Interns</Link>
-        <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error || "Report not found."}</p>
-      </div>
+      <Page>
+        <PageHeader title="Narrative report" back={{ href: "/coordinator/interns", label: "Back to Interns" }} />
+        <ErrorNote>{error || "Report not found."}</ErrorNote>
+      </Page>
     );
   }
 
   return (
     <div>
-      <ReportToolbar backHref={`/coordinator/interns/${deploymentId}/portfolio`} backLabel="← Back to Portfolio" docxUrl={`/api/coordinator/interns/${deploymentId}/narrative-report/docx`} />
+      <ReportToolbar backHref={`/coordinator/interns/${deploymentId}/portfolio`} backLabel="Back to Portfolio" docxUrl={`/api/coordinator/interns/${deploymentId}/narrative-report/docx`} />
       <NarrativeReport data={data} />
     </div>
   );

@@ -3,17 +3,16 @@
 namespace App\Events;
 
 use App\Models\Notification;
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Broadcasts immediately (no queue worker needed) on a PUBLIC channel scoped
- * by audience role (+ school, for school-scoped roles). This app has no real
- * session/token auth yet (see AuthController) so private/presence channels
- * aren't viable here — the channel name itself is the only "access control",
- * matching the same demo-grade security posture as the rest of the API.
+ * Broadcasts immediately (no queue worker needed) on PRIVATE channels (authorized in
+ * routes/channels.php): the whole audience (role + school; platform admins for superadmin), or,
+ * for a personal notification, only that one person's own channel so colleagues with the same role
+ * never receive it.
  */
 class NotificationCreated implements ShouldBroadcastNow
 {
@@ -28,16 +27,14 @@ class NotificationCreated implements ShouldBroadcastNow
         $role = $this->notification->audience_role;
 
         if ($role === 'superadmin') {
-            return [new Channel('superadmin-notifications')];
+            return [new PrivateChannel('superadmin.notifications')];
         }
-
-        $channels = [new Channel("school.{$this->notification->school_id}.{$role}-notifications")];
 
         if ($this->notification->user_id) {
-            $channels[] = new Channel("user.{$this->notification->user_id}-notifications");
+            return [new PrivateChannel("user.{$this->notification->user_id}.notifications")];
         }
 
-        return $channels;
+        return [new PrivateChannel("school.{$this->notification->school_id}.{$role}.notifications")];
     }
 
     public function broadcastAs(): string

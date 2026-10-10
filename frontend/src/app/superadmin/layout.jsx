@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
+import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
 const navItems = [
   { label: "Dashboard", href: "/superadmin/dashboard", icon: "dashboard" },
@@ -19,7 +20,7 @@ const navItems = [
 
 const PROFILE_LINKS = [
   { href: "/superadmin/profile", icon: "user", label: "My Profile" },
-  { href: "/superadmin/settings", icon: "gear", label: "Settings" },
+  { href: "/superadmin/settings", icon: "settings", label: "Settings" },
 ];
 
 export default function SuperadminLayout({ children }) {
@@ -64,7 +65,7 @@ export default function SuperadminLayout({ children }) {
     }
   }
 
-  if (checking || !user) return null;
+  if (checking || !user) return <ShellSkeleton />;
 
 
   return (

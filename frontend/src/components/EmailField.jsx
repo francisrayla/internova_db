@@ -29,8 +29,8 @@ export default function EmailField({
   const message = serverError || local;
 
   return (
-    <label className="block text-sm">
-      <span className="mb-1.5 block font-semibold text-slate-700">{label}</span>
+    <label className="k-field">
+      <span className="k-label">{label}</span>
       <input
         {...inputProps("email")}
         type="email"
@@ -45,12 +45,12 @@ export default function EmailField({
           const next = clean("email", e.target.value);
           onChange(lowercase ? next.toLowerCase() : next);
         }}
-        className={`w-full min-w-0 rounded-xl border px-3 py-2.5 text-sm outline-none ${message ? "border-red-400 focus:border-red-500" : "border-slate-300 focus:border-blue-500"} disabled:bg-slate-50 disabled:text-slate-500`}
+        className="k-input min-w-0"
       />
       {message ? (
-        <span id={id} role="alert" className="mt-1 block break-words text-xs font-medium text-red-600">{message}</span>
+        <span id={id} role="alert" className="k-error break-words">{message}</span>
       ) : (
-        help && <span className="mt-1 block text-xs text-slate-400">{help}</span>
+        help && <span className="k-hint">{help}</span>
       )}
     </label>
   );

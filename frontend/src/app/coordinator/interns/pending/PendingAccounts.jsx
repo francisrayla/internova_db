@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import FixEmailModal from "@/components/FixEmailModal";
+import Pagination from "@/components/Pagination";
 import Icon from "@/components/Icon";
-import { Avatar, Banner, BackLink, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
+import { Avatar, Banner, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
+import { Btn, DataList, DataRow, Page, PageHeader, Section } from "@/components/dash/page";
+
+const PER_PAGE = 15;
 
 function statusOf(i) {
   if (i.email_bounced) return { label: "Email bounced", tone: "red", help: "The invitation could not be delivered. The email is probably misspelled." };
@@ -20,23 +24,45 @@ function statusOf(i) {
  */
 export default function PendingAccounts() {
   const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
+  const [paging, setPaging] = useState(false);
+  const requestRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [fixing, setFixing] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
+  // After a whole class is imported there can be hundreds waiting, so the server returns one page at a time.
   function load() {
-    fetchCoordinatorData("interns")
+    const request = ++requestRef.current; // a slower, older answer must not replace a newer one
+    fetchCoordinatorData(`interns?page=${page}&per_page=${PER_PAGE}&scope=roster&filter=invitation_pending`)
       .then((r) => {
-        setRows((r.interns ?? []).filter((i) => i.display_status === "invitation_pending"));
+        if (request !== requestRef.current) return;
+        // Fixing the last row of the last page leaves that page empty: go back one.
+        if (page > 1 && (r.interns ?? []).length === 0 && (r.last_page ?? 1) < page) {
+          setPage(r.last_page ?? 1);
+          return;
+        }
+        setRows(r.interns ?? []);
+        setMeta({ total: r.total ?? 0, last_page: r.last_page ?? 1 });
         setError("");
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => request === requestRef.current && setError(e.message))
+      .finally(() => {
+        if (request !== requestRef.current) return;
+        setLoading(false);
+        setPaging(false);
+      });
   }
 
-  useEffect(load, []);
+  useEffect(load, [page]);
+
+  function goToPage(next) {
+    setPaging(true);
+    setPage(next);
+  }
 
   async function resend(i) {
     setBusyId(i.deployment_id);
@@ -56,65 +82,57 @@ export default function PendingAccounts() {
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <BackLink href="/coordinator/interns">← Back to Interns</BackLink>
-        <h2 className="mt-2 text-lg font-semibold text-slate-900">Pending accounts</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Interns who have not set up their account yet. They are not on the Interns list and cannot be given tasks until they open the
-          invitation link. If the email is wrong, fix it here and a new link goes to the corrected address.
-        </p>
-      </div>
+    <Page>
+      <PageHeader
+        back={{ href: "/coordinator/interns", label: "Back to Interns" }}
+        title="Pending accounts"
+        sentence="Interns who have not set up their account yet. They are not on the Interns list and cannot be given tasks until they open the invitation link. If the email is wrong, fix it here and a new link goes to the corrected address."
+      />
 
       {notice && <Banner tone="green" onDismiss={() => setNotice("")}>{notice}</Banner>}
       {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
 
-      {loading ? (
-        <SkeletonList rows={3} />
-      ) : rows.length === 0 ? (
-        <EmptyState icon="check" title="Everyone has set up their account" text="Newly invited interns will show up here until they open their invitation link." />
-      ) : (
-        <ul className="space-y-3">
-          {rows.map((i) => {
-            const s = statusOf(i);
-            return (
-              <li key={i.deployment_id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <Avatar name={i.intern_name} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate font-semibold text-slate-900">{i.intern_name}</p>
-                      <Pill tone={s.tone} size="sm">{s.label}</Pill>
-                    </div>
-                    <p className="mt-0.5 flex items-center gap-1.5 break-all text-sm text-slate-700">
-                      <Icon name="mail" size={14} className="shrink-0 text-slate-400" /> {i.intern_email}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">{[i.company_name, i.course].filter(Boolean).join(" · ")}</p>
-                    <p className="mt-1.5 text-xs text-slate-500">{s.help}</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFixing(i)}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    <Icon name="edit" size={14} /> Edit email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => resend(i)}
-                    disabled={busyId === i.deployment_id}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                  >
-                    <Icon name="mail" size={14} /> {busyId === i.deployment_id ? "Sending…" : "Resend invitation"}
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <Section flush>
+        {loading ? (
+          <div className="k-pad"><SkeletonList rows={3} /></div>
+        ) : rows.length === 0 ? (
+          <div className="k-pad">
+            <EmptyState icon="check" title="Everyone has set up their account" text="Newly invited interns will show up here until they open their invitation link." />
+          </div>
+        ) : (
+          <DataList>
+            {rows.map((i) => {
+              const s = statusOf(i);
+              return (
+                <DataRow
+                  key={i.deployment_id}
+                  wrap
+                  lead={<Avatar name={i.intern_name} />}
+                  title={<span className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="break-words">{i.intern_name}</span><Pill tone={s.tone} size="sm">{s.label}</Pill></span>}
+                  sub={
+                    <>
+                      <span className="flex items-center gap-1.5 break-all"><Icon name="mail" size={14} className="shrink-0" /> {i.intern_email}</span>
+                      <span className="block">{[i.company_name, i.course].filter(Boolean).join(" · ")}</span>
+                      <span className="mt-0.5 block">{s.help}</span>
+                    </>
+                  }
+                  actions={
+                    <>
+                      <Btn onClick={() => setFixing(i)}>
+                        <Icon name="edit" size={14} /> Edit email
+                      </Btn>
+                      <Btn variant="primary" onClick={() => resend(i)} disabled={busyId === i.deployment_id}>
+                        <Icon name="mail" size={14} /> {busyId === i.deployment_id ? "Sending…" : "Resend invitation"}
+                      </Btn>
+                    </>
+                  }
+                />
+              );
+            })}
+          </DataList>
+        )}
+        <Pagination page={page} totalPages={meta.last_page} total={meta.total} loading={paging} onPageChange={goToPage} />
+      </Section>
 
       {fixing && (
         <FixEmailModal
@@ -125,6 +143,6 @@ export default function PendingAccounts() {
           onFixed={(email) => { setFixing(null); setNotice(`The email was corrected and a new invitation link was sent to ${email}.`); load(); }}
         />
       )}
-    </div>
+    </Page>
   );
 }

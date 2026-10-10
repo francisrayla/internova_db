@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
@@ -22,7 +23,7 @@ const FEATURES = [
   {
     icon: "checklist",
     title: "Formal Evaluations",
-    description: "Schools set their own grading criteria. Coordinators and supervisors submit monthly, midterm, and final evaluations.",
+    description: "Schools set their own grading criteria. Supervisors evaluate each intern once the required hours are done.",
   },
   {
     icon: "graduation",
@@ -214,7 +215,7 @@ export default function Home() {
               <ul className="mt-5 space-y-2 text-sm text-slate-700">
                 {p.features.map((f) => (
                   <li key={f} className="flex items-start gap-2">
-                    <span className="mt-0.5 text-blue-600">✓</span>
+                    <Check size={16} className="mt-0.5 shrink-0 text-blue-600" aria-hidden="true" />
                     <span>{f}</span>
                   </li>
                 ))}

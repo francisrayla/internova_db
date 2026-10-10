@@ -25,12 +25,15 @@ use App\Models\User;
 use App\Rules\CompleteEmail;
 use App\Services\AccountInvitationService;
 use App\Services\ActivityLogService;
+use App\Services\DashboardQueueService;
 use App\Services\DeploymentHistoryService;
 use App\Services\DeploymentSummaryService;
 use App\Services\EmailDeliverability;
 use App\Services\InternMonitoringService;
 use App\Services\PlanFeatures;
 use App\Services\NotificationService;
+use App\Support\Paging;
+use App\Support\TaskListing;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -223,6 +226,32 @@ class CoordinatorMonitoringController extends Controller
     // Interns
     // ---------------------------------------------------------------
 
+    /**
+     * Dashboard data. The tiles come from the SAME rows and summary as the Interns page, so the numbers on the
+     * two screens cannot disagree; the queue is the "needs attention" list (DashboardQueueService).
+     */
+    public function dashboard(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $deployments = InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
+            ->where('school_id', $user->school_id)->orderByDesc('id')->get();
+        $interns = $this->internRows($user->school_id, $deployments);
+
+        return response()->json([
+            'summary' => $this->internSummary($interns),
+            'queue' => DashboardQueueService::coordinator($user, $interns),
+        ]);
+    }
+
+    /** The coordinator's "needs attention" list for the bell: their own school only (from the signed-in user). */
+    public function attentionQueue(User $user): array
+    {
+        $deployments = InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
+            ->where('school_id', $user->school_id)->orderByDesc('id')->get();
+
+        return DashboardQueueService::coordinator($user, $this->internRows($user->school_id, $deployments));
+    }
+
     public function interns(Request $request): JsonResponse
     {
         $schoolId = $request->user()->school_id;
@@ -234,10 +263,73 @@ class CoordinatorMonitoringController extends Controller
 
         $interns = $this->internRows($schoolId, $deployments);
 
+        // Opt-in paging (the dashboard, pending list etc. still read everything). The summary and
+        // the dropdown options always describe the whole list; filters and search narrow it BEFORE it is cut into pages.
+        if (Paging::requested($request)) {
+            return response()->json($this->pagedInterns($request, $interns));
+        }
+
         return response()->json([
             'interns' => $interns->values(),
             'summary' => $this->internSummary($interns),
         ]);
+    }
+
+    /**
+     * scope = roster (not archived) | archive (inactive) | anything else = every row.
+     * filter = all (account set up) | active | completed | needs_attention. Also search, company (name), company_id, course.
+     */
+    private function pagedInterns(Request $request, $interns): array
+    {
+        $scoped = match ($request->query('scope')) {
+            'roster' => $interns->filter(fn ($i) => $i['status'] !== 'inactive'),
+            'archive' => $interns->filter(fn ($i) => $i['status'] === 'inactive'),
+            default => $interns,
+        };
+        $scoped = $scoped->values();
+
+        $options = [
+            'companies' => $scoped->pluck('company_name')->filter()->unique()->sort()->values(),
+            'courses' => $scoped->pluck('course')->filter()->unique()->sort()->values(),
+        ];
+
+        $rows = $scoped;
+        if ($filter = $request->query('filter')) {
+            $rows = $rows->filter(fn ($i) => match ($filter) {
+                'all' => $i['display_status'] !== 'invitation_pending',
+                'needs_attention' => count($i['attention'] ?? []) > 0,
+                default => $i['display_status'] === $filter,
+            });
+        }
+        if ($company = $request->query('company')) {
+            $rows = $rows->filter(fn ($i) => $i['company_name'] === $company);
+        }
+        if ($companyId = $request->query('company_id')) {
+            $rows = $rows->filter(fn ($i) => (string) $i['company_id'] === (string) $companyId);
+        }
+        if ($course = $request->query('course')) {
+            $rows = $rows->filter(fn ($i) => $i['course'] === $course);
+        }
+        if (($q = mb_strtolower(trim((string) $request->query('search')))) !== '') {
+            $rows = $rows->filter(function ($i) use ($q) {
+                foreach (['intern_name', 'company_name', 'student_number', 'supervisor_name'] as $key) {
+                    if (isset($i[$key]) && str_contains(mb_strtolower((string) $i[$key]), $q)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+        }
+
+        $page = Paging::collection($rows->values(), $request, 15, 50);
+
+        return [
+            'interns' => collect($page->items())->values(),
+            ...Paging::meta($page),
+            'summary' => $this->internSummary($interns),
+            'options' => $options,
+        ];
     }
 
     /**
@@ -260,15 +352,9 @@ class CoordinatorMonitoringController extends Controller
             $m = $monitor->get($d->id);
 
             $row['invitation_expired'] = $pending && $d->intern?->invitation_expires_at !== null && \Illuminate\Support\Carbon::parse($d->intern->invitation_expires_at)->isPast();
-            $row['display_status'] = match (true) {
-                $d->status === 'inactive' => 'inactive',
-                $d->status === 'completed' => 'completed',
-                $pending => 'invitation_pending',
-                default => $d->status,
-            };
-
             $attention = [];
-            if ($d->status === 'active' && !$pending) {
+            // Only interns still working: a finished intern has nothing left to clock in or catch up on.
+            if ($row['display_status'] === 'active') {
                 if (!$d->supervisorNames()) {
                     $attention[] = ['key' => 'no_supervisor', 'label' => 'No supervisor yet'];
                 }
@@ -292,14 +378,18 @@ class CoordinatorMonitoringController extends Controller
 
     private function internSummary($interns): array
     {
-        $counts = $interns->countBy('display_status');
+        // active = still working with an account; completed = finished (hours rendered or marked completed);
+        // on_list = what the Interns page shows under "All" (not archived, account set up).
+        $stats = DeploymentSummaryService::stats($interns);
 
         return [
-            'active' => (int) ($counts['active'] ?? 0),
-            'invitation_pending' => (int) ($counts['invitation_pending'] ?? 0),
+            'active' => $stats['active'],
+            'invitation_pending' => $stats['pending_accounts'],
             'needs_attention' => $interns->filter(fn ($r) => count($r['attention']) > 0)->count(),
-            'completed' => (int) ($counts['completed'] ?? 0),
+            'completed' => $stats['completed'],
             'total' => $interns->where('display_status', '!=', 'inactive')->count(),
+            'on_list' => $stats['on_list'],
+            'average_hours_pct' => $stats['average_hours_pct'],
         ];
     }
 
@@ -436,9 +526,31 @@ class CoordinatorMonitoringController extends Controller
             $query->where('company_id', $companyId);
         }
 
-        $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t));
-
         $companies = Company::where('school_id', $schoolId)->orderBy('company_name')->get(['id', 'company_name']);
+
+        // ?view=summary: only the per-company figures (company list, dashboard) — no task rows at all.
+        if ($request->query('view') === 'summary') {
+            $ratings = $this->ratingsEnabled();
+            $scoped = fn () => Task::whereHas('company', fn ($q) => $q->where('school_id', $schoolId));
+            $total = $scoped()->selectRaw('company_id, count(*) as c')->groupBy('company_id')->pluck('c', 'company_id');
+            $done = $scoped()->where('status', 'completed')->selectRaw('company_id, count(*) as c')->groupBy('company_id')->pluck('c', 'company_id');
+            $active = $scoped()->notInHistory($ratings)->selectRaw('company_id, count(*) as c')->groupBy('company_id')->pluck('c', 'company_id');
+
+            return response()->json(['companies' => $companies->map(fn ($c) => [
+                'id' => $c->id,
+                'company_name' => $c->company_name,
+                'total' => (int) ($total[$c->id] ?? 0),
+                'active' => (int) ($active[$c->id] ?? 0),
+                'completed' => (int) ($done[$c->id] ?? 0),
+            ])->values()]);
+        }
+
+        // ?view=active (open work, whole) or ?view=history (finished and rated, paged); no view = every task.
+        if ($listed = TaskListing::respond($request, $query, $this->ratingsEnabled(), fn (Task $t) => $this->mapTaskRow($t))) {
+            return response()->json($listed + ['companies' => $companies]);
+        }
+
+        $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t));
 
         return response()->json(['tasks' => $tasks, 'companies' => $companies]);
     }
@@ -634,7 +746,11 @@ class CoordinatorMonitoringController extends Controller
             $query->where('status', $status);
         }
 
-        $documents = $query->get()->map(fn (Document $d) => [
+        Paging::internNameLike($query, $request->query('search'));
+
+        $page = $query->paginate(Paging::perPage($request, 20, 50));
+
+        $documents = collect($page->items())->map(fn (Document $d) => [
             'id' => $d->id,
             'deployment_id' => $d->deployment_id,
             'intern_name' => trim("{$d->deployment?->intern?->first_name} {$d->deployment?->intern?->last_name}") ?: $d->deployment?->intern?->name,
@@ -646,7 +762,7 @@ class CoordinatorMonitoringController extends Controller
             'uploaded_at' => $d->created_at->local()->format('M d, Y'),
         ]);
 
-        return response()->json(['documents' => $documents, 'interns' => $this->internOptionsForSchool($schoolId)]);
+        return response()->json(['documents' => $documents, ...Paging::meta($page), 'interns' => $this->internOptionsForSchool($schoolId)]);
     }
 
     public function storeDocument(Request $request): JsonResponse
@@ -707,6 +823,12 @@ class CoordinatorMonitoringController extends Controller
         $document = Document::whereIn('deployment_id', $this->deploymentIdsForSchool($schoolId))->find($id);
         if (!$document) {
             return response()->json(['success' => false, 'message' => 'Document not found.'], 404);
+        }
+
+        // A double click or a stale screen sends the same decision twice: keep it, but do not
+        // notify the intern or log it a second time.
+        if ($document->status === $data['status'] && ($document->remarks ?? null) === ($data['remarks'] ?? null)) {
+            return response()->json(['success' => true, 'message' => 'Document reviewed.']);
         }
 
         $document->update(['status' => $data['status'], 'remarks' => $data['remarks'] ?? null, 'reviewed_at' => now()]);
@@ -771,6 +893,67 @@ class CoordinatorMonitoringController extends Controller
         return response()->json(['success' => true, 'message' => 'Criterion added.', 'criterion' => $criterion]);
     }
 
+    /** Fixes a criterion's wording. Its points can only change while no evaluation has used it. */
+    public function updateEvaluationCriterion(Request $request, int $id): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+        $criterion = EvaluationCriterion::where('id', $id)->where('school_id', $schoolId)->where('status', 'active')->first();
+        if (!$criterion) {
+            return response()->json(['success' => false, 'message' => 'Criterion not found.'], 404);
+        }
+
+        $data = $request->validate([
+            'category' => 'nullable|string|max:100',
+            'name' => 'sometimes|required|string|max:150',
+            'description' => 'nullable|string|max:500',
+            'max_score' => 'sometimes|required|numeric|min:1|max:100',
+            'weight' => 'sometimes|required|numeric|min:0.1|max:100',
+        ]);
+
+        $pointsChanged = (isset($data['max_score']) && (float) $data['max_score'] !== (float) $criterion->max_score)
+            || (isset($data['weight']) && (float) $data['weight'] !== (float) $criterion->weight);
+        if ($pointsChanged && DB::table('evaluation_scores')->where('criteria_id', $criterion->id)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Evaluations already use this criterion, so its points cannot change. Remove it and add a new one instead.',
+            ], 422);
+        }
+
+        $criterion->update($data);
+
+        ActivityLogService::record(
+            module: 'Evaluations',
+            action: 'Edited evaluation criterion',
+            description: "Edited the criterion \"{$criterion->name}\" of the evaluation rubric.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Criterion updated.', 'criterion' => $criterion->fresh()]);
+    }
+
+    /** Takes a criterion off the rubric for future evaluations. Past evaluations keep their scores (never deleted). */
+    public function destroyEvaluationCriterion(Request $request, int $id): JsonResponse
+    {
+        $schoolId = $request->user()->school_id;
+        $criterion = EvaluationCriterion::where('id', $id)->where('school_id', $schoolId)->where('status', 'active')->first();
+        if (!$criterion) {
+            return response()->json(['success' => false, 'message' => 'Criterion not found.'], 404);
+        }
+
+        $criterion->update(['status' => 'inactive']);
+
+        ActivityLogService::record(
+            module: 'Evaluations',
+            action: 'Removed evaluation criterion',
+            description: "Removed the criterion \"{$criterion->name}\" from the evaluation rubric. Past evaluations keep their scores.",
+            schoolId: $schoolId,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Criterion removed.']);
+    }
+
     public function evaluations(Request $request): JsonResponse
     {
         $schoolId = $request->user()->school_id;
@@ -785,9 +968,12 @@ class CoordinatorMonitoringController extends Controller
             $query->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
         }
 
-        $evaluations = $query->get()->map(fn (Evaluation $e) => $this->mapEvaluation($e));
+        Paging::internNameLike($query, $request->query('search'));
 
-        return response()->json(['evaluations' => $evaluations, 'interns' => $this->internOptionsForSchool($schoolId)]);
+        $page = $query->paginate(Paging::perPage($request, 15, 50));
+        $evaluations = collect($page->items())->map(fn (Evaluation $e) => $this->mapEvaluation($e));
+
+        return response()->json(['evaluations' => $evaluations, ...Paging::meta($page), 'interns' => $this->internOptionsForSchool($schoolId)]);
     }
 
     private function mapEvaluation(Evaluation $e): array
@@ -797,7 +983,6 @@ class CoordinatorMonitoringController extends Controller
             'deployment_id' => $e->deployment_id,
             'intern_name' => trim("{$e->deployment?->intern?->first_name} {$e->deployment?->intern?->last_name}") ?: $e->deployment?->intern?->name,
             'evaluator_name' => $e->evaluator?->name,
-            'evaluation_type' => $e->evaluation_type,
             'evaluation_date' => $e->evaluation_date?->format('M d, Y'),
             'overall_score' => $e->overall_score,
             'remarks' => $e->remarks,
@@ -895,11 +1080,9 @@ class CoordinatorMonitoringController extends Controller
 
         $supervisors = SupervisorProfile::with('user')->where('school_id', $schoolId)->get()->groupBy('company_id');
 
+        $counts = InternMonitoringService::countsByCompany($schoolId);
+
         $companies = Company::where('school_id', $schoolId)
-            ->withCount([
-                'deployments as active_interns_count' => fn ($q) => $q->where('status', 'active'),
-                'deployments as completed_interns_count' => fn ($q) => $q->where('status', 'completed'),
-            ])
             ->orderBy('company_name')
             ->get()
             ->map(fn (Company $c) => [
@@ -910,8 +1093,8 @@ class CoordinatorMonitoringController extends Controller
                 'contact_email' => $c->contact_email,
                 'contact_number' => $c->contact_number,
                 'status' => $c->status,
-                'active_interns_count' => $c->active_interns_count,
-                'completed_interns_count' => $c->completed_interns_count,
+                'active_interns_count' => $counts[$c->id]['active'] ?? 0,
+                'completed_interns_count' => $counts[$c->id]['completed'] ?? 0,
                 'supervisors_count' => ($supervisors[$c->id] ?? collect())->count(),
                 'supervisor_names' => ($supervisors[$c->id] ?? collect())
                     ->map(fn (SupervisorProfile $s) => $this->personName($s->user))->values(),
@@ -995,12 +1178,11 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
 
-        $supervisors = $this->supervisorRows($schoolId, $company->id);
-
         $interns = $this->internRows($schoolId, InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
             ->where('company_id', $company->id)
             ->orderByDesc('id')
             ->get());
+        $supervisors = $this->supervisorRows($schoolId, $company->id, InternMonitoringService::countsFrom($interns));
 
         // Interns who used to be here: their transfer history has this company as the
         // "from" side and they are no longer deployed here. Hidden by default in the UI.
@@ -1023,10 +1205,15 @@ class CoordinatorMonitoringController extends Controller
     }
 
     /**
-     * Deleting a company would cascade-delete every supervisor profile and
-     * deployment (and, through those, attendance/tasks/evaluations/documents)
-     * tied to it — blocked outright rather than silently destroying that
-     * history. "Mark inactive" is the safe way to retire a company instead.
+     * Deleting a company would cascade-delete every supervisor profile, deployment,
+     * task and certificate template tied to it (and, through those, attendance /
+     * evaluations / documents) - so it is blocked outright rather than silently
+     * destroying that history; "Mark inactive" is the safe way to retire a company.
+     *
+     * The rule: a company can be deleted only when nothing at all refers to it.
+     * The check and the delete run in one transaction with the company row locked, so a
+     * supervisor or intern being added at the same moment either shows up in the check
+     * (and blocks the delete) or fails cleanly - it can never be cascade-deleted.
      */
     public function destroyCompany(Request $request, int $id): JsonResponse
     {
@@ -1036,24 +1223,47 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
 
-        $supervisorCount = SupervisorProfile::where('company_id', $company->id)->count();
-        $deploymentCount = InternshipDeployment::where('company_id', $company->id)->count();
-        // Interns who were moved out of here keep this company in their history.
-        $deploymentCount += DeploymentTransfer::where('from_company_id', $company->id)->distinct()->count('deployment_id');
+        $blocked = DB::transaction(function () use ($company) {
+            $locked = Company::whereKey($company->id)->lockForUpdate()->first();
+            if (!$locked) {
+                return ['gone' => true];
+            }
 
-        if ($supervisorCount > 0 || $deploymentCount > 0) {
-            return response()->json([
-                'success' => false,
-                'message' => "Can't delete — this company still has {$supervisorCount} supervisor(s) and {$deploymentCount} intern deployment(s) on file. Remove those first, or mark the company inactive instead.",
-            ], 422);
+            $supervisorCount = SupervisorProfile::where('company_id', $company->id)->count();
+            $deploymentCount = InternshipDeployment::where('company_id', $company->id)->count();
+            $activeDeployments = InternshipDeployment::where('company_id', $company->id)->where('status', '!=', 'inactive')->count();
+            // Interns who were moved out of here keep this company in their history.
+            $deploymentCount += DeploymentTransfer::where('from_company_id', $company->id)->distinct()->count('deployment_id');
+            $taskCount = Task::where('company_id', $company->id)->count();
+
+            if ($supervisorCount > 0 || $deploymentCount > 0 || $taskCount > 0) {
+                return compact('supervisorCount', 'deploymentCount', 'activeDeployments', 'taskCount');
+            }
+
+            $locked->delete();
+
+            return [];
+        });
+
+        if (isset($blocked['gone'])) {
+            return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
 
-        $company->delete();
+        if ($blocked) {
+            $active = $blocked['activeDeployments'] > 0
+                ? " {$blocked['activeDeployments']} of them are still active, so move those interns to another company first."
+                : '';
+
+            return response()->json([
+                'success' => false,
+                'message' => "Can't delete — this company still has {$blocked['supervisorCount']} supervisor(s), {$blocked['deploymentCount']} intern deployment(s) and {$blocked['taskCount']} task(s) on file.{$active} Remove those first, or mark the company inactive instead.",
+            ], 422);
+        }
 
         ActivityLogService::record(
             module: 'Companies',
             action: 'Deleted company',
-            description: "{$company->company_name} removed — had no supervisors or deployments on file.",
+            description: "{$company->company_name} removed - had no supervisors, deployments or tasks on file.",
             schoolId: $schoolId,
             request: $request
         );
@@ -1086,7 +1296,7 @@ class CoordinatorMonitoringController extends Controller
      * and last activity. Intern counts are per COMPANY (every supervisor there
      * handles all of its interns), from one grouped query.
      */
-    private function supervisorRows(int $schoolId, ?int $companyId = null)
+    private function supervisorRows(int $schoolId, ?int $companyId = null, ?array $counts = null)
     {
         $query = SupervisorProfile::with(['user', 'company'])->where('school_id', $schoolId);
         if ($companyId) {
@@ -1094,17 +1304,11 @@ class CoordinatorMonitoringController extends Controller
         }
         $profiles = $query->get();
 
-        $counts = InternshipDeployment::where('school_id', $schoolId)
-            ->whereIn('company_id', $profiles->pluck('company_id')->unique())
-            ->whereIn('status', ['active', 'completed'])
-            ->selectRaw('company_id, status, count(*) as c')
-            ->groupBy('company_id', 'status')
-            ->get()
-            ->groupBy('company_id');
+        $counts ??= InternMonitoringService::countsByCompany($schoolId);
 
         return $profiles->map(function (SupervisorProfile $s) use ($counts) {
             $u = $s->user;
-            $byStatus = ($counts[$s->company_id] ?? collect())->pluck('c', 'status');
+            $byStatus = $counts[$s->company_id] ?? [];
             $bounced = (bool) $u?->email_bounced_at;
             $status = match (true) {
                 $u?->status === 'inactive' => 'inactive',
@@ -1136,8 +1340,8 @@ class CoordinatorMonitoringController extends Controller
 
         $this->normalizeEmailInput($request);
         $data = $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
+            'first_name' => ['required', 'string', 'max:50', 'regex:' . self::PERSON_NAME_PATTERN],
+            'last_name' => ['required', 'string', 'max:50', 'regex:' . self::PERSON_NAME_PATTERN],
             'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')],
             'company_id' => 'required|integer',
             'position' => 'nullable|string|max:150',
@@ -1261,9 +1465,51 @@ class CoordinatorMonitoringController extends Controller
     }
 
     /**
+     * Columns that point at a supervisor's user row and would be wiped (CASCADE) or
+     * blanked (SET NULL) if the row were deleted: the tasks they assigned, the
+     * evaluations and ratings they gave, attendance they corrected or flagged,
+     * activities they reviewed, documents, comments, proofs, messages and the
+     * deployment-transfer history. Any hit means the account holds history.
+     */
+    private const SUPERVISOR_RECORD_COLUMNS = [
+        ['tasks', 'assigned_by'],
+        ['evaluations', 'evaluator_id'],
+        ['task_evaluations', 'evaluator_id'],
+        ['task_comments', 'user_id'],
+        ['task_proofs', 'uploaded_by'],
+        ['documents', 'uploaded_by'],
+        ['attendances', 'edited_by'],
+        ['attendances', 'red_flag_checked_by'],
+        ['daily_activities', 'reviewed_by'],
+        ['messages', 'sender_id'],
+        ['messages', 'receiver_id'],
+        ['group_messages', 'sender_id'],
+        ['deployment_transfers', 'from_supervisor_id'],
+        ['deployment_transfers', 'to_supervisor_id'],
+        ['deployment_transfers', 'transferred_by'],
+    ];
+
+    private function supervisorHasRecords(int $userId): bool
+    {
+        foreach (self::SUPERVISOR_RECORD_COLUMNS as [$table, $column]) {
+            if (DB::table($table)->where($column, $userId)->exists()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Interns are no longer assigned to a supervisor individually, so deleting
      * one never orphans an intern; the only guard is that a company keeps at
      * least one supervisor.
+     *
+     * Deleting the user row would cascade away every task they assigned and every
+     * evaluation they gave (and blank who corrected attendance), so a supervisor
+     * with any such history is DEACTIVATED instead: they leave the company and can
+     * no longer log in, but the account row stays and that history keeps their
+     * name. A supervisor with no history at all is deleted outright.
      */
     public function destroySupervisor(Request $request, int $userId): JsonResponse
     {
@@ -1274,35 +1520,58 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Supervisor not found.'], 404);
         }
 
+        // The company row is locked first so two coordinators removing the last two
+        // supervisors at once cannot both pass the "at least 1 left" check.
+        $result = DB::transaction(function () use ($profile, $userId) {
+            Company::whereKey($profile->company_id)->lockForUpdate()->first();
 
-        // Every company keeps at least 1 supervisor — deleting the last one
-        // would leave it with no one to oversee interns deployed there.
-        $remainingCount = SupervisorProfile::where('company_id', $profile->company_id)->where('user_id', '!=', $userId)->count();
-        if ($remainingCount === 0) {
-            $company = Company::find($profile->company_id);
+            // Every company keeps at least 1 supervisor - removing the last one
+            // would leave it with no one to oversee interns deployed there.
+            $remainingCount = SupervisorProfile::where('company_id', $profile->company_id)->where('user_id', '!=', $userId)->count();
+            if ($remainingCount === 0) {
+                return ['blocked' => Company::find($profile->company_id)?->company_name];
+            }
+
+            $user = User::whereKey($userId)->lockForUpdate()->first();
+            $kept = $this->supervisorHasRecords($userId);
+
+            $profile->delete();
+            if ($kept) {
+                $user->update(['status' => 'inactive', 'invitation_token' => null, 'invitation_expires_at' => null]);
+                $user->tokens()->delete();
+            } else {
+                $user->delete();
+            }
+
+            return ['kept' => $kept];
+        });
+
+        if (isset($result['blocked'])) {
             return response()->json([
                 'success' => false,
-                'message' => "Can't delete — {$company?->company_name} needs at least 1 supervisor. Add a replacement first.",
+                'message' => "Can't delete — {$result['blocked']} needs at least 1 supervisor. Add a replacement first.",
             ], 422);
         }
 
         $name = trim("{$profile->user->first_name} {$profile->user->last_name}") ?: $profile->user->name;
 
-        DB::transaction(function () use ($profile) {
-            $user = $profile->user;
-            $profile->delete();
-            $user->delete();
-        });
-
         ActivityLogService::record(
             module: 'Companies',
-            action: 'Deleted supervisor',
-            description: "{$name} removed as a supervisor.",
+            action: $result['kept'] ? 'Deactivated supervisor' : 'Deleted supervisor',
+            description: $result['kept']
+                ? "{$name} removed as a supervisor; the account was deactivated and their tasks, evaluations and records were kept."
+                : "{$name} removed as a supervisor.",
             schoolId: $schoolId,
             request: $request
         );
 
-        return response()->json(['success' => true, 'message' => 'Supervisor deleted.']);
+        return response()->json([
+            'success' => true,
+            'kept_records' => $result['kept'],
+            'message' => $result['kept']
+                ? 'Supervisor removed. Their account can no longer log in, and the tasks, evaluations and records they made were kept.'
+                : 'Supervisor deleted.',
+        ]);
     }
 
     public function storeIntern(Request $request): JsonResponse
@@ -1310,12 +1579,13 @@ class CoordinatorMonitoringController extends Controller
         $schoolId = $request->user()->school_id;
 
         $this->normalizeEmailInput($request);
+        // Same name / year-level rules as the bulk import, so the two doors accept the same people.
         $data = $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
+            'first_name' => ['required', 'string', 'max:50', 'regex:' . self::PERSON_NAME_PATTERN],
+            'last_name' => ['required', 'string', 'max:50', 'regex:' . self::PERSON_NAME_PATTERN],
             'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')],
             'course' => 'nullable|string|max:150',
-            'year_level' => 'nullable|string|max:50',
+            'year_level' => ['nullable', 'string', Rule::in(self::IMPORT_YEAR_LEVELS)],
             'company_id' => 'required|integer',
             'start_date' => InternshipDeployment::startDateRules(),
             'end_date' => 'nullable|date|after_or_equal:start_date',
@@ -1329,7 +1599,9 @@ class CoordinatorMonitoringController extends Controller
         if (!$company) {
             return response()->json(['success' => false, 'message' => 'Select a company that belongs to your school.'], 422);
         }
-
+        if ($company->status !== 'active') {
+            return response()->json(['success' => false, 'message' => "{$company->company_name} is marked inactive. Make it active again first, or pick another company."], 422);
+        }
 
         $internRole = Role::where('name', 'intern')->first();
         if (!$internRole) {
@@ -1389,6 +1661,7 @@ class CoordinatorMonitoringController extends Controller
      *  burst of invitation emails behind it) to a size that finishes fast. */
     private const IMPORT_MAX_ROWS = 200;
     private const IMPORT_YEAR_LEVELS = ['4th Year', '5th Year'];
+    private const PERSON_NAME_PATTERN = "/^[\\p{L}\\p{M}][\\p{L}\\p{M} .'-]*$/u";
 
     /**
      * Checks an import batch row by row without saving anything, so the
@@ -1434,7 +1707,9 @@ class CoordinatorMonitoringController extends Controller
         if (!$company) {
             return response()->json(['success' => false, 'message' => 'Select a company that belongs to your school.'], 422);
         }
-
+        if ($company->status !== 'active') {
+            return response()->json(['success' => false, 'message' => "{$company->company_name} is marked inactive. Make it active again first, or pick another company."], 422);
+        }
 
         ['errors' => $errors, 'existing' => $existing] = $this->analyzeInternImport($data['rows'], $schoolId);
         if ($errors) {
@@ -1627,26 +1902,48 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Intern not found for your school.'], 404);
         }
 
-        $recordCount = Attendance::where('deployment_id', $deployment->id)->count()
-            + Task::whereHas('assignees', fn ($q) => $q->where('deployment_id', $deployment->id))->count()
-            + Evaluation::where('deployment_id', $deployment->id)->count()
-            + Document::where('deployment_id', $deployment->id)->count();
+        $internName = $deployment->intern?->name;
+
+        // Count and delete under one lock on the deployment row: an attendance log, task or
+        // journal entry saved in the meantime must show up in the count (and block the delete)
+        // instead of being cascade-deleted along with the account.
+        $recordCount = DB::transaction(function () use ($deployment) {
+            $locked = InternshipDeployment::whereKey($deployment->id)->lockForUpdate()->first();
+            if (!$locked) {
+                return -1;
+            }
+
+            $internId = $locked->intern_id;
+            $count = Attendance::where('deployment_id', $locked->id)->count()
+                + Task::whereHas('assignees', fn ($q) => $q->where('deployment_id', $locked->id))->count()
+                + Evaluation::where('deployment_id', $locked->id)->count()
+                + Document::where('deployment_id', $locked->id)->count()
+                + DB::table('daily_activities')->where('deployment_id', $locked->id)->count()
+                + DeploymentTransfer::where('deployment_id', $locked->id)->count()
+                + Portfolio::where('intern_id', $internId)->count()
+                + DB::table('messages')->where(fn ($q) => $q->where('sender_id', $internId)->orWhere('receiver_id', $internId))->count();
+
+            if ($count > 0) {
+                return $count;
+            }
+
+            $locked->delete();
+            InternProfile::where('user_id', $internId)->delete();
+            User::whereKey($internId)->delete();
+
+            return 0;
+        });
+
+        if ($recordCount < 0) {
+            return response()->json(['success' => false, 'message' => 'Intern not found for your school.'], 404);
+        }
 
         if ($recordCount > 0) {
             return response()->json([
                 'success' => false,
-                'message' => "Can't delete — this intern already has {$recordCount} recorded attendance/task/evaluation/document entr(y/ies). That history can't be removed from here.",
+                'message' => "Can't delete — this intern already has {$recordCount} recorded attendance/task/journal/evaluation/document/message entr(y/ies). That history can't be removed from here; mark the intern inactive instead.",
             ], 422);
         }
-
-        $internName = $deployment->intern?->name;
-
-        DB::transaction(function () use ($deployment) {
-            $intern = $deployment->intern;
-            $deployment->delete();
-            InternProfile::where('user_id', $intern->id)->delete();
-            $intern->delete();
-        });
 
         ActivityLogService::record(
             module: 'Interns',
@@ -1769,10 +2066,22 @@ class CoordinatorMonitoringController extends Controller
         $internName = $deployment->intern?->name;
         $approvedHours = DeploymentSummaryService::summarize($deployment, null)['hours_completed'];
 
-        DB::transaction(function () use ($deployment, $data, $company, $movedOn, $approvedHours, $request) {
+        $changed = DB::transaction(function () use ($deployment, $data, $company, $movedOn, $approvedHours, $request) {
+            // Company first, then the deployment: the target must still be active, and a second
+            // simultaneous move of the same intern must not write a second transfer from the old company.
+            $targetCompany = Company::whereKey($company->id)->lockForUpdate()->first();
+            $locked = InternshipDeployment::whereKey($deployment->id)->lockForUpdate()->first();
+
+            if (!$targetCompany || $targetCompany->status !== 'active') {
+                return 'That company is no longer active. Pick another one.';
+            }
+            if (!$locked || (int) $locked->company_id !== (int) $deployment->company_id) {
+                return 'This intern was just moved by someone else. Refresh and check where they are now.';
+            }
+
             DeploymentTransfer::create([
-                'deployment_id' => $deployment->id,
-                'from_company_id' => $deployment->company_id,
+                'deployment_id' => $locked->id,
+                'from_company_id' => $locked->company_id,
                 'from_supervisor_id' => null, // supervisors are per company now
                 'to_company_id' => $company->id,
                 'to_supervisor_id' => null,
@@ -1781,12 +2090,18 @@ class CoordinatorMonitoringController extends Controller
                 'transferred_by' => $request->user()->id,
                 'note' => $data['note'] ?? null,
             ]);
-            $deployment->update(array_filter([
+            $locked->update(array_filter([
                 'company_id' => $company->id,
                 'supervisor_id' => null, // legacy column, cleared: the new company's supervisors take over
                 'required_hours' => $data['required_hours'] ?? null,
             ], fn ($v, $k) => $k === 'supervisor_id' || $v !== null, ARRAY_FILTER_USE_BOTH));
+
+            return null;
         });
+
+        if (is_string($changed)) {
+            return response()->json(['success' => false, 'message' => $changed], 422);
+        }
 
         ActivityLogService::record(
             module: 'Interns',

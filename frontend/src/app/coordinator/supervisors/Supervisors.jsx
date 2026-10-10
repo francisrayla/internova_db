@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { inputProps } from "@/lib/inputRules";
 import Icon from "@/components/Icon";
 import { Banner, EmptyState, ErrorNote, SkeletonList } from "@/components/ui";
+import { Btn, Chip, Chips, DataList, FilterBar, Page, PageHeader, SearchField, Section } from "@/components/dash/page";
 import SupervisorCard from "@/components/coordinator/SupervisorCard";
 import useSupervisorActions from "@/components/coordinator/useSupervisorActions";
 import { AddSupervisorModal, ChooseCompanyDialog } from "@/components/coordinator/SupervisorModals";
@@ -65,76 +65,63 @@ export default function Supervisors() {
   }, [supervisors, query, status, companyFilter]);
 
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="min-w-0 truncate text-base font-semibold text-slate-900">Supervisors</h2>
-          <button type="button" onClick={() => setChoosing(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            <Icon name="plus" size={15} /> Add supervisor
-          </button>
-        </div>
-        <p className="mt-1 text-sm text-slate-600">Everyone who supervises your interns, across all partner companies. Each company can have up to 2.</p>
-      </div>
+    <Page>
+      <PageHeader title="Supervisors" sentence="Everyone who supervises your interns, across all partner companies. Each company can have up to 2.">
+        <Btn variant="primary" onClick={() => setChoosing(true)}>
+          <Icon name="plus" size={15} /> Add supervisor
+        </Btn>
+      </PageHeader>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            {...inputProps("search")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, email or company…"
-            aria-label="Search supervisors"
-            className="w-full min-w-0 rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 sm:max-w-sm"
-          />
-          <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} aria-label="Filter by company" className="w-full min-w-0 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 sm:w-auto sm:max-w-[16rem]">
-            <option value="All">All companies</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-          </select>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter by status">
+      <FilterBar>
+        <SearchField
+          {...inputProps("search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by name, email or company…"
+          aria-label="Search supervisors"
+        />
+        <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} aria-label="Filter by company" className="k-input sm:w-auto sm:max-w-[16rem]">
+          <option value="All">All companies</option>
+          {companies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+        </select>
+        <Chips label="Filter by status">
           {STATUS_CHIPS.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              onClick={() => setStatus(c.key)}
-              aria-pressed={status === c.key}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                status === c.key ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {c.label}
-            </button>
+            <Chip key={c.key} on={status === c.key} onClick={() => setStatus(c.key)}>{c.label}</Chip>
           ))}
-        </div>
-      </section>
+        </Chips>
+      </FilterBar>
 
       {notice && <Banner tone="green" onDismiss={() => setNotice("")}>{notice}</Banner>}
       {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
 
-      {loading ? (
-        <SkeletonList rows={3} height="h-32" />
-      ) : supervisors.length === 0 ? (
-        <EmptyState
-          icon="users"
-          title="No supervisors yet"
-          text="Supervisors log and approve your interns' attendance and tasks. Add one to a partner company to get started."
-          action={
-            companies.length === 0 ? (
-              <Link href="/coordinator/companies" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Add a company first</Link>
-            ) : (
-              <button type="button" onClick={() => setChoosing(true)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Add supervisor</button>
-            )
-          }
-        />
-      ) : filtered.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">No supervisors match these filters.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {filtered.map((s) => (
-            <SupervisorCard key={s.user_id} supervisor={s} menuItems={menuFor(s, { showOpenCompany: true })} />
-          ))}
-        </div>
-      )}
+      <Section flush>
+        {loading ? (
+          <div className="k-pad"><SkeletonList rows={3} height="h-16" /></div>
+        ) : supervisors.length === 0 ? (
+          <div className="k-pad">
+            <EmptyState
+              icon="users"
+              title="No supervisors yet"
+              text="Supervisors log and approve your interns' attendance and tasks. Add one to a partner company to get started."
+              action={
+                companies.length === 0 ? (
+                  <Btn variant="primary" href="/coordinator/companies">Add a company first</Btn>
+                ) : (
+                  <Btn variant="primary" onClick={() => setChoosing(true)}>Add supervisor</Btn>
+                )
+              }
+            />
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-slate-500">No supervisors match these filters.</p>
+        ) : (
+          <DataList>
+            {filtered.map((s) => (
+              <SupervisorCard key={s.user_id} supervisor={s} menuItems={menuFor(s, { showOpenCompany: true })} />
+            ))}
+          </DataList>
+        )}
+      </Section>
 
       {dialogs}
       {choosing && (
@@ -152,6 +139,6 @@ export default function Supervisors() {
           onSaved={() => { setAddingFor(null); setNotice("Supervisor added."); load(); }}
         />
       )}
-    </div>
+    </Page>
   );
 }

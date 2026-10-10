@@ -47,6 +47,16 @@ const THEME_INIT_SCRIPT = `
     var stored = localStorage.getItem("internova_theme");
     var theme = stored || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     if (theme === "dark") document.documentElement.classList.add("dark");
+    // Paper is always black on white: drop the dark theme while the print dialog / PDF is made, then put it back.
+    var wasDark = false;
+    window.addEventListener("beforeprint", function () {
+      wasDark = document.documentElement.classList.contains("dark");
+      if (wasDark) document.documentElement.classList.remove("dark");
+    });
+    window.addEventListener("afterprint", function () {
+      if (wasDark) document.documentElement.classList.add("dark");
+      wasDark = false;
+    });
   } catch (e) {}
 })();
 `;

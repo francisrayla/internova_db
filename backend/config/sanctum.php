@@ -50,7 +50,9 @@ return [
     |
     */
 
-    'expiration' => null,
+    // 7 days (override with SANCTUM_TOKEN_EXPIRATION_MINUTES). A signed-in browser that
+    // is older than this gets a 401 and the frontend sends it back to /login.
+    'expiration' => (int) env('SANCTUM_TOKEN_EXPIRATION_MINUTES', 60 * 24 * 7),
 
     /*
     |--------------------------------------------------------------------------

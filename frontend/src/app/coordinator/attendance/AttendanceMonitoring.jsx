@@ -2,20 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import { LoadMore } from "@/components/Pagination";
 import Icon from "@/components/Icon";
 import AttendanceSelfies from "@/components/AttendanceSelfies";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
 import LocationFlags from "@/components/LocationFlags";
 import RedFlagBadge from "@/components/RedFlagBadge";
+import { EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
+import { Btn, FilterBar, Page, PageHeader, SearchField } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
-const STATUS_STYLES = {
-  approved: "bg-emerald-100 text-emerald-700",
-  pending: "bg-amber-100 text-amber-700",
-  rejected: "bg-red-100 text-red-700",
-};
-
-const inputClass = "rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
+const STATUS_TONES = { approved: "green", pending: "amber", rejected: "red" };
 
 function buildParams(base, { search }) {
   const params = new URLSearchParams(base);
@@ -58,66 +55,53 @@ function CompanySection({ companyId, name, total, filters }) {
   }
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <section className="dash-card is-flush">
       <button
         type="button"
         onClick={handleToggle}
         aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left hover:bg-slate-50"
+        className="k-row w-full text-left hover:bg-slate-50 max-sm:min-h-[44px]"
       >
-        <span className="flex items-center gap-2">
-          <Icon name="chevronDown" size={16} className={`shrink-0 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
-          <h3 className="text-sm font-semibold text-slate-800">{name}</h3>
-        </span>
-        <span className="text-xs text-slate-400">
+        <Icon name="chevronDown" size={16} className={`shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        <h3 className="k-row-main min-w-0 break-words text-sm font-semibold text-slate-900">{name}</h3>
+        <span className="shrink-0 text-xs text-slate-600">
           {total} {total === 1 ? "record" : "records"}
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-slate-100">
-          {error && <p className="px-6 py-3 text-sm text-red-700">{error}</p>}
+        <div className="border-t border-slate-200">
+          {error && <p className="k-pad text-sm text-red-700">{error}</p>}
           {loading ? (
-            <p className="py-6 text-center text-sm text-slate-500">Loading…</p>
+            <div className="k-pad"><SkeletonList rows={2} height="h-14" /></div>
           ) : records.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">No attendance records match.</p>
+            <p className="py-6 text-center text-sm text-slate-500">No attendance records match.</p>
           ) : (
-            records.map((r) => {
-              return (
-                <div key={r.id} className={`flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 border-l-4 py-3.5 pl-5 pr-6 last:border-b-0 sm:pl-6 ${r.red_flag ? "border-l-red-600" : "border-l-transparent"}`}>
-                  <div className="flex min-w-0 items-center gap-3">
+            <ul className="k-list">
+              {records.map((r) => (
+                <li key={r.id}>
+                  <div className={`k-row is-wrap items-start border-l-4 ${r.red_flag ? "border-l-red-600" : "border-l-transparent"}`}>
                     <AttendanceSelfies record={r} name={r.intern_name} />
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-900">{r.intern_name}</p>
+                    <span className="k-row-main">
+                      <span className="k-row-title break-words">{r.intern_name}</span>
                       <RedFlagBadge record={r} className="mt-1" />
-                      <p className="text-xs text-slate-500">
+                      <span className="k-row-sub !whitespace-normal">
                         {r.attendance_date}{r.session_label ? ` (${r.session_label})` : ""} · {r.clock_in ?? "—"} to {r.clock_out ?? "—"} {r.hours != null && `(${r.hours}h)`}
-                        {r.auto_clocked_out && <span className="ml-1.5 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700" title="Forgot to time out — closed automatically after 8 hours, no photo or location">Auto time-out</span>}
-                        {r.edited && <span className="ml-1.5 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title="The supervisor corrected the time because the intern forgot to time out">Time corrected</span>}
+                        {r.auto_clocked_out && <span className="ml-1.5 inline-block align-middle" title="Forgot to time out — closed automatically after 8 hours, no photo or location"><Pill tone="amber" size="sm">Auto time-out</Pill></span>}
+                        {r.edited && <span className="ml-1.5 inline-block align-middle" title="The supervisor corrected the time because the intern forgot to time out"><Pill tone="blue" size="sm">Time corrected</Pill></span>}
                         <OfflineEntryBadge record={r} className="ml-1.5" />
                         <LocationFlags record={r} className="ml-1.5" />
-                      </p>
-                    </div>
+                      </span>
+                    </span>
+                    {r.status !== "approved" && (
+                      <span className="k-row-side"><Pill tone={STATUS_TONES[r.status] ?? "slate"} size="sm" className="capitalize">{r.status}</Pill></span>
+                    )}
                   </div>
-                  {r.status !== "approved" && (
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[r.status] ?? "bg-slate-100 text-slate-700"}`}>{r.status}</span>
-                  )}
-                </div>
-              );
-            })
+                </li>
+              ))}
+            </ul>
           )}
-          {hasMore && (
-            <div className="border-t border-slate-100 py-3 text-center">
-              <button
-                type="button"
-                onClick={() => fetchPage(page + 1, true)}
-                disabled={loadingMore}
-                className="rounded-lg border border-slate-300 px-4 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                {loadingMore ? "Loading…" : "Load more"}
-              </button>
-            </div>
-          )}
+          <LoadMore shown={records.length} total={total} hasMore={hasMore} loading={loadingMore} onClick={() => fetchPage(page + 1, true)} />
         </div>
       )}
     </section>
@@ -153,42 +137,36 @@ export default function AttendanceMonitoring() {
   const visible = hasFilters ? companies.filter((c) => c.total > 0) : companies;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Attendance</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Read-only — attendance is logged and verified by each intern&apos;s supervisor, grouped here by company, newest first.
-        </p>
-      </div>
+    <Page>
+      <PageHeader title="Attendance" sentence="Read-only — attendance is logged and verified by each intern's supervisor, grouped here by company, newest first." />
 
-      <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input {...inputProps("search")}
+      <FilterBar>
+        <SearchField
+          {...inputProps("search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search intern name…"
-          className={`${inputClass} min-w-52 flex-1`}
+          aria-label="Search intern name"
         />
         {hasFilters && (
-          <button
-            type="button"
-            onClick={() => setSearch("")}
-            className="text-xs font-semibold text-blue-600 hover:underline"
-          >
-            Clear search
-          </button>
+          <Btn variant="ghost" onClick={() => setSearch("")}>Clear search</Btn>
         )}
-      </section>
+      </FilterBar>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {loading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white py-10 text-center text-sm text-slate-500 shadow-sm">Loading companies…</p>
+        <section className="dash-card"><SkeletonList rows={3} height="h-12" /></section>
       ) : visible.length === 0 ? (
-        <p className="rounded-3xl border border-slate-200 bg-white py-10 text-center text-sm text-slate-400 shadow-sm">
-          {hasFilters ? "No attendance records match these filters." : "No attendance records yet."}
-        </p>
+        <section className="dash-card">
+          <EmptyState
+            icon="attendance"
+            title={hasFilters ? "No attendance records match these filters." : "No attendance records yet."}
+            text={hasFilters ? "Try a different name, or clear the search." : "Records show up here once interns start clocking in."}
+          />
+        </section>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {visible.map((c) => (
             <CompanySection
               key={`${c.id}-${debouncedSearch}`}
@@ -200,6 +178,6 @@ export default function AttendanceMonitoring() {
           ))}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

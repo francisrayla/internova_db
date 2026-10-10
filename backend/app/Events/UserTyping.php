@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Queue\SerializesModels;
@@ -24,7 +24,7 @@ class UserTyping implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new Channel("user.{$this->receiverId}-messages")];
+        return [new PrivateChannel("user.{$this->receiverId}.messages")];
     }
 
     public function broadcastAs(): string

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import { clientIpHeader } from '@/lib/serverProxy';
 
 export async function POST(request) {
   const body = await request.text();
@@ -9,6 +10,7 @@ export async function POST(request) {
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...clientIpHeader(request),
     },
     body,
   });

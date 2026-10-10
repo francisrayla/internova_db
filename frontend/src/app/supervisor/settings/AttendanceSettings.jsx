@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
+import NavIcon from "@/components/NavIcon";
+import { Banner } from "@/components/ui";
+import { Btn, Page, PageHeader } from "@/components/dash/page";
 
 const OPTIONS = [
   {
@@ -65,22 +68,20 @@ export default function AttendanceSettings() {
   const changed = choice !== saved;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Attendance format</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Choose how the interns of {company ? <strong>{company.name}</strong> : "your company"} record attendance.
-        </p>
-      </div>
+    <Page>
+      <PageHeader
+        title="Attendance format"
+        sentence={<>Choose how the interns of {company ? <strong className="font-semibold text-slate-800">{company.name}</strong> : "your company"} record attendance.</>}
+      />
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-      {notice && <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{notice}</p>}
+      {error && <Banner tone="red">{error}</Banner>}
+      {notice && <Banner tone="green">{notice}</Banner>}
 
       {loading ? (
-        <p className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">Loading…</p>
+        <p className="dash-card text-center text-sm text-slate-500">Loading…</p>
       ) : (
         <>
-          <div role="radiogroup" aria-label="Attendance format" className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div role="radiogroup" aria-label="Attendance format" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {OPTIONS.map((o) => {
               const on = choice === o.value;
               return (
@@ -90,7 +91,7 @@ export default function AttendanceSettings() {
                   role="radio"
                   aria-checked={on}
                   onClick={() => setChoice(o.value)}
-                  className={`flex min-w-0 flex-col justify-start rounded-3xl border p-5 text-left transition ${on ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-slate-200 bg-white hover:border-slate-300"}`}
+                  className={`flex min-w-0 flex-col justify-start rounded-3xl border p-5 text-left transition ${on ? "border-blue-500 bg-blue-50 ring-1 ring-blue-500" : "border-slate-200 bg-white hover:border-slate-300"}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-base font-semibold text-slate-900">{o.title}</p>
@@ -98,9 +99,9 @@ export default function AttendanceSettings() {
                       {on && <span className="h-2 w-2 rounded-full bg-white" />}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-blue-700">{o.entries}</p>
+                  <p className="mt-1 text-xs font-semibold text-blue-700">{o.entries}</p>
                   <p className="mt-2 text-sm text-slate-600">{o.text}</p>
-                  <ul className="mt-4 space-y-1 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <ul className="mt-4 space-y-1 rounded-xl bg-slate-50 p-3 text-sm">
                     {o.example.map(([label, time]) => (
                       <li key={label} className="flex justify-between gap-3 text-slate-700">
                         <span>{label}</span>
@@ -108,29 +109,28 @@ export default function AttendanceSettings() {
                       </li>
                     ))}
                   </ul>
-                  {saved === o.value && <p className="mt-3 text-xs font-semibold text-emerald-700">✓ Currently used</p>}
+                  {saved === o.value && (
+                    <p className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                      <NavIcon name="check" size={14} /> Currently used
+                    </p>
+                  )}
                 </button>
               );
             })}
           </div>
 
-          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div className="dash-note">
             This applies to every intern of {company?.name ?? "your company"} and to all of its supervisors. A day that already started keeps the format it began
             with, so nobody is stopped halfway.
           </div>
 
           <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={save}
-              disabled={!changed || saving}
-              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            >
+            <Btn variant="primary" onClick={save} disabled={!changed || saving} className="max-sm:w-full">
               {saving ? "Saving…" : "Save setting"}
-            </button>
+            </Btn>
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }

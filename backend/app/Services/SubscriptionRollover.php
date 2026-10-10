@@ -38,9 +38,19 @@ class SubscriptionRollover
             return null;
         }
 
-        DB::transaction(function () use ($school, $active, $scheduled) {
-            $active->update(['status' => 'expired']);
-            $scheduled->update([
+        // Locked and re-checked: two requests reading the school right after the end date
+        // must hand over once (and send one notification), not twice.
+        $handedOver = DB::transaction(function () use ($school, $active, $scheduled) {
+            School::whereKey($school->id)->lockForUpdate()->first();
+            $lockedActive = SchoolSubscription::whereKey($active->id)->lockForUpdate()->first();
+            $lockedScheduled = SchoolSubscription::whereKey($scheduled->id)->lockForUpdate()->first();
+
+            if (!$lockedActive || !$lockedScheduled || $lockedActive->status !== 'active' || $lockedScheduled->status !== 'scheduled') {
+                return false;
+            }
+
+            $lockedActive->update(['status' => 'expired']);
+            $lockedScheduled->update([
                 'status'         => 'accepted',
                 'payment_status' => null,
                 'start_date'     => null,
@@ -48,7 +58,16 @@ class SubscriptionRollover
                 'accepted_at'    => now(),
             ]);
             $school->update(['status' => 'accepted']);
+
+            return true;
         });
+
+        if (!$handedOver) {
+            // Someone else just did it (the row is now the accepted offer), or it was cancelled meanwhile.
+            $now = $scheduled->fresh();
+
+            return $now && $now->status === 'accepted' ? $now : null;
+        }
 
         $plan = $scheduled->plan?->name ?? 'new plan';
         NotificationService::toSchoolDean(

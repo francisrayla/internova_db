@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Support\LocalTime;
+use App\Support\Paging;
+use App\Support\TaskListing;
 use App\Models\DailyActivity;
 use App\Models\Document;
 use App\Models\Evaluation;
@@ -103,6 +105,39 @@ class InternMonitoringController extends Controller
         ]);
     }
 
+    /**
+     * "Your next step": the intern's queue, in priority order (clock in / hours left, then what is left once the
+     * hours are done, tasks that are late, things sent back). Computed from the same summary row as the tiles.
+     */
+    public function dashboard(Request $request): JsonResponse
+    {
+        $intern = $request->user();
+        $deployment = $this->currentDeploymentFor($intern->id);
+        if (!$deployment) {
+            return response()->json(['has_deployment' => false, 'queue' => []]);
+        }
+
+        $summary = DeploymentSummaryService::summarize($deployment, InternProfile::where('user_id', $intern->id)->first());
+
+        return response()->json([
+            'has_deployment' => true,
+            'is_finished' => $summary['is_finished'],
+            'queue' => \App\Services\DashboardQueueService::intern($intern, $deployment, $summary),
+        ]);
+    }
+
+    /** The intern's own "next steps" list for the bell (their own deployment only). */
+    public function attentionQueue(\App\Models\User $intern): array
+    {
+        $deployment = $this->currentDeploymentFor($intern->id);
+        if (!$deployment) {
+            return [];
+        }
+        $summary = DeploymentSummaryService::summarize($deployment, InternProfile::where('user_id', $intern->id)->first());
+
+        return \App\Services\DashboardQueueService::intern($intern, $deployment, $summary);
+    }
+
     public function tasks(Request $request): JsonResponse
     {
         $internId = $request->user()->id;
@@ -113,6 +148,11 @@ class InternMonitoringController extends Controller
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
+        }
+
+        // ?view=active (open work, whole) or ?view=history (finished and graded, paged); no view = every task.
+        if ($listed = TaskListing::respond($request, $query, $this->ratingsEnabled(), fn (Task $t) => $this->mapTaskRow($t, $internId))) {
+            return response()->json($listed);
         }
 
         $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t, $internId));
@@ -145,6 +185,8 @@ class InternMonitoringController extends Controller
             // whether "+ Add subtask" shows up for this intern (see
             // TaskDetailView's canAddSubtask).
             'is_leader' => $assignees->count() > 1 && $t->leader_id === $internId,
+            // Who the leader is, so a member can see who to ask (TaskDetailView shows "Leader: name").
+            'leader_id' => $assignees->count() > 1 ? $t->leader_id : null,
             'title' => $t->title,
             'description' => $t->description,
             'priority' => $t->priority,
@@ -245,7 +287,7 @@ class InternMonitoringController extends Controller
                 'uploaded_by' => $uploaderId,
                 'file_path' => $path,
                 'file_name' => $file->getClientOriginalName(),
-                'mime_type' => $file->getClientMimeType(),
+                'mime_type' => $file->getMimeType(),
                 'size' => $file->getSize(),
             ]);
         }
@@ -667,6 +709,17 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'You need an active deployment to clock in.'], 422);
         }
 
+        // A double tap (or a retry racing the first request) must not create two rows for the same punch: the
+        // check "already clocked in?" and the insert run one at a time per deployment.
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($request, $deployment) {
+            InternshipDeployment::whereKey($deployment->id)->lockForUpdate()->first();
+
+            return $this->recordClockIn($request, $deployment);
+        });
+    }
+
+    private function recordClockIn(Request $request, InternshipDeployment $deployment): JsonResponse
+    {
         [$clockTime, $isOffline, $syncedAt] = $this->resolveClockTime($request, 'clock_in');
         // Bucketed by the day it actually happened on, not the day it
         // happened to sync on — an offline clock-in at 11pm that only
@@ -877,15 +930,20 @@ class InternMonitoringController extends Controller
         $internId = $request->user()->id;
         $deploymentIds = $this->deploymentIdsForIntern($internId);
 
-        $this->backfillMissingNarratives($deploymentIds);
+        // Missing daily summaries are filled in once per visit (the first page), not again for every "Load more".
+        if ((int) $request->query('page', 1) <= 1) {
+            $this->backfillMissingNarratives($deploymentIds);
+        }
 
-        $activities = DailyActivity::whereIn('deployment_id', $deploymentIds)
+        $page = DailyActivity::whereIn('deployment_id', $deploymentIds)
             ->orderByDesc('activity_date')
             ->orderByDesc('id')
-            ->get()
-            ->map(fn (DailyActivity $a) => $this->mapActivity($a));
+            ->paginate(Paging::perPage($request, 20, 50));
 
-        return response()->json(['activities' => $activities]);
+        return response()->json([
+            'activities' => collect($page->items())->map(fn (DailyActivity $a) => $this->mapActivity($a)),
+            ...Paging::meta($page),
+        ]);
     }
 
     /**
@@ -968,7 +1026,8 @@ class InternMonitoringController extends Controller
         }
 
         $data = $request->validate([
-            'activity_date' => 'nullable|date',
+            // A narrative is about something that already happened: today (Manila) or earlier, never a future day.
+            'activity_date' => ['nullable', 'date', 'before_or_equal:' . LocalTime::today()],
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:4000',
             'photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
@@ -1068,7 +1127,6 @@ class InternMonitoringController extends Controller
             ->map(fn (Evaluation $e) => [
                 'id' => $e->id,
                 'evaluator_name' => $e->evaluator?->name,
-                'evaluation_type' => $e->evaluation_type,
                 'evaluation_date' => $e->evaluation_date?->format('M d, Y'),
                 'overall_score' => $e->overall_score,
                 'remarks' => $e->remarks,
@@ -1220,7 +1278,7 @@ class InternMonitoringController extends Controller
         $data = $request->validate([
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
-            'project_url' => 'nullable|url|max:255',
+            'project_url' => 'nullable|url|starts_with:http://,https://|max:255',
             'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
         ]);
 

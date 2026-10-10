@@ -240,7 +240,6 @@ class NarrativeReportService
     {
         return [
             'evaluator_name' => $e->evaluator?->name,
-            'evaluation_type' => $e->evaluation_type,
             'evaluation_date' => $e->evaluation_date?->format('M d, Y'),
             'overall_score' => $e->overall_score,
             'remarks' => $e->remarks,

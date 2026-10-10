@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Evaluation extends Model
 {
-    protected $fillable = ['deployment_id', 'evaluator_id', 'evaluation_type', 'evaluation_date', 'overall_score', 'remarks', 'category_comments', 'status', 'edited_at', 'edited_by'];
+    protected $fillable = ['deployment_id', 'evaluator_id', 'evaluation_date', 'overall_score', 'remarks', 'category_comments', 'status', 'edited_at', 'edited_by'];
 
     protected $casts = [
         'evaluation_date' => 'date',

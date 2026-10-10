@@ -1,12 +1,11 @@
 import WeeklyEmailPreference from "@/components/dean/WeeklyEmailPreference";
-import SettingsScreen from "@/components/settings/SettingsScreen";
+import { Page, PageHeader } from "@/components/dash/page";
 
-export default function Page() {
+export default function NotificationSettingsPage() {
   return (
-    <SettingsScreen role="dean">
-      <h2 className="text-xl font-semibold text-slate-900">Email notifications</h2>
-      <p className="mt-1 text-sm text-slate-600">Choose which emails Internova sends you.</p>
+    <Page className="max-w-4xl">
+      <PageHeader back={{ href: "/dean/settings", label: "Settings" }} title="Email notifications" sentence="Choose which emails Internova sends you." />
       <WeeklyEmailPreference />
-    </SettingsScreen>
+    </Page>
   );
 }

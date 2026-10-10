@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * The System Settings "Maintenance Mode" toggle's actual enforcement — every
  * request is blocked with 503 while it's on, except an already-authenticated
- * Super Admin (role_id 1) and a short allowlist of routes that have to keep
+ * Super Admin (role_id 1, resolved from the Bearer token via the sanctum guard) and a short allowlist of routes that have to keep
  * working regardless (the health check, and login itself — login can't be
  * blocked here since the request isn't authenticated yet at middleware time;
  * AuthController::login() does the same role check once it knows who's
@@ -31,7 +31,12 @@ class EnforceMaintenanceMode
             return $next($request);
         }
 
-        if ((int) $request->user()?->role_id === 1) {
+        // This middleware sits in the global `api` group and the default guard is `web` (session),
+        // so a plain $request->user() only works because Laravel's middleware priority happens to run
+        // auth:sanctum first (and flips the default guard). Ask the sanctum guard directly instead:
+        // it reads the Bearer token itself and does not depend on that ordering. The role is
+        // compared by name, not by the id 1 it happens to have in production.
+        if ($request->user('sanctum')?->roles?->name === 'super_admin') {
             return $next($request);
         }
 

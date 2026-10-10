@@ -31,6 +31,16 @@ class DeploymentSummaryService
         $pendingAttendance = Attendance::where('deployment_id', $d->id)->where('status', 'pending')->count();
         $latestEval = Evaluation::officialFor($d->id);
 
+        // ONE definition of "finished" for every screen: marked completed, or the required hours are rendered.
+        $required = (int) $d->required_hours;
+        $isFinished = $d->status === 'completed' || ($required > 0 && $hoursCompleted >= $required);
+        $displayStatus = match (true) {
+            $d->status === 'inactive' => 'inactive',
+            $isFinished => 'completed',
+            $d->intern?->status === 'pending_activation' => 'invitation_pending',
+            default => $d->status,
+        };
+
         return [
             'deployment_id' => $d->id,
             'intern_id' => $d->intern_id,
@@ -45,6 +55,9 @@ class DeploymentSummaryService
             'company_name' => $d->company?->company_name,
             'supervisor_name' => $d->supervisorNames(),
             'status' => $d->status,
+            // What the intern really is right now: inactive | completed (finished) | invitation_pending | active.
+            'display_status' => $displayStatus,
+            'is_finished' => $isFinished,
             'company_id' => $d->company_id,
             'start_date' => $d->start_date?->format('M d, Y'),
             'start_date_raw' => $d->start_date?->format('Y-m-d'),
@@ -57,6 +70,29 @@ class DeploymentSummaryService
             'task_progress_pct' => $tasksTotal > 0 ? round($tasksDone / $tasksTotal * 100) : 0,
             'pending_attendance' => $pendingAttendance,
             'latest_evaluation_score' => $latestEval?->overall_score,
+        ];
+    }
+
+    /**
+     * The numbers every dashboard tile shows, from rows made by summarize() (the Dean's monitoring rows carry the
+     * same keys), so a coordinator, a supervisor and the Dean read the same totals for the same interns.
+     *  on_list  = not archived and account set up (what the Interns page lists under "All")
+     *  active   = on the list and not finished;  completed = finished (hours rendered or marked completed)
+     *  average  = average hours progress of every intern on the list, finished ones at their real %
+     *
+     * @return array{on_list:int,active:int,completed:int,pending_accounts:int,average_hours_pct:int}
+     */
+    public static function stats(\Illuminate\Support\Collection $rows): array
+    {
+        $counts = $rows->countBy('display_status');
+        $onList = $rows->filter(fn ($r) => !in_array($r['display_status'], ['inactive', 'invitation_pending'], true));
+
+        return [
+            'on_list' => $onList->count(),
+            'active' => (int) ($counts['active'] ?? 0),
+            'completed' => (int) ($counts['completed'] ?? 0),
+            'pending_accounts' => (int) ($counts['invitation_pending'] ?? 0),
+            'average_hours_pct' => $onList->isEmpty() ? 0 : (int) round($onList->avg('hours_progress_pct')),
         ];
     }
 }

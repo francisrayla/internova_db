@@ -5,9 +5,9 @@ import { apiFetch, fetchApiData } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
 import { formatDate, timeAgo } from "@/lib/timeAgo";
 import Icon from "@/components/Icon";
-import { Avatar, BackLink, ErrorNote, Pill, Skeleton } from "@/components/dean/ui";
+import { Avatar, Banner, ErrorNote, Pill, Skeleton } from "@/components/dean/ui";
+import { Btn, FormField, Input, KeyValueList, Page, PageHeader, Section } from "@/components/dash/page";
 
-const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const STATUS = {
@@ -15,17 +15,6 @@ const STATUS = {
   active: { label: "Active", tone: "green" },
   inactive: { label: "Deactivated", tone: "slate" },
 };
-
-function Card({ title, help, tone = "default", children }) {
-  const box = tone === "danger" ? "border-red-200 bg-red-50" : "border-slate-200 bg-white";
-  return (
-    <section className={`rounded-2xl border p-4 ${box}`}>
-      {title && <h2 className={`font-semibold ${tone === "danger" ? "text-red-800" : "text-slate-900"}`}>{title}</h2>}
-      {help && <p className={`mt-1 text-sm ${tone === "danger" ? "text-red-700" : "text-slate-500"}`}>{help}</p>}
-      <div className={title || help ? "mt-4" : ""}>{children}</div>
-    </section>
-  );
-}
 
 /**
  * Full page for the Dean's coordinator actions — invite, resend, correct the
@@ -96,142 +85,135 @@ export default function ManageCoordinator() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 sm:p-2 lg:p-6">
-      <div>
-        <BackLink href="/dean/coordinator">← Back to coordinator</BackLink>
-        <h1 className="mt-2 text-2xl font-semibold text-slate-900">Manage coordinator</h1>
-        <p className="mt-1 text-slate-600">
-          Your school has one coordinator, who adds partner companies, supervisors and interns. You can replace them at any time — their records stay safe.
-        </p>
-      </div>
+    <Page size="narrow">
+      <PageHeader
+        back={{ href: "/dean/coordinator", label: "Back to coordinator" }}
+        title="Manage coordinator"
+        sentence="Your school has one coordinator, who adds partner companies, supervisors and interns. You can replace them at any time — their records stay safe."
+      />
 
       {loadError && <ErrorNote onRetry={load}>We couldn&apos;t load your coordinator.</ErrorNote>}
       {profile === undefined && !loadError && <Skeleton className="h-40" />}
 
-      {notice && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{notice}</p>}
-      {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {notice && <Banner tone="green">{notice}</Banner>}
+      {error && <Banner tone="red">{error}</Banner>}
 
       {profile !== undefined && coordinator && (
-        <Card>
-          <div className="flex items-center gap-4">
+        <Section>
+          <div className="flex min-w-0 items-center gap-4">
             <Avatar name={coordinator.name} url={coordinator.avatar_url} size={48} />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-base font-semibold text-slate-900">{coordinator.name}</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="min-w-0 truncate text-base font-semibold text-slate-900">{coordinator.name}</p>
                 <Pill tone={STATUS[coordinator.status]?.tone}>{STATUS[coordinator.status]?.label}</Pill>
               </div>
-              <p className="truncate text-sm text-slate-500">{coordinator.email}</p>
+              <p className="truncate text-sm text-slate-600">{coordinator.email}</p>
             </div>
           </div>
-          <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-              <dt className="text-xs text-slate-500">Member since</dt>
-              <dd className="font-semibold text-slate-900">{formatDate(coordinator.member_since)}</dd>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-              <dt className="text-xs text-slate-500">{coordinator.status === "pending" ? "Invitation" : "Last active"}</dt>
-              <dd className="font-semibold text-slate-900">
-                {coordinator.status === "pending"
+          <KeyValueList
+            className="mt-4"
+            items={[
+              { label: "Member since", value: formatDate(coordinator.member_since) },
+              {
+                label: coordinator.status === "pending" ? "Invitation" : "Last active",
+                value: coordinator.status === "pending"
                   ? coordinator.invitation_expired ? "Link expired — resend it" : "Waiting for them to set a password"
-                  : coordinator.last_active_at ? timeAgo(coordinator.last_active_at) : "Never signed in"}
-              </dd>
-            </div>
-          </dl>
-        </Card>
+                  : coordinator.last_active_at ? timeAgo(coordinator.last_active_at) : "Never signed in",
+              },
+            ]}
+          />
+        </Section>
       )}
 
       {/* Pending invitation: resend or correct the address. */}
       {profile !== undefined && coordinator?.status === "pending" && (
-        <Card
+        <Section
           title="Invitation"
           help={`${coordinator.email_bounced ? "The last email bounced, so check the address. " : ""}Invitation links last 7 days. Resending sends a fresh link.`}
         >
           {editingEmail ? (
-            <form onSubmit={handleChangeEmail} className="space-y-3">
-              <label className="block text-sm">
-                <span className="mb-1.5 block font-semibold text-slate-700">Corrected email</span>
-                <input {...inputProps("email")} type="email" value={newEmail} onChange={(e) => setNewEmail(clean("email", e.target.value))} className={inputClass} />
-              </label>
-              <p className="text-xs text-slate-500">We&apos;ll send a fresh invitation to the new address.</p>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button type="button" onClick={() => setEditingEmail(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={busy} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{busy ? "Saving…" : "Save and resend"}</button>
+            <form onSubmit={handleChangeEmail} className="space-y-4">
+              <FormField label="Corrected email" hint="We'll send a fresh invitation to the new address.">
+                <Input {...inputProps("email")} type="email" value={newEmail} onChange={(e) => setNewEmail(clean("email", e.target.value))} />
+              </FormField>
+              <div className="flex flex-wrap justify-end gap-2 max-sm:flex-col-reverse">
+                <Btn onClick={() => setEditingEmail(false)}>Cancel</Btn>
+                <Btn type="submit" variant="primary" disabled={busy}>{busy ? "Saving…" : "Save and resend"}</Btn>
               </div>
             </form>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={busy} onClick={() => run("resend-invitation", "POST")} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+            <div className="flex flex-wrap gap-2 max-sm:flex-col">
+              <Btn variant="primary" disabled={busy} onClick={() => run("resend-invitation", "POST")}>
                 <Icon name="send" size={15} /> {busy ? "Sending…" : "Resend invitation"}
-              </button>
-              <button type="button" onClick={() => { setNewEmail(coordinator.email); setEditingEmail(true); setError(""); setNotice(""); }} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              </Btn>
+              <Btn onClick={() => { setNewEmail(coordinator.email); setEditingEmail(true); setError(""); setNotice(""); }}>
                 <Icon name="edit" size={15} /> Change email
-              </button>
+              </Btn>
             </div>
           )}
-        </Card>
+        </Section>
       )}
 
       {/* Active coordinator: how replacing works. */}
       {profile !== undefined && coordinator?.status === "active" && (
-        <Card title="Replacing your coordinator" help="If someone else will take over, it takes two steps:">
-          <ol className="space-y-2 text-sm text-slate-700">
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">1</span>Deactivate {coordinator.name.split(" ")[0]} below. They are signed out and can no longer log in.</li>
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">2</span>Invite the new coordinator on this page. Interns, companies and records stay as they are.</li>
+        <Section title="Replacing your coordinator" help="If someone else will take over, it takes two steps:">
+          <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-700 marker:text-slate-500">
+            <li className="pl-1">Deactivate {coordinator.name.split(" ")[0]} below. They are signed out and can no longer log in.</li>
+            <li className="pl-1">Invite the new coordinator on this page. Interns, companies and records stay as they are.</li>
           </ol>
-        </Card>
+        </Section>
       )}
 
       {/* No active seat: invite someone. */}
       {profile !== undefined && !hasSeat && (
-        <Card
+        <Section
           title={coordinator ? "Invite a replacement" : "Invite your coordinator"}
           help="They get an email with a link to set their own password. The link is valid for 7 days."
         >
           <form onSubmit={handleInvite} className="space-y-4">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Full name</span>
-              <input {...inputProps("fullName")} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: clean("fullName", e.target.value) }))} className={inputClass} />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-              <input {...inputProps("email")} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: clean("email", e.target.value) }))} className={inputClass} />
-            </label>
+            <FormField label="Full name">
+              <Input {...inputProps("fullName")} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: clean("fullName", e.target.value) }))} />
+            </FormField>
+            <FormField label="Email">
+              <Input {...inputProps("email")} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: clean("email", e.target.value) }))} />
+            </FormField>
             <div className="flex justify-end">
-              <button type="submit" disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+              <Btn type="submit" variant="primary" disabled={busy} className="max-sm:w-full">
                 <Icon name="send" size={15} /> {busy ? "Sending…" : "Send invitation"}
-              </button>
+              </Btn>
             </div>
           </form>
-        </Card>
+        </Section>
       )}
 
       {/* Danger zone: only while someone holds the seat. */}
       {profile !== undefined && hasSeat && (
-        <Card
-          tone="danger"
+        <Section
           title="Danger zone"
           help={coordinator.status === "pending" ? "Cancel this invitation so you can invite someone else." : "Remove this coordinator's access to Internova."}
         >
           {confirmingDeactivate ? (
-            <div className="rounded-xl border border-red-200 bg-white p-4 text-sm">
-              <p className="font-semibold text-red-800">Deactivate {coordinator.name}?</p>
-              <p className="mt-1 text-slate-700">
-                They will be signed out right away and can no longer log in. Everything they did stays on record, and you can invite a replacement afterwards.
-              </p>
-              <div className="mt-3 flex flex-wrap justify-end gap-2">
-                <button type="button" onClick={() => setConfirmingDeactivate(false)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50">Keep coordinator</button>
-                <button type="button" disabled={busy} onClick={() => run("deactivate", "POST", null, () => setConfirmingDeactivate(false))} className="rounded-xl bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+            <div className="space-y-3" role="group" aria-label={`Deactivate ${coordinator.name}?`}>
+              <div className="k-note is-risk block">
+                <p className="font-semibold">Deactivate {coordinator.name}?</p>
+                <p className="mt-1">
+                  They will be signed out right away and can no longer log in. Everything they did stays on record, and you can invite a replacement afterwards.
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2 max-sm:flex-col-reverse">
+                <Btn onClick={() => setConfirmingDeactivate(false)}>Keep coordinator</Btn>
+                <Btn variant="danger" disabled={busy} onClick={() => run("deactivate", "POST", null, () => setConfirmingDeactivate(false))}>
                   {busy ? "Deactivating…" : "Yes, deactivate"}
-                </button>
+                </Btn>
               </div>
             </div>
           ) : (
-            <button type="button" onClick={() => { setConfirmingDeactivate(true); setError(""); setNotice(""); }} className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50">
+            <Btn variant="danger-quiet" onClick={() => { setConfirmingDeactivate(true); setError(""); setNotice(""); }} className="max-sm:w-full">
               Deactivate coordinator
-            </button>
+            </Btn>
           )}
-        </Card>
+        </Section>
       )}
-    </div>
+    </Page>
   );
 }

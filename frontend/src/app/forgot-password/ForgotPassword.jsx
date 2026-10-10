@@ -116,11 +116,16 @@ export default function ForgotPassword() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
+      if (res.status === 429) {
+        // Rate limit: show the server's friendly "please wait about N seconds" text.
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Too many requests. Please wait a moment and try again.");
+      }
       if (!res.ok) throw new Error();
       cooldown.start();
       setCode("");
-    } catch {
-      setError("Couldn't send a new code. Check your connection and try again.");
+    } catch (err) {
+      setError(err?.message || "Couldn't send a new code. Check your connection and try again.");
     } finally {
       setSending(false);
     }

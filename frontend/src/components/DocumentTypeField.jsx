@@ -19,7 +19,7 @@ export const DOCUMENT_TYPES = [
   "Other",
 ];
 
-const fieldClass = "w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500";
+const fieldClass = "k-input";
 
 const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 

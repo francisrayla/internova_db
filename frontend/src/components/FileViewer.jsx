@@ -49,7 +49,7 @@ export function FileViewer({ file, onClose }) {
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 max-sm:h-[44px] max-sm:w-[44px]"
           >
             <Icon name="x" size={20} />
           </button>
@@ -70,10 +70,10 @@ export function FileViewer({ file, onClose }) {
         </div>
 
         <div className="flex justify-end gap-2 border-t border-slate-100 px-4 py-3 sm:px-5">
-          <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 max-sm:min-h-[44px]">
             Close
           </button>
-          <a href={file.url} download={file.name} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+          <a href={file.url} download={file.name} className="grid place-items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 max-sm:min-h-[44px]">
             Download
           </a>
         </div>

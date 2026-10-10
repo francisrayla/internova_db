@@ -150,7 +150,7 @@ class CoordinatorSupportController extends Controller
         return [
             'attachment_path' => $path,
             'attachment_name' => $file->getClientOriginalName(),
-            'attachment_type' => $file->getClientMimeType(),
+            'attachment_type' => $file->getMimeType(),
             'attachment_size' => $file->getSize(),
         ];
     }

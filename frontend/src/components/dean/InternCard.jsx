@@ -18,13 +18,13 @@ export default function InternCard({ intern }) {
   const behind = intern.flags.some((f) => f.key === "behind_hours");
 
   return (
-    <Link href={`/dean/interns/${intern.deployment_id}`} className="block rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-300 hover:shadow-sm">
+    <Link href={`/dean/interns/${intern.deployment_id}`} className="dash-card block min-w-0 text-inherit no-underline transition hover:border-blue-300">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-semibold text-slate-900">{intern.intern_name}</p>
-          <p className="truncate text-sm text-slate-500">
+          <p className="truncate text-base font-semibold text-slate-900">{intern.intern_name}</p>
+          <p className="text-sm text-slate-600 sm:truncate">
             {intern.company_name ?? "No company"} · {intern.supervisor_name ?? <span className="text-amber-700">No supervisor yet</span>}
-            {intern.moved_from && <span className="text-slate-400"> · Moved from {intern.moved_from}</span>}
+            {intern.moved_from && <span className="text-slate-500"> · Moved from {intern.moved_from}</span>}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -33,9 +33,9 @@ export default function InternCard({ intern }) {
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5">
         <div>
-          <div className="mb-1 flex justify-between text-xs text-slate-500">
+          <div className="mb-1.5 flex justify-between gap-2 text-xs text-slate-600">
             <span>Hours</span>
             <span>
               <span className="font-semibold text-slate-800">{intern.hours_completed}</span> of {intern.required_hours}
@@ -44,7 +44,7 @@ export default function InternCard({ intern }) {
           <ProgressBar pct={intern.hours_progress_pct} tone={behind ? "amber" : undefined} label="Hours progress" />
         </div>
         <div>
-          <div className="mb-1 flex justify-between text-xs text-slate-500">
+          <div className="mb-1.5 flex justify-between gap-2 text-xs text-slate-600">
             <span>Narrative report</span>
             <span>
               <span className="font-semibold text-slate-800">{intern.narrative_done}</span> of {intern.narrative_total}
@@ -54,14 +54,14 @@ export default function InternCard({ intern }) {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-t border-slate-100 pt-3">
         <Projection projection={intern.projection} compact />
-        <span className="flex items-center gap-2 text-xs text-slate-500">
+        <span className="flex items-center gap-2 text-xs text-slate-600">
           <span>Last 2 weeks</span>
           <CalendarDots calendar={intern.calendar} />
         </span>
       </div>
-      <p className="mt-2 text-xs text-slate-500">{intern.last_clock_in_at ? `Last clock-in ${timeAgo(intern.last_clock_in_at)}` : "Has not clocked in yet"}</p>
+      <p className="mt-2 text-xs text-slate-600">{intern.last_clock_in_at ? `Last clock-in ${timeAgo(intern.last_clock_in_at)}` : "Has not clocked in yet"}</p>
 
       {intern.flags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">

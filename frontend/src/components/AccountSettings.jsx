@@ -4,6 +4,7 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
 import PasswordInput from "@/components/PasswordInput";
+import { FormField, Input, Page, PageHeader, Section } from "@/components/dash/page";
 
 /**
  * Password change, same shared /api/auth/change-password endpoint for every
@@ -52,7 +53,12 @@ export default function AccountSettings() {
           new_password_confirmation: form.new_password_confirmation,
         }),
       });
-      const data = await res.json();
+      if (res.status === 429) {
+        // Laravel's own "Too Many Attempts." is not a sentence for a person: say what to do.
+        const wait = Number(res.headers.get("Retry-After")) || 60;
+        throw new Error(`Too many attempts. Please wait about ${wait} seconds and try again.`);
+      }
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.message || "Could not update your password.");
       setSuccess(data.message || "Password updated.");
       setForm({ current_password: "", new_password: "", new_password_confirmation: "" });
@@ -64,62 +70,55 @@ export default function AccountSettings() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Account Settings</p>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-900">Manage your login and preferences</h2>
-      </section>
+    <Page size="narrow" className="mx-0">
+      <PageHeader title="Account and password" sentence="Manage your login. Your email is how you sign in." />
 
-      <section className="max-w-lg rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <label className="block text-sm">
-          <span className="mb-1.5 block font-semibold text-slate-700">Email</span>
-          <input type="email" value={user?.email ?? ""} disabled className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-500" />
-        </label>
+      <Section>
+        <div className="grid gap-5">
+          <FormField label="Email">
+            <Input type="email" value={user?.email ?? ""} disabled />
+          </FormField>
 
-        <form onSubmit={handleSubmit} className="mt-5 space-y-5">
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Current Password</span>
-            <PasswordInput
-              value={form.current_password}
-              onChange={(e) => handleChange("current_password", e.target.value)}
-              placeholder="••••••••"
-              maxLength={72}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">New Password</span>
-            <PasswordInput
-              value={form.new_password}
-              onChange={(e) => handleChange("new_password", e.target.value)}
-              placeholder="At least 8 characters"
-              maxLength={72}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Confirm New Password</span>
-            <PasswordInput
-              value={form.new_password_confirmation}
-              onChange={(e) => handleChange("new_password_confirmation", e.target.value)}
-              placeholder="••••••••"
-              maxLength={72}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            />
-          </label>
+          <form onSubmit={handleSubmit} className="grid gap-5">
+            <FormField label="Current password">
+              <PasswordInput
+                value={form.current_password}
+                onChange={(e) => handleChange("current_password", e.target.value)}
+                placeholder="••••••••"
+                maxLength={72}
+                className="k-input"
+              />
+            </FormField>
+            <FormField label="New password">
+              <PasswordInput
+                value={form.new_password}
+                onChange={(e) => handleChange("new_password", e.target.value)}
+                placeholder="At least 8 characters"
+                maxLength={72}
+                className="k-input"
+              />
+            </FormField>
+            <FormField label="Confirm new password">
+              <PasswordInput
+                value={form.new_password_confirmation}
+                onChange={(e) => handleChange("new_password_confirmation", e.target.value)}
+                placeholder="••••••••"
+                maxLength={72}
+                className="k-input"
+              />
+            </FormField>
 
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p>}
-          {success && <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{success}</p>}
+            {error && <p role="alert" className="k-note is-risk">{error}</p>}
+            {success && <p role="status" className="k-note is-ok">{success}</p>}
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
-        </form>
-      </section>
-    </div>
+            <div className="flex justify-end">
+              <button type="submit" disabled={saving} className="k-btn is-primary max-sm:w-full">
+                {saving ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </Section>
+    </Page>
   );
 }

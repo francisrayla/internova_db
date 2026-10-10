@@ -6,8 +6,20 @@ import { BACKEND_URL } from "@/lib/backendUrl";
 // every proxied request would look unauthenticated no matter what the
 // client sent, since Next.js route handlers run server-side and don't
 // share the browser's localStorage.
+/**
+ * The visitor's address, for the backend's per-IP rate limits. Laravel only ever sees this Next.js
+ * server as the caller, so without it every visitor would share one IP bucket. Prefers x-real-ip,
+ * else the LAST x-forwarded-for entry (the one our own proxy added; earlier ones can be typed by the visitor).
+ */
+export function clientIpHeader(request) {
+  const real = request.headers.get("x-real-ip")?.trim();
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",").map((part) => part.trim()).filter(Boolean).pop();
+  const ip = real || forwarded;
+  return ip ? { "X-Client-IP": ip } : {};
+}
+
 export function forwardHeaders(request, extra = {}) {
-  const headers = { Accept: "application/json", ...extra };
+  const headers = { Accept: "application/json", ...clientIpHeader(request), ...extra };
   const auth = request.headers.get("authorization");
   if (auth) headers.Authorization = auth;
   return headers;

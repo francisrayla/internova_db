@@ -12,7 +12,9 @@ import AttendanceSelfies from "@/components/AttendanceSelfies";
 import RedFlagBadge from "@/components/RedFlagBadge";
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
 import { AttendanceCalendar, GroupPill, Projection } from "@/components/dean/monitoring";
-import { BackLink, EmptyState, ErrorNote, Pill, ProgressBar, Skeleton, SkeletonList, TabBar } from "@/components/dean/ui";
+import { EmptyState, ErrorNote, Pill, Skeleton, SkeletonList, TabBar } from "@/components/dean/ui";
+import { Bar, Cols } from "@/components/dash";
+import { Page, PageHeader, Section, btnClass } from "@/components/dash/page";
 import DeploymentHistory from "@/components/DeploymentHistory";
 
 const TAB_KEYS = ["attendance", "journal", "tasks", "evaluations", "documents", "narrative"];
@@ -23,26 +25,38 @@ const DOC_TONE = { approved: "green", pending: "amber", rejected: "red" };
 const ACTIVITY_LABEL = { approved: ["Approved", "green"], pending: ["Waiting for supervisor", "amber"], rejected: ["Rejected", "red"], recorded: ["Recorded automatically", "blue"] };
 const TASK_TONE = { completed: "green", in_progress: "blue", pending: "slate" };
 
+// One figure of the strip at the top: label, value, optional bar and note.
 function Stat({ label, children, help }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
-      <p className="text-xs font-semibold text-slate-500 sm:text-sm">{label}</p>
-      <div className="mt-1 text-base font-bold text-slate-900 sm:text-xl">{children}</div>
-      {help && <p className="mt-1 text-xs text-slate-500">{help}</p>}
+    <div className="dash-fig">
+      <span className="dash-fig-label">{label}</span>
+      <span className="dash-fig-value">{children}</span>
+      {help && <span className="dash-fig-note">{help}</span>}
     </div>
   );
 }
 
-function List({ children }) {
-  return <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">{children}</ul>;
+// The server sends the newest rows only; say so when older ones exist instead of looking like the whole history.
+function CapNote({ shown, total, what }) {
+  if (!total || total <= shown) return null;
+  return <p className="mt-2 text-xs text-slate-500" role="note">Showing the latest {shown} of {total} {what}. Older ones are not listed here.</p>;
 }
 
-function AttendanceTab({ rows }) {
+function List({ children }) {
+  return (
+    <div className="dash-card is-flush">
+      <ul className="k-list">{children}</ul>
+    </div>
+  );
+}
+
+function AttendanceTab({ rows, total }) {
   if (rows.length === 0) return <EmptyState icon="calendar" title="No attendance yet" text="Clock-ins and clock-outs will show here once the intern starts their shifts." />;
   return (
+    <>
     <List>
       {rows.map((a) => (
-        <li key={a.id} className={`flex flex-wrap items-center justify-between gap-2 border-l-4 py-3 pl-3 pr-4 ${a.red_flag ? "border-l-red-600" : "border-l-transparent"}`}>
+        <li key={a.id} className={`k-item flex flex-wrap items-center justify-between gap-2 border-l-4 ${a.red_flag ? "border-l-red-600" : "border-l-transparent"}`}>
           <div className="flex min-w-0 items-center gap-3">
             <AttendanceSelfies record={{ ...a, attendance_date: formatDate(a.date) }} />
             <div className="min-w-0">
@@ -60,17 +74,20 @@ function AttendanceTab({ rows }) {
         </li>
       ))}
     </List>
+    <CapNote shown={rows.length} total={total} what="attendance records" />
+    </>
   );
 }
 
-function JournalTab({ rows }) {
+function JournalTab({ rows, total }) {
   if (rows.length === 0) return <EmptyState icon="file" title="No journal entries yet" text="Daily activity entries the intern writes (and ones the system records from attendance) will appear here." />;
   return (
+    <>
     <List>
       {rows.map((a) => {
         const [label, tone] = ACTIVITY_LABEL[a.status] ?? [a.status, "slate"];
         return (
-          <li key={a.id} className="px-4 py-3">
+          <li key={a.id} className="k-item">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-slate-900">{a.title}</p>
               <Pill tone={tone}>{label}</Pill>
@@ -81,15 +98,18 @@ function JournalTab({ rows }) {
         );
       })}
     </List>
+    <CapNote shown={rows.length} total={total} what="journal entries" />
+    </>
   );
 }
 
-function TasksTab({ rows }) {
+function TasksTab({ rows, total }) {
   if (rows.length === 0) return <EmptyState icon="list" title="No tasks yet" text="Tasks the supervisor assigns to this intern will be listed here." />;
   return (
+    <>
     <List>
       {rows.map((t) => (
-        <li key={t.id} className="px-4 py-3">
+        <li key={t.id} className="k-item">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-slate-900">{t.title}</p>
             <Pill tone={TASK_TONE[t.status] ?? "slate"}>{t.status.replace("_", " ")}</Pill>
@@ -103,6 +123,8 @@ function TasksTab({ rows }) {
         </li>
       ))}
     </List>
+    <CapNote shown={rows.length} total={total} what="tasks" />
+    </>
   );
 }
 
@@ -111,9 +133,9 @@ function EvaluationsTab({ rows }) {
   return (
     <div className="space-y-3">
       {rows.map((e) => (
-        <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div key={e.id} className="dash-card">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-900">{e.evaluation_type} evaluation</p>
+            <p className="text-sm font-semibold text-slate-900">Internship evaluation</p>
             <Pill tone="blue">Overall {Number(e.overall_score)}%</Pill>
           </div>
           <p className="text-xs text-slate-500">{formatDate(e.evaluation_date)}{e.evaluator_name && ` · by ${e.evaluator_name}`}</p>
@@ -139,7 +161,7 @@ function DocumentsTab({ rows }) {
   return (
     <List>
       {rows.map((d) => (
-        <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <li key={d.id} className="k-item flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900">{d.document_type}</p>
             <p className="truncate text-sm text-slate-500">{d.file_name} · uploaded {timeAgo(d.uploaded_at)}</p>
@@ -172,15 +194,15 @@ function NarrativeTab({ deploymentId }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <Link href={`/dean/interns/${deploymentId}/narrative-report`} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Open narrative report</Link>
+        <Link href={`/dean/interns/${deploymentId}/narrative-report`} className={btnClass("primary")}>Open narrative report</Link>
         <DownloadDocxButton
           docxUrl={`/api/dean/interns/${deploymentId}/narrative-report/docx`}
           label="Download Word"
-          className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          className={btnClass("secondary")}
           onError={setDownloadError}
         />
       </div>
-      {downloadError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{downloadError}</p>}
+      {downloadError && <p className="k-note is-risk" role="alert">{downloadError}</p>}
       <NarrativeChecklist report={report} />
     </div>
   );
@@ -204,9 +226,7 @@ export default function InternDetail() {
   const status = STATUS[i?.status] ?? { label: i?.status, tone: "slate" };
 
   return (
-    <div className="space-y-5 sm:p-2 lg:p-6">
-      <BackLink href="/dean/interns">← All interns</BackLink>
-
+    <Page>
       {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
       {!data && !error && (
         <div className="space-y-4">
@@ -217,44 +237,42 @@ export default function InternDetail() {
 
       {data && (
         <>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-slate-900">{i.intern_name}</h1>
-              {i.status_group && i.status_group !== "inactive" ? <GroupPill group={i.status_group} /> : <Pill tone={status.tone}>{status.label}</Pill>}
+          <PageHeader
+            back={{ href: "/dean/interns", label: "All interns" }}
+            title={
+              <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                {i.intern_name}
+                {i.status_group && i.status_group !== "inactive" ? <GroupPill group={i.status_group} /> : <Pill tone={status.tone}>{status.label}</Pill>}
+              </span>
+            }
+            sentence={[i.course, i.year_level, i.student_number && `Student no. ${i.student_number}`].filter(Boolean).join(" · ")}
+            meta={`${i.company_name ?? "No company"} · Supervisor: ${i.supervisor_name ?? "none yet"} · ${formatDate(i.start_date)} – ${i.end_date ? formatDate(i.end_date) : "present"}`}
+          />
+          {i.flags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {i.flags.map((f) => <Pill key={f.key} tone={f.level}>{f.label}</Pill>)}
             </div>
-            <p className="mt-1 text-sm text-slate-600">
-              {[i.course, i.year_level, i.student_number && `Student no. ${i.student_number}`].filter(Boolean).join(" · ")}
-            </p>
-            <p className="text-sm text-slate-500">
-              {i.company_name ?? "No company"} · Supervisor: {i.supervisor_name ?? "none yet"} · {formatDate(i.start_date)} – {i.end_date ? formatDate(i.end_date) : "present"}
-            </p>
-            {i.flags.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {i.flags.map((f) => <Pill key={f.key} tone={f.level}>{f.label}</Pill>)}
-              </div>
-            )}
-          </div>
+          )}
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="dash-strip" style={{ "--cols": 4 }}>
             <Stat label="Hours" help={`${i.hours_progress_pct}% of the required hours`}>
-              {i.hours_completed} <span className="text-base font-medium text-slate-500">of {i.required_hours}</span>
-              <div className="mt-2"><ProgressBar pct={i.hours_progress_pct} label="Hours progress" /></div>
+              {i.hours_completed} <small className="text-sm font-normal text-slate-500">of {i.required_hours}</small>
+              <Bar pct={i.hours_progress_pct} size="thin" label="Hours progress" />
             </Stat>
             <Stat label="Narrative report" help="requirements complete">
-              {i.narrative_done} <span className="text-base font-medium text-slate-500">of {i.narrative_total}</span>
+              {i.narrative_done} <small className="text-sm font-normal text-slate-500">of {i.narrative_total}</small>
             </Stat>
             <Stat label="Tasks" help="completed">
-              {data.summary.tasks_completed} <span className="text-base font-medium text-slate-500">of {data.summary.tasks_total}</span>
+              {data.summary.tasks_completed} <small className="text-sm font-normal text-slate-500">of {data.summary.tasks_total}</small>
             </Stat>
             <Stat label="Last clock-in" help={data.summary.latest_evaluation_score ? `Latest evaluation ${Number(data.summary.latest_evaluation_score)}%` : "No evaluation yet"}>
-              <span className="text-base">{i.last_clock_in_at ? timeAgo(i.last_clock_in_at) : "Never"}</span>
+              <span className="text-base font-medium">{i.last_clock_in_at ? timeAgo(i.last_clock_in_at) : "Never"}</span>
             </Stat>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="text-sm font-semibold text-slate-900">Projected finish</h2>
-              <Projection projection={i.projection} className="mt-1" />
+          <Cols>
+            <Section title="Projected finish">
+              <Projection projection={i.projection} />
               <p className="mt-2 text-xs text-slate-500">
                 {i.projection?.pace_hours_per_day ? `Based on about ${i.projection.pace_hours_per_day} hours per working day lately (Mon to Fri). ` : ""}
                 {i.end_date ? `Deployment ends ${formatDate(i.end_date)}.` : "No end date set for this deployment."}
@@ -264,12 +282,11 @@ export default function InternDetail() {
                   {i.status_reasons.map((r) => <li key={r}>{r}</li>)}
                 </ul>
               )}
-            </section>
-            <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4">
-              <h2 className="mb-3 text-sm font-semibold text-slate-900">Attendance, last 4 weeks</h2>
+            </Section>
+            <Section title="Attendance, last 4 weeks">
               <AttendanceCalendar calendar={i.calendar} />
-            </section>
-          </div>
+            </Section>
+          </Cols>
 
           <DeploymentHistory history={data.history} />
 
@@ -279,7 +296,7 @@ export default function InternDetail() {
             tabs={[
               { key: "attendance", label: "Attendance" },
               { key: "journal", label: "Daily journal" },
-              { key: "tasks", label: "Tasks", count: data.tasks.length },
+              { key: "tasks", label: "Tasks", count: data.totals?.tasks ?? data.tasks.length },
               { key: "evaluations", label: "Evaluations", count: data.evaluations.length },
               { key: "documents", label: "Documents", count: data.documents.length },
               { key: "narrative", label: "Narrative report" },
@@ -287,9 +304,9 @@ export default function InternDetail() {
           />
 
           <div>
-            {tab === "attendance" && <AttendanceTab rows={data.attendance} />}
-            {tab === "journal" && <JournalTab rows={data.activities} />}
-            {tab === "tasks" && <TasksTab rows={data.tasks} />}
+            {tab === "attendance" && <AttendanceTab rows={data.attendance} total={data.totals?.attendance} />}
+            {tab === "journal" && <JournalTab rows={data.activities} total={data.totals?.activities} />}
+            {tab === "tasks" && <TasksTab rows={data.tasks} total={data.totals?.tasks} />}
             {tab === "evaluations" && <EvaluationsTab rows={data.evaluations} />}
             {tab === "documents" && <DocumentsTab rows={data.documents} />}
             {tab === "narrative" && <NarrativeTab deploymentId={deploymentId} />}
@@ -297,6 +314,6 @@ export default function InternDetail() {
           <p className="text-xs text-slate-400">You&apos;re viewing this in read-only mode. Your coordinator and the intern&apos;s supervisor manage the records.</p>
         </>
       )}
-    </div>
+    </Page>
   );
 }

@@ -7,7 +7,7 @@ export default function OfflineEntryBadge({ record, className = "" }) {
 
   return (
     <span
-      className={`rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ${className}`}
+      className={`k-pill is-sm is-warn ${className}`}
       title={`Captured offline (${parts.join(" and ")}) — the time comes from the intern's device, not the server.`}
     >
       Offline entry

@@ -11,10 +11,11 @@ import FeedbackUnreadWatcher from "@/components/FeedbackUnreadWatcher";
 import { UserContext } from "@/lib/UserContext";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
+import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
 const PROFILE_LINKS = [
   { href: "/coordinator/profile", icon: "user", label: "My Profile" },
-  { href: "/coordinator/settings", icon: "gear", label: "Settings" },
+  { href: "/coordinator/settings", icon: "settings", label: "Settings" },
   { href: "/coordinator/support", icon: "message", label: "Contact Support" },
 ];
 
@@ -29,8 +30,6 @@ const BASE_NAV_ITEMS = [
   { label: "Documents", href: "/coordinator/documents", icon: "documents" },
   { label: "Reports", href: "/coordinator/reports", icon: "reports" },
   { label: "Dean Feedback", href: "/coordinator/feedback", icon: "feedback" },
-  // Billing and editing school details belong to the school's Dean; this page is read-only here.
-  { label: "Settings", href: "/coordinator/settings", icon: "settings" },
 ];
 
 // Reachable in any access-gate state — small utility screens, not operational data.
@@ -59,7 +58,7 @@ function resolveGate(user) {
 // Minimal chrome for gated states — just the brand and account menu, no operational nav.
 function MinimalTopBar({ user, onLogout }) {
   return (
-    <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+    <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 sm:py-4">
       <Logo size={34} />
       <div className="flex items-center gap-3">
         <ThemeToggle />
@@ -147,7 +146,7 @@ export default function CoordinatorLayout({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checking, gate.state, gate.target, pathname, isFullAccess, isExemptRoute]);
 
-  if (checking || !user) return null;
+  if (checking || !user) return <ShellSkeleton />;
 
   // Gated states (and the small exempt utility pages within them) get the minimal chrome only.
   if (!isFullAccess) {

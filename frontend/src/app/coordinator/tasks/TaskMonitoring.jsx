@@ -3,24 +3,26 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
-import { isTaskClosed } from "@/lib/taskState";
+import NavIcon from "@/components/NavIcon";
+import { Avatar, EmptyState, ErrorNote, SkeletonList } from "@/components/ui";
+import { DataList, DataRow, FilterBar, Page, PageHeader, SearchField, Section } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
-function CompanyCard({ company, activeCount, totalCount }) {
+function CompanyRow({ company, activeCount, totalCount }) {
   return (
-    <Link
+    <DataRow
+      wrap
       href={`/coordinator/tasks/company/${company.id}`}
-      className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow"
-    >
-      <div>
-        <h3 className="font-semibold text-slate-900">{company.company_name}</h3>
-        <p className="mt-1 text-xs text-slate-500">
+      lead={<Avatar name={company.company_name} size={40} />}
+      title={<span className="break-words">{company.company_name}</span>}
+      sub={
+        <>
           {totalCount} task{totalCount === 1 ? "" : "s"} total
           {activeCount > 0 ? ` · ${activeCount} active` : ""}
-        </p>
-      </div>
-      <span className="text-slate-300">→</span>
-    </Link>
+        </>
+      }
+      side={<span className="text-slate-400"><NavIcon name="arrow" size={16} /></span>}
+    />
   );
 }
 
@@ -32,34 +34,30 @@ function CompanyCard({ company, activeCount, totalCount }) {
  * every company together.
  */
 export default function TaskMonitoring() {
-  const [tasks, setTasks] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   function load() {
-    setLoading(true);
-    fetchCoordinatorData("tasks")
+    // Only the per-company figures come back (no task rows): the tasks themselves load on the company screen.
+    fetchCoordinatorData("tasks?view=summary")
       .then((r) => {
-        setTasks(r.tasks ?? []);
         setCompanies(r.companies ?? []);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+  }, []);
 
-  const countsByCompany = useMemo(() => {
-    const counts = {};
-    for (const t of tasks) {
-      const bucket = (counts[t.company_id] ??= { total: 0, active: 0 });
-      bucket.total += 1;
-      if (!isTaskClosed(t)) bucket.active += 1;
-    }
-    return counts;
-  }, [tasks]);
+  function retry() {
+    setError("");
+    setLoading(true);
+    load();
+  }
 
   const visibleCompanies = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -68,38 +66,40 @@ export default function TaskMonitoring() {
   }, [companies, search]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
-        <p className="mt-1 text-sm text-slate-600">Pick a company to see the tasks for its interns — supervisors assign and manage the actual work.</p>
-      </div>
+    <Page>
+      <PageHeader title="Tasks" sentence="Pick a company to see the tasks for its interns — supervisors assign and manage the actual work." />
 
       {companies.length > 0 && (
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <input {...inputProps("search")}
+        <FilterBar>
+          <SearchField
+            {...inputProps("search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search companies…"
-            className="w-full max-w-sm rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            aria-label="Search companies"
           />
-        </section>
+        </FilterBar>
       )}
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote onRetry={retry}>{error}</ErrorNote>}
 
-      {loading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm">Loading companies…</p>
-      ) : companies.length === 0 ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400 shadow-sm">No companies with deployed interns yet.</p>
-      ) : visibleCompanies.length === 0 ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400 shadow-sm">No companies match your search.</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {visibleCompanies.map((c) => (
-            <CompanyCard key={c.id} company={c} activeCount={countsByCompany[c.id]?.active ?? 0} totalCount={countsByCompany[c.id]?.total ?? 0} />
-          ))}
-        </div>
-      )}
-    </div>
+      <Section flush>
+        {loading ? (
+          <div className="k-pad"><SkeletonList rows={3} height="h-16" /></div>
+        ) : companies.length === 0 ? (
+          <div className="k-pad">
+            <EmptyState icon="building" title="No companies with deployed interns yet" text="Once an intern is deployed to a company, its tasks show up here." />
+          </div>
+        ) : visibleCompanies.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-slate-500">No companies match your search.</p>
+        ) : (
+          <DataList>
+            {visibleCompanies.map((c) => (
+              <CompanyRow key={c.id} company={c} activeCount={c.active ?? 0} totalCount={c.total ?? 0} />
+            ))}
+          </DataList>
+        )}
+      </Section>
+    </Page>
   );
 }

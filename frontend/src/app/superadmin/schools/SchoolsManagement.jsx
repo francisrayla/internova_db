@@ -3,11 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import FileLink from "@/components/FileViewer";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
 import { apiFetch } from "@/lib/apiFetch";
 import BillingBreakdown from "@/components/BillingBreakdown";
+import { Check, Pause, Play, RotateCw } from "lucide-react";
+import { Btn, EmptyState, FilterBar, FormField, Input, KeyValueList, Page, PageHeader, Pill, SearchField, Section, Select, SheetFrame, SkeletonList, TableWrap } from "@/components/dash/page";
+import NavIcon from "@/components/NavIcon";
+import SaToast, { useSaToast } from "../SaToast";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 import { inputProps } from "@/lib/inputRules";
 const FILTERS = ["All Schools", "Awaiting Acceptance", "Accepted", "Pending Payment", "Active", "Offer Expired", "Paused", "Past Due", "Expired"];
@@ -24,45 +28,44 @@ function matchesFilter(school, filter) {
   return school.status === filterToStatus(filter);
 }
 
-function Modal({ title, subtitle, onClose, children }) {
+// Lifecycle status -> chip tone and wording (the soft chips shared by every screen).
+const STATUS_TONE = {
+  pending_setup: "slate",
+  awaiting_acceptance: "blue",
+  accepted: "blue",
+  pending_payment: "amber",
+  active: "green",
+  offer_expired: "red",
+  past_due: "amber",
+  expired: "slate",
+};
+
+const STATUS_LABEL = {
+  pending_setup: "Pending Setup",
+  awaiting_acceptance: "Awaiting Acceptance",
+  accepted: "Accepted",
+  pending_payment: "Pending Payment",
+  active: "Active",
+  offer_expired: "Offer Expired",
+  past_due: "Past Due",
+  expired: "Expired",
+};
+
+function StatusPill({ status }) {
+  return <Pill tone={STATUS_TONE[status] ?? "slate"}>{STATUS_LABEL[status] ?? status}</Pill>;
+}
+
+function PausedPill() {
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-lg rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-            {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
-          </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100">✕</button>
-        </div>
-        <div className="mt-4">{children}</div>
-      </div>
-    </div>
+    <Pill tone="red">
+      <Pause size={12} aria-hidden="true" className="mr-1 inline-block align-[-1px]" />
+      Paused
+    </Pill>
   );
 }
 
-function Pill({ ok, okLabel, badLabel }) {
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-      ok ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
-    }`}>
-      {ok ? okLabel : badLabel}
-    </span>
-  );
-}
-
-function overallStatusMeta(status) {
-  const map = {
-    pending_setup:       { label: "Pending Setup",       color: "bg-slate-100 text-slate-600" },
-    awaiting_acceptance: { label: "Awaiting Acceptance",  color: "bg-blue-100 text-blue-700" },
-    accepted:            { label: "Accepted",             color: "bg-cyan-100 text-cyan-700" },
-    pending_payment:     { label: "Pending Payment",      color: "bg-amber-100 text-amber-700" },
-    active:              { label: "Active",               color: "bg-blue-100 text-blue-700" },
-    offer_expired:       { label: "Offer Expired",        color: "bg-rose-100 text-rose-700" },
-    past_due:            { label: "Past Due",             color: "bg-orange-100 text-orange-700" },
-    expired:             { label: "Expired",              color: "bg-slate-200 text-slate-500" },
-  };
-  return map[status] ?? { label: status, color: "bg-slate-100 text-slate-600" };
+function SetupPill({ ok, okLabel, badLabel }) {
+  return <Pill tone={ok ? "green" : "amber"}>{ok ? okLabel : badLabel}</Pill>;
 }
 
 // The Dean owns billing. A legacy school (registered before the Dean role) has
@@ -95,34 +98,43 @@ function DeanInvite({ school, onDone }) {
     return (
       <form
         onSubmit={(e) => { e.preventDefault(); send("invite-dean", form); }}
-        className="space-y-2 rounded-2xl border border-slate-200 p-4"
+        className="grid gap-3 rounded-[14px] border p-4"
+        style={{ borderColor: "var(--ui-line)", background: "var(--ui-soft)" }}
       >
-        <p className="text-sm font-semibold text-slate-800">No dean yet</p>
-        <p className="text-xs text-slate-500">The Dean accepts the plan, pays and invites the coordinator. They get an email link to set their own password.</p>
-        <input {...inputProps("fullName")} required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Full name of the Dean" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-        <input {...inputProps("email")} required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value.trim() }))} placeholder="Email of the Dean" className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <button type="submit" disabled={busy} className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+        <div>
+          <p className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>No dean yet</p>
+          <p className="k-hint mt-1">The Dean accepts the plan, pays and invites the coordinator. They get an email link to set their own password.</p>
+        </div>
+        <FormField label="Dean's full name">
+          <Input {...inputProps("fullName")} required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Full name of the Dean" />
+        </FormField>
+        <FormField label="Dean's email">
+          <Input {...inputProps("email")} required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value.trim() }))} placeholder="Email of the Dean" />
+        </FormField>
+        {error && <p className="k-note is-risk" role="alert">{error}</p>}
+        <Btn variant="primary" block type="submit" disabled={busy}>
           {busy ? "Sending…" : "Invite Dean"}
-        </button>
+        </Btn>
       </form>
     );
   }
 
   if (school.dean_setup === "pending") {
     return (
-      <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-xs font-semibold text-amber-800">Waiting for the Dean ({school.dean_email}) to accept the invitation and set a password.</p>
-        <input {...inputProps("email")} type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500" />
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <button
-          type="button"
+      <div className="grid gap-3 rounded-[14px] border p-4" style={{ borderColor: "var(--ui-line)", background: "var(--ui-soft)" }}>
+        <p className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>Waiting for the Dean ({school.dean_email}) to accept the invitation and set a password.</p>
+        <FormField label="Dean's email">
+          <Input {...inputProps("email")} type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} />
+        </FormField>
+        {error && <p className="k-note is-risk" role="alert">{error}</p>}
+        <Btn
+          variant="primary"
+          block
           disabled={busy}
           onClick={() => send("resend-dean-invitation", email !== school.dean_email ? { email } : {})}
-          className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
         >
-          {busy ? "Sending…" : email !== school.dean_email ? "Change Email & Resend" : "↻ Resend Invitation"}
-        </button>
+          {busy ? "Sending…" : email !== school.dean_email ? "Change Email & Resend" : (<><RotateCw size={15} aria-hidden="true" /> Resend Invitation</>)}
+        </Btn>
       </div>
     );
   }
@@ -139,16 +151,12 @@ export default function SchoolsPage() {
   const [filter, setFilter] = useState("All Schools");
   const [loading, setLoading] = useState(true);
   const [manageSchool, setManageSchool] = useState(null);
-  const [toast, setToast] = useState("");
+  const [toast, showToast] = useSaToast();
   const [confirming, setConfirming] = useState(false);
+  const [payConfirm, setPayConfirm] = useState(null); // { school, amount } waiting for "yes, mark as paid"
   const [confirmingPauseId, setConfirmingPauseId] = useState(null); // holds the school id being confirmed, never a stale boolean
   const hasAutoOpenedHighlight = useRef(false);
   const echoChannelRef = useRef(null);
-
-  function showToast(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(""), 3000);
-  }
 
   function load() {
     setLoading(true);
@@ -186,10 +194,10 @@ export default function SchoolsPage() {
     // NotificationBell and the Billing/Plans screens share this same public
     // channel — echo.leave() would tear it down for all of them, so this
     // only unbinds this component's own listener on cleanup.
-    echoChannelRef.current = echo.channel("superadmin-notifications").listen(".notification.created", handlePush);
+    echoChannelRef.current = echo.private("superadmin.notifications").listen(".notification.created", handlePush);
 
     return () => {
-      echo.channel("superadmin-notifications").stopListening(".notification.created", handlePush);
+      echo.private("superadmin.notifications").stopListening(".notification.created", handlePush);
       echoChannelRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -268,215 +276,169 @@ export default function SchoolsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 px-5 py-3 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
+    <Page size="wide">
+      <SaToast msg={toast} />
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <input {...inputProps("search")} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search school name"
-            className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 sm:w-auto" />
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}
-            className="rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500">
-            {FILTERS.map((f) => <option key={f}>{f}</option>)}
-          </select>
-          <div className="group relative flex shrink-0 items-center">
-            <span className="grid h-6 w-6 cursor-help place-items-center rounded-full border border-slate-300 text-xs font-semibold text-slate-500">
-              i
-            </span>
-            <div className="pointer-events-none absolute right-0 top-8 z-10 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-3 text-xs leading-relaxed text-slate-600 opacity-0 shadow-lg transition group-hover:opacity-100">
-              Schools are created from approved Plan Inquiries. A school becomes fully active once its Dean accepts the subscription offer and payment is confirmed.
-            </div>
-          </div>
-          <Link
-            href="/superadmin/inquiries"
-            className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Plan Inquiries →
-          </Link>
-        </div>
-      </section>
+      <PageHeader
+        title="Schools"
+        sentence="Schools are created from approved Plan Inquiries. A school becomes fully active once its Dean accepts the subscription offer and payment is confirmed."
+      >
+        <Btn variant="primary" href="/superadmin/inquiries">
+          Plan Inquiries <NavIcon name="arrow" size={16} />
+        </Btn>
+      </PageHeader>
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <FilterBar>
+        <SearchField {...inputProps("search")} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search school name" aria-label="Search school name" />
+        <Select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter by status" className="sm:w-auto">
+          {FILTERS.map((f) => <option key={f}>{f}</option>)}
+        </Select>
+      </FilterBar>
+
+      <Section flush>
         {loading ? (
-          <p className="px-6 py-8 text-center text-sm text-slate-500">Loading schools…</p>
+          <div className="k-pad"><SkeletonList rows={4} height="h-16" /></div>
         ) : filtered.length === 0 ? (
-          <p className="px-6 py-8 text-center text-sm text-slate-500">No schools found</p>
+          <div className="k-pad">
+            <EmptyState
+              icon="schools"
+              title="No schools found"
+              text={schools.length === 0 ? "Schools show up here once you approve a Plan Inquiry." : "Try a different name or pick All Schools."}
+              action={schools.length === 0 ? <Btn href="/superadmin/inquiries">Open Plan Inquiries</Btn> : undefined}
+            />
+          </div>
         ) : (
-          <>
-            {/* Cards below sm: — the desktop table's 6 columns (School, Plan,
-                Account Setup, Payment, Subscription, Action) never fit a
-                phone width; forcing them to meant either an unreadable
-                horizontal scrollbar or columns clipped off past the edge. */}
-            <div className="divide-y divide-slate-100 sm:hidden">
-              {filtered.map((school) => (
-                <button
-                  key={school.id}
-                  type="button"
-                  onClick={() => {
-                    if (manageSchool?.id === school.id) {
-                      setManageSchool(null);
-                    } else {
-                      setManageSchool(school);
-                    }
-                    setConfirmingPauseId(null);
-                  }}
-                  className={`block w-full px-5 py-4 text-left ${String(school.id) === String(highlightId) ? "bg-blue-50/60" : "hover:bg-slate-50"}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900">{school.name}</p>
-                      <p className="truncate text-xs text-slate-500">{school.dean_email ? `Dean: ${school.dean_name} · ${school.dean_email}` : "No dean yet"}</p>
-                    </div>
-                    <span className="shrink-0 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700">Manage</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    {(() => { const m = overallStatusMeta(school.status); return (
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${m.color}`}>{m.label}</span>
-                    ); })()}
-                    {school.is_suspended && (
-                      <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">⏸ Paused</span>
-                    )}
-                    {school.dean_email ? <Pill ok={school.dean_setup === "active"} okLabel="Dean active" badLabel="Dean invited" /> : <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">No dean</span>}
-                    <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {school.plan}
-                    {school.amount != null && ` · ₱${Number(school.amount).toLocaleString()} / ${school.billing_period === "monthly" ? "mo" : "yr"}`}
-                  </p>
-                </button>
-              ))}
-            </div>
-
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50">
-                  <tr>
-                    {["School", "Plan", "Dean", "Payment", "Subscription", "Action"].map((h) => (
-                      <th key={h} className="px-6 py-3 text-left font-semibold text-slate-700 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filtered.map((school) => (
-                    <tr
-                      key={school.id}
-                      className={`hover:bg-slate-50 ${String(school.id) === String(highlightId) ? "bg-blue-50/60" : ""}`}
-                    >
-                      <td className="px-6 py-4">
-                        <p className="font-medium text-slate-900">{school.name}</p>
-                        <p className="text-xs text-slate-500">{school.admin_email ? `Coordinator: ${school.admin_name}` : "No coordinator yet"}</p>
-                      </td>
-                      <td className="px-6 py-4 text-slate-600">
+          <TableWrap>
+            <table className="k-table is-hover is-stack">
+              <thead>
+                <tr>
+                  {["School", "Plan", "Dean", "Payment", "Subscription", "Action"].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((school) => (
+                  <tr key={school.id} className={String(school.id) === String(highlightId) ? "bg-blue-50" : ""}>
+                    <td className="is-title">
+                      <span className="block font-medium">{school.name}</span>
+                      <span className="block text-xs font-normal" style={{ color: "var(--ui-muted)" }}>
+                        {school.admin_email ? `Coordinator: ${school.admin_name}` : "No coordinator yet"}
+                      </span>
+                    </td>
+                    <td data-label="Plan">
+                      <span className="block">
                         {school.plan}
                         {school.amount != null && (
-                          <span className="block text-xs text-slate-400">
+                          <span className="block text-xs" style={{ color: "var(--ui-muted)" }}>
                             ₱{Number(school.amount).toLocaleString()} / {school.billing_period === "monthly" ? "mo" : "yr"}
                           </span>
                         )}
-                      </td>
-                      <td className="px-6 py-4">
-                        {school.dean_email ? (
-                          <>
-                            <p className="text-xs font-medium text-slate-900">{school.dean_name}</p>
-                            <p className="mb-1 text-xs text-slate-500">{school.dean_email}</p>
-                            <Pill ok={school.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
-                          </>
-                        ) : (
-                          <span className="text-xs text-slate-400">No dean yet</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <Pill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {(() => { const m = overallStatusMeta(school.status); return (
-                            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${m.color}`}>{m.label}</span>
-                          ); })()}
-                          {school.is_suspended && (
-                            <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">⏸ Paused</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => {
-                            // Clicking Manage on the row that's already open closes it —
-                            // the button doubles as its own close control, not just an opener.
-                            if (manageSchool?.id === school.id) {
-                              setManageSchool(null);
-                            } else {
-                              setManageSchool(school);
-                            }
-                            setConfirmingPauseId(null);
-                          }}
-                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >Manage</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+                      </span>
+                    </td>
+                    <td data-label="Dean">
+                      {school.dean_email ? (
+                        <span className="block min-w-0 max-sm:text-right">
+                          <span className="block text-sm font-medium">{school.dean_name}</span>
+                          <span className="mb-1 block break-all text-xs" style={{ color: "var(--ui-muted)" }}>{school.dean_email}</span>
+                          <SetupPill ok={school.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
+                        </span>
+                      ) : (
+                        <span className="text-xs" style={{ color: "var(--ui-muted)" }}>No dean yet</span>
+                      )}
+                    </td>
+                    <td data-label="Payment">
+                      <SetupPill ok={school.payment === "paid"} okLabel="Paid" badLabel="Unpaid" />
+                    </td>
+                    <td data-label="Subscription">
+                      <span className="flex flex-wrap items-center gap-1.5 max-sm:justify-end">
+                        <StatusPill status={school.status} />
+                        {school.is_suspended && <PausedPill />}
+                      </span>
+                    </td>
+                    <td className="is-actions">
+                      <Btn
+                        sm
+                        aria-label={`Manage ${school.name}`}
+                        onClick={() => {
+                          // Clicking Manage on the row that's already open closes it —
+                          // the button doubles as its own close control, not just an opener.
+                          if (manageSchool?.id === school.id) {
+                            setManageSchool(null);
+                          } else {
+                            setManageSchool(school);
+                          }
+                          setConfirmingPauseId(null);
+                        }}
+                      >
+                        Manage
+                      </Btn>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
         )}
-      </section>
+      </Section>
 
       {/* Manage School Modal */}
       {manageSchool && (
-        <Modal
+        <SheetFrame
           title={manageSchool.name}
-          subtitle={manageSchool.dean_name ? `Dean: ${manageSchool.dean_name}` : "No dean yet"}
+          description={manageSchool.dean_name ? `Dean: ${manageSchool.dean_name}` : "No dean yet"}
+          size="md"
           onClose={() => { setManageSchool(null); setConfirmingPauseId(null); }}
         >
-          <div className="space-y-3">
-            <div className="rounded-2xl bg-slate-50 p-4 text-sm space-y-2">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Status</span>
-                <span className="flex gap-1.5">
-                  {(() => { const m = overallStatusMeta(manageSchool.status); return <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${m.color}`}>{m.label}</span>; })()}
-                  {manageSchool.is_suspended && (
-                    <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">⏸ Paused</span>
-                  )}
-                </span>
-              </div>
-              <div className="flex justify-between"><span className="text-slate-500">Plan</span><span className="font-semibold text-slate-900">{manageSchool.plan}</span></div>
-              {manageSchool.amount != null && (
-                <div className="flex justify-between"><span className="text-slate-500">Amount</span><span className="font-semibold text-slate-900">₱{Number(manageSchool.amount).toLocaleString()} / {manageSchool.billing_period === "monthly" ? "mo" : "yr"}</span></div>
-              )}
-              {manageSchool.scheduled_switch && (
-                <div className="rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          <div className="grid gap-4">
+            <KeyValueList
+              items={[
+                {
+                  label: "Status",
+                  value: (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <StatusPill status={manageSchool.status} />
+                      {manageSchool.is_suspended && <PausedPill />}
+                    </span>
+                  ),
+                },
+                { label: "Plan", value: manageSchool.plan },
+                ...(manageSchool.amount != null
+                  ? [{ label: "Amount", value: `₱${Number(manageSchool.amount).toLocaleString()} / ${manageSchool.billing_period === "monthly" ? "mo" : "yr"}` }]
+                  : []),
+              ]}
+            />
+            {manageSchool.scheduled_switch && (
+              <p className="k-note">
+                <span className="min-w-0">
                   Scheduled switch: <strong>{manageSchool.scheduled_switch.plan} ({manageSchool.scheduled_switch.billing_period})</strong> starts {manageSchool.scheduled_switch.starts_on}, billed ₱{Number(manageSchool.scheduled_switch.amount ?? 0).toLocaleString()} then.
-                </div>
-              )}
-              <BillingBreakdown breakdown={manageSchool.breakdown} title="Subscription price breakdown" />
-              <div className="flex justify-between"><span className="text-slate-500">Dean</span><span className="font-semibold text-slate-900">{manageSchool.dean_name ?? "None yet"}</span></div>
-              {manageSchool.dean_email && (
-                <div className="flex justify-between"><span className="text-slate-500">Dean Setup</span><Pill ok={manageSchool.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /></div>
-              )}
-              <div className="flex justify-between"><span className="text-slate-500">Coordinator</span><span className="font-semibold text-slate-900">{manageSchool.admin_name || "None yet"}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Payment</span><Pill ok={manageSchool.payment === "paid"} okLabel="Paid" badLabel="Unpaid" /></div>
-              <div className="flex justify-between"><span className="text-slate-500">Expiry</span><span className="font-semibold text-slate-900">{manageSchool.expiry}</span></div>
-            </div>
+                </span>
+              </p>
+            )}
+            <BillingBreakdown breakdown={manageSchool.breakdown} title="Subscription price breakdown" />
+            <KeyValueList
+              items={[
+                { label: "Dean", value: manageSchool.dean_name ?? "None yet" },
+                ...(manageSchool.dean_email
+                  ? [{ label: "Dean Setup", value: <SetupPill ok={manageSchool.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /> }]
+                  : []),
+                { label: "Coordinator", value: manageSchool.admin_name || "None yet" },
+                { label: "Payment", value: <SetupPill ok={manageSchool.payment === "paid"} okLabel="Paid" badLabel="Unpaid" /> },
+                { label: "Expiry", value: manageSchool.expiry },
+              ]}
+            />
 
             {manageSchool.is_suspended ? (
               // Paused overrides whatever lifecycle stage the school is in below it —
               // that stage is preserved (see the Status row above) and picks back up
               // automatically once access is restored.
               <>
-                <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-xs text-red-800">
-                  Access is paused — the school&apos;s coordinator sees a read-only notice and can&apos;t use the dashboard until you restore access. Nothing was deleted.
-                </div>
-                <button
-                  onClick={() => handleToggleSuspend(manageSchool)}
-                  className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  ▶ Restore School Access
-                </button>
+                <p className="k-note is-risk">
+                  <span className="min-w-0">Access is paused — the school&apos;s coordinator sees a read-only notice and can&apos;t use the dashboard until you restore access. Nothing was deleted.</span>
+                </p>
+                <Btn variant="primary" block onClick={() => handleToggleSuspend(manageSchool)}>
+                  <Play size={15} aria-hidden="true" /> Restore School Access
+                </Btn>
               </>
             ) : (
               <>
@@ -487,134 +449,129 @@ export default function SchoolsPage() {
                 />
 
                 {manageSchool.status === "awaiting_acceptance" && (
-                  <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-                    Subscription offer sent to {manageSchool.dean_email ?? manageSchool.admin_email}. Waiting for the Dean to review and accept it.
-                    {manageSchool.offer_expires_at && <> Expires {manageSchool.offer_expires_at} if unanswered.</>}
-                  </div>
+                  <p className="k-note">
+                    <span className="min-w-0">
+                      Subscription offer sent to {manageSchool.dean_email ?? manageSchool.admin_email}. Waiting for the Dean to review and accept it.
+                      {manageSchool.offer_expires_at && <> Expires {manageSchool.offer_expires_at} if unanswered.</>}
+                    </span>
+                  </p>
                 )}
 
                 {manageSchool.status === "offer_expired" && (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 space-y-3">
-                    <p className="text-xs font-semibold text-rose-800">
-                      This offer expired before {manageSchool.dean_email ?? manageSchool.admin_email} accepted or paid.
+                  <div className="grid gap-3">
+                    <p className="k-note is-risk">
+                      <span className="min-w-0">This offer expired before {manageSchool.dean_email ?? manageSchool.admin_email} accepted or paid.</span>
                     </p>
-                    <button
-                      onClick={() => handleResendOffer(manageSchool)}
-                      disabled={confirming}
-                      className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                      {confirming ? "Sending…" : "↻ Send New Offer"}
-                    </button>
+                    <Btn variant="primary" block onClick={() => handleResendOffer(manageSchool)} disabled={confirming}>
+                      {confirming ? "Sending…" : (<><RotateCw size={15} aria-hidden="true" /> Send New Offer</>)}
+                    </Btn>
                   </div>
                 )}
 
                 {manageSchool.status === "accepted" && (
-                  <div className="rounded-xl bg-cyan-50 border border-cyan-200 px-4 py-3 text-xs text-cyan-800">
-                    {manageSchool.dean_email ?? manageSchool.admin_email} accepted the offer and is choosing a payment method.
-                  </div>
+                  <p className="k-note">
+                    <span className="min-w-0">{manageSchool.dean_email ?? manageSchool.admin_email} accepted the offer and is choosing a payment method.</span>
+                  </p>
                 )}
 
                 {manageSchool.status === "pending_payment" && manageSchool.payment_status === "pending_verification" && (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-                    <p className="text-xs font-semibold text-amber-800">Bank transfer proof submitted — review before verifying.</p>
+                  <div className="grid gap-3">
+                    <p className="k-note is-warn">
+                      <span className="min-w-0 font-semibold">Bank transfer proof submitted — review before verifying.</span>
+                    </p>
                     {manageSchool.proof_of_payment_url && (
-                      <FileLink url={manageSchool.proof_of_payment_url} name="Proof of payment" className="inline-block text-xs font-semibold text-blue-700 underline">
-                        View Uploaded Proof →
+                      <FileLink url={manageSchool.proof_of_payment_url} name="Proof of payment" className="dash-link inline-flex min-h-[44px] items-center gap-1 sm:min-h-0">
+                        View Uploaded Proof <NavIcon name="arrow" size={14} />
                       </FileLink>
                     )}
-                    <button
-                      onClick={() => handleVerifyPayment(manageSchool)}
-                      disabled={confirming}
-                      className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                      {confirming ? "Verifying…" : "✓ Verify & Activate Subscription"}
-                    </button>
+                    <Btn variant="primary" block onClick={() => handleVerifyPayment(manageSchool)} disabled={confirming}>
+                      {confirming ? "Verifying…" : (<><Check size={15} aria-hidden="true" /> Verify & Activate Subscription</>)}
+                    </Btn>
                   </div>
                 )}
 
                 {manageSchool.status === "pending_payment" && manageSchool.payment_status !== "pending_verification" && manageSchool.payment !== "paid" && (
-                  <button
-                    onClick={() => handleConfirmPayment(manageSchool)}
-                    disabled={confirming}
-                    className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                  >
-                    {confirming ? "Confirming…" : "✓ Confirm Payment Received (manual override)"}
-                  </button>
+                  <Btn variant="primary" block onClick={() => setPayConfirm({ school: manageSchool, amount: manageSchool.amount })} disabled={confirming}>
+                    {confirming ? "Confirming…" : (<><Check size={15} aria-hidden="true" /> Confirm Payment Received (manual override)</>)}
+                  </Btn>
                 )}
 
                 {manageSchool.awaiting_payment_change && (
-                  <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                    <p className="text-xs font-semibold text-amber-800">
-                      Approved — awaiting payment: {manageSchool.awaiting_payment_change.plan} ({manageSchool.awaiting_payment_change.billing_period}),
-                      ₱{Number(manageSchool.awaiting_payment_change.amount ?? 0).toLocaleString()}. The current plan stays active until it is paid.
+                  <div className="grid gap-3">
+                    <p className="k-note is-warn">
+                      <span className="min-w-0 font-semibold">
+                        Approved — awaiting payment: {manageSchool.awaiting_payment_change.plan} ({manageSchool.awaiting_payment_change.billing_period}),
+                        ₱{Number(manageSchool.awaiting_payment_change.amount ?? 0).toLocaleString()}. The current plan stays active until it is paid.
+                      </span>
                     </p>
                     <BillingBreakdown breakdown={manageSchool.awaiting_payment_change.breakdown} title="Approved change" />
                     {manageSchool.awaiting_payment_change.proof_of_payment_url && (
-                      <FileLink url={manageSchool.awaiting_payment_change.proof_of_payment_url} name="Proof of payment" className="inline-block text-xs font-semibold text-blue-700 underline">
-                        View Uploaded Proof →
+                      <FileLink url={manageSchool.awaiting_payment_change.proof_of_payment_url} name="Proof of payment" className="dash-link inline-flex min-h-[44px] items-center gap-1 sm:min-h-0">
+                        View Uploaded Proof <NavIcon name="arrow" size={14} />
                       </FileLink>
                     )}
                     {manageSchool.awaiting_payment_change.payment_status === "pending_verification" ? (
-                      <button
-                        onClick={() => handleVerifyPayment(manageSchool)}
-                        disabled={confirming}
-                        className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                      >
-                        {confirming ? "Verifying…" : "✓ Verify & Activate Change"}
-                      </button>
+                      <Btn variant="primary" block onClick={() => handleVerifyPayment(manageSchool)} disabled={confirming}>
+                        {confirming ? "Verifying…" : (<><Check size={15} aria-hidden="true" /> Verify & Activate Change</>)}
+                      </Btn>
                     ) : (
-                      <button
-                        onClick={() => handleConfirmPayment(manageSchool)}
-                        disabled={confirming}
-                        className="w-full rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
-                      >
-                        {confirming ? "Working…" : manageSchool.awaiting_payment_change.waived ? "Activate without payment (₱0, waived)" : "✓ Confirm Payment Received (manual override)"}
-                      </button>
+                      <Btn block onClick={() => setPayConfirm({ school: manageSchool, amount: manageSchool.awaiting_payment_change.amount })} disabled={confirming}>
+                        {confirming ? "Working…" : manageSchool.awaiting_payment_change.waived ? "Activate without payment (₱0, waived)" : (<><Check size={15} aria-hidden="true" /> Confirm Payment Received (manual override)</>)}
+                      </Btn>
                     )}
                   </div>
                 )}
 
                 {manageSchool.status === "active" && (
-                  <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
-                    This school is fully active. Premium/Basic features are enabled per their plan.
-                  </div>
+                  <p className="k-note is-ok">
+                    <span className="min-w-0">This school is fully active. Premium/Basic features are enabled per their plan.</span>
+                  </p>
                 )}
 
                 {manageSchool.status === "active" && confirmingPauseId !== manageSchool.id && (
-                  <button
-                    onClick={() => setConfirmingPauseId(manageSchool.id)}
-                    className="w-full rounded-xl bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100"
-                  >
-                    ⏸ Pause School Access
-                  </button>
+                  <Btn variant="danger-quiet" block onClick={() => setConfirmingPauseId(manageSchool.id)}>
+                    <Pause size={15} aria-hidden="true" /> Pause School Access
+                  </Btn>
                 )}
 
                 {manageSchool.status === "active" && confirmingPauseId === manageSchool.id && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-3">
-                    <p className="text-xs text-red-800">
-                      Pause access for <strong>{manageSchool.name}</strong>? Their coordinator won&apos;t be able to use the dashboard until you restore it — you can undo this any time.
+                  <div className="grid gap-3">
+                    <p className="k-note is-risk">
+                      <span className="min-w-0">
+                        Pause access for <strong>{manageSchool.name}</strong>? Their coordinator won&apos;t be able to use the dashboard until you restore it — you can undo this any time.
+                      </span>
                     </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleToggleSuspend(manageSchool)}
-                        className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
-                      >
+                    <div className="flex flex-col gap-2 sm:flex-row-reverse">
+                      <Btn variant="danger" className="sm:flex-1" onClick={() => handleToggleSuspend(manageSchool)}>
                         Yes, Pause Access
-                      </button>
-                      <button
-                        onClick={() => setConfirmingPauseId(null)}
-                        className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                      >
+                      </Btn>
+                      <Btn className="sm:flex-1" onClick={() => setConfirmingPauseId(null)}>
                         Cancel
-                      </button>
+                      </Btn>
                     </div>
                   </div>
                 )}
               </>
             )}
           </div>
-        </Modal>
+        </SheetFrame>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={!!payConfirm}
+        tone="primary"
+        title="Mark this payment as received?"
+        confirmLabel="Yes, payment received"
+        busy={confirming}
+        onConfirm={() => { const school = payConfirm.school; setPayConfirm(null); handleConfirmPayment(school); }}
+        onCancel={() => setPayConfirm(null)}
+      >
+        <p>
+          {payConfirm?.school.name} will be activated as a paid subscription
+          {payConfirm?.amount != null ? <> for <strong>₱{Number(payConfirm.amount).toLocaleString()}</strong></> : null}, without checking a payment record.
+          Use this only when you have seen the money arrive.
+        </p>
+      </ConfirmDialog>
+    </Page>
   );
 }

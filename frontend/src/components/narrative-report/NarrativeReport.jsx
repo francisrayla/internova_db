@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- print layout needs plain <img> */
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 /*
  * Printable OJT narrative report following the school's pattern: cover, title
@@ -58,7 +58,7 @@ const css = `
 @media print {
   @page { size: 8.5in 13in; margin: 0.5in 1.25in 1in 1.25in; }
   html, body { background: #fff !important; }
-  .nr-scroll { overflow: visible; padding: 0; background: #fff; }
+  .nr-scroll { overflow: visible; padding: 0; background: #fff; zoom: 1 !important; }
   .nr-sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; break-before: page; page-break-before: always; }
   .nr-sheet:first-child { break-before: auto; page-break-before: auto; }
   .nr-screen-only { display: none !important; }
@@ -445,12 +445,33 @@ function SectionBody({ section, data, template }) {
   }
 }
 
+const SHEET_WIDTH_PX = 816; // 8.5in
+
 export default function NarrativeReport({ data }) {
   const template = data.template;
+  const rootRef = useRef(null);
+  // On a phone the 8.5in sheet is wider than the screen: shrink the preview to fit instead of cutting it off.
+  // (The ResizeObserver reports the first size as soon as it starts watching.)
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const width = el.clientWidth;
+      setZoom(width > 0 && width < SHEET_WIDTH_PX ? Math.max(0.3, width / SHEET_WIDTH_PX) : 1);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <div className="nr-root">
+    <div className="nr-root" ref={rootRef}>
       <style>{css}</style>
-      <div className="nr-scroll">
+      {zoom < 1 && (
+        <p className="nr-screen-only" style={{ margin: 0, padding: "8px 12px", fontFamily: "system-ui, sans-serif", fontSize: 13, background: "#e2e8f0", color: "#1e293b" }}>
+          Preview is shrunk to fit your screen. Download the Word file for the full-size report.
+        </p>
+      )}
+      <div className="nr-scroll" style={zoom < 1 ? { zoom } : undefined}>
         <CoverPage data={data} template={template} />
         <TitlePage data={data} template={template} />
         <TocPage sections={visibleSections(data)} template={template} />

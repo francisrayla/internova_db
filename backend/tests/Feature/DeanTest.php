@@ -70,7 +70,9 @@ class DeanTest extends TestCase
         Sanctum::actingAs($this->user('superadmin@internova.test'));
         $this->postJson("/api/superadmin/plan-inquiries/{$inquiry->id}/convert-to-school", [
             'school_name' => 'New College', 'school_code' => 'NEW-1', 'contact_email' => 'info@newcollege.test',
-            'plan_name' => 'Basic', 'billing_period' => 'monthly', 'list_price' => 999, 'amount' => 999,
+            'plan_name' => 'Basic', 'billing_period' => 'monthly',
+            'list_price' => (float) SubscriptionPlan::where('name', 'Basic')->value('monthly_price'),
+            'amount' => (float) SubscriptionPlan::where('name', 'Basic')->value('monthly_price'),
         ])->assertCreated();
 
         $user->refresh();

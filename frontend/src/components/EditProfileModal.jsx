@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch } from "@/lib/apiFetch";
+import { Btn, FormField, Input, SheetFrame } from "@/components/dash/page";
 
 import { clean, inputProps } from "@/lib/inputRules";
 // Same portal-to-<body> reasoning as AvatarUploadModal: the header's
@@ -50,63 +51,51 @@ export default function EditProfileModal({ user, onClose, onUpdated }) {
   if (!mounted) return null;
 
   return createPortal(
-    <div className="sheet-overlay fixed inset-0 z-[70] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-sm rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Edit profile</h3>
-        <p className="mt-1 text-xs text-slate-500">Your email stays the same — contact support if that needs to change.</p>
-
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">First name</span>
-              <input {...inputProps("personName")}
-                value={firstName}
-                onChange={(e) => setFirstName(clean("personName", e.target.value))}
-                required
-                autoFocus
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Last name</span>
-              <input {...inputProps("personName")}
-                value={lastName}
-                onChange={(e) => setLastName(clean("personName", e.target.value))}
-                required
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-              />
-            </label>
-          </div>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Phone number (optional)</span>
-            <input {...inputProps("phone")}
-              value={phone}
-              onChange={(e) => setPhone(clean("phone", e.target.value))}
-              type="tel"
-              inputMode="numeric"
-              placeholder="09171234567"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+    <SheetFrame
+      title="Edit profile"
+      description="Your email stays the same. Contact support if that needs to change."
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      zIndex={120}
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <button type="submit" disabled={saving} className="k-btn is-primary">
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </>
+      }
+    >
+      <div className="mt-2 grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="First name">
+            <Input {...inputProps("personName")}
+              value={firstName}
+              onChange={(e) => setFirstName(clean("personName", e.target.value))}
+              required
+              autoFocus
             />
-            <span className="mt-1 block text-xs text-slate-400">11 digits, e.g. 09171234567.</span>
-          </label>
-
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </form>
+          </FormField>
+          <FormField label="Last name">
+            <Input {...inputProps("personName")}
+              value={lastName}
+              onChange={(e) => setLastName(clean("personName", e.target.value))}
+              required
+            />
+          </FormField>
+        </div>
+        <FormField label="Phone number (optional)" hint="11 digits, e.g. 09171234567.">
+          <Input {...inputProps("phone")}
+            value={phone}
+            onChange={(e) => setPhone(clean("phone", e.target.value))}
+            type="tel"
+            inputMode="numeric"
+            placeholder="09171234567"
+          />
+        </FormField>
+        {error && <p role="alert" className="k-note is-risk">{error}</p>}
       </div>
-    </div>,
+    </SheetFrame>,
     document.body
   );
 }

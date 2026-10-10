@@ -3,7 +3,7 @@
 namespace App\Events;
 
 use App\Models\Message;
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Queue\SerializesModels;
@@ -24,7 +24,7 @@ class MessageSent implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new Channel("user.{$this->message->receiver_id}-messages")];
+        return [new PrivateChannel("user.{$this->message->receiver_id}.messages")];
     }
 
     public function broadcastAs(): string

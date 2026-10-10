@@ -11,10 +11,11 @@ import { UserContext } from "@/lib/UserContext";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import { readStoredUser } from "@/lib/roleDashboard";
+import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
 const PROFILE_LINKS = [
   { href: "/dean/profile", icon: "user", label: "My Profile" },
-  { href: "/dean/settings", icon: "gear", label: "Settings" },
+  { href: "/dean/settings", icon: "settings", label: "Settings" },
   { href: "/dean/support", icon: "message", label: "Contact Support" },
 ];
 
@@ -36,18 +37,23 @@ const GATE_EXEMPT_ROUTES = ["/dean/billing", "/dean/preview", "/dean/profile", "
 function resolveGate(user) {
   if (!user) return { state: "unauthenticated" };
   if (user.status === "pending_approval") return { state: "pending_approval", target: "/dean/pending" };
+  // Suspended by the Super Admin: the API refuses everything but billing/support/profile (EnsureSchoolAccess).
+  if (user.school_suspended) return { state: "suspended", target: "/school-access?reason=suspended" };
   if (user.subscription_status === "active") return { state: "active" };
   return { state: "billing_gate", target: "/dean/billing" };
 }
 
+// Settings is not reachable while the account is gated (it would bounce straight back to billing), so the menu does not offer it.
+const GATED_PROFILE_LINKS = PROFILE_LINKS.filter((l) => GATE_EXEMPT_ROUTES.includes(l.href));
+
 // Minimal chrome for gated states — just the brand and account menu, no nav.
 function MinimalTopBar({ user, onLogout }) {
   return (
-    <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+    <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 sm:py-4">
       <Logo size={34} />
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <ThemeToggle />
-        <ProfileMenu user={user} onLogout={onLogout} fallbackName="Dean" links={PROFILE_LINKS} />
+        <ProfileMenu user={user} onLogout={onLogout} fallbackName="Dean" links={GATED_PROFILE_LINKS} />
       </div>
     </header>
   );
@@ -121,7 +127,7 @@ export default function DeanLayout({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checking, gate.state, gate.target, pathname, isFullAccess, isExemptRoute]);
 
-  if (checking || !user) return null;
+  if (checking || !user) return <ShellSkeleton />;
 
   // Billing is part of the normal nav once active, so only gated states use the minimal chrome.
   if (!isFullAccess) {

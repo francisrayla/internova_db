@@ -28,7 +28,7 @@ export default function PasswordInput({ className = "", type: _type, ...props })
         onClick={() => setVisible((v) => !v)}
         tabIndex={-1}
         aria-label={visible ? "Hide password" : "Show password"}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+        className="absolute right-1 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center max-sm:h-[44px] max-sm:w-[44px] rounded-full text-slate-500 hover:text-slate-700"
       >
         <Icon name={visible ? "eyeOff" : "eye"} size={17} />
       </button>

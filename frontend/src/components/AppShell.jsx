@@ -159,21 +159,21 @@ export default function AppShell({
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">
                   Internova
                 </p>
-                <h1 className="text-lg font-semibold text-slate-900">Workspace</h1>
+                <p className="text-lg font-semibold text-slate-900">Workspace</p>
               </div>
             </button>
             <button
               type="button"
               onClick={() => setMobileNavOpen(false)}
               aria-label="Close navigation"
-              className="shrink-0 rounded-xl p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
+              className="grid shrink-0 place-items-center rounded-xl p-2 text-slate-500 hover:bg-slate-100 max-sm:h-[44px] max-sm:w-[44px] lg:hidden"
             >
               <Icon name="x" size={22} />
             </button>
           </div>
 
           <div className={collapsed ? "lg:px-2 lg:pb-5" : "px-5 pb-5"}>
-            <div className={`mb-3 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-500 ${collapsed ? "lg:hidden" : ""}`}>
+            <div className={`mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 ${collapsed ? "lg:hidden" : ""}`}>
               Navigation
             </div>
             <nav className="space-y-1.5">
@@ -185,7 +185,7 @@ export default function AppShell({
                     href={item.href}
                     onClick={() => setMobileNavOpen(false)}
                     title={collapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition max-sm:min-h-[44px] ${
                       isActive
                         ? "bg-blue-100 text-blue-800"
                         : "text-slate-700 hover:bg-slate-100"
@@ -194,7 +194,7 @@ export default function AppShell({
                     <NavIcon name={item.icon} className="shrink-0" />
                     <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
                     {item.badge > 0 && (
-                      <span className={`ml-auto rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white ${collapsed ? "lg:hidden" : ""}`} aria-label={`${item.badge} unread`}>
+                      <span className={`ml-auto rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-bold leading-none text-white ${collapsed ? "lg:hidden" : ""}`} aria-label={`${item.badge} unread`}>
                         {item.badge > 9 ? "9+" : item.badge}
                       </span>
                     )}
@@ -226,15 +226,15 @@ export default function AppShell({
                   onClick={() => setMobileNavOpen(true)}
                   aria-label="Open navigation"
                   aria-expanded={mobileNavOpen}
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 lg:hidden"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 max-sm:h-[44px] max-sm:w-[44px] lg:hidden"
                 >
                   <Icon name="menu" size={22} />
                 </button>
                 <div className="min-w-0">
-                  <p className="truncate text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 sm:tracking-[0.25em]">
+                  <p className="truncate text-xs font-semibold uppercase tracking-[0.15em] text-slate-500 sm:tracking-[0.2em]">
                     {section}
                   </p>
-                  <h2 className="truncate text-base font-semibold text-slate-900 sm:mt-1 sm:text-lg">{pageTitle}</h2>
+                  <p className="truncate text-base font-semibold text-slate-900 sm:mt-1 sm:text-lg">{pageTitle}</p>
                   {subtitle ? <p className="mt-1 hidden text-sm text-slate-600 sm:block">{subtitle}</p> : null}
                 </div>
               </div>

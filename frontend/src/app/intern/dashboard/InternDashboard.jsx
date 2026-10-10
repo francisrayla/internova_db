@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import Icon from "@/components/Icon";
 import { useCurrentUser } from "@/lib/UserContext";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { fetchInternData } from "@/lib/internApi";
+import { calendarDaysUntil, dueDateUrgency } from "@/lib/dueDateUrgency";
+import { greeting } from "@/lib/timeAgo";
+import { Bar, Card, Cols, DashHeader, DashPage, Notice, Skel, StatusChip, TextLink } from "@/components/dash";
 
 const LIVE_TYPES = [
   "task_evaluated",
@@ -18,54 +20,77 @@ const LIVE_TYPES = [
   "document_uploaded",
 ];
 
-const STATUS_STYLES = {
-  pending: "bg-slate-100 text-slate-600",
-  in_progress: "bg-blue-100 text-blue-700",
-  completed: "bg-emerald-100 text-emerald-700",
+const URGENCY_CHIP = { red: "risk", yellow: "warn" };
+const DAY_DOT = { approved: "var(--d-ok-bar)", pending: "var(--d-warn-bar)", rejected: "var(--d-risk-bar)" };
+const DAY_WORD = { approved: "approved", pending: "waiting for approval", rejected: "not approved" };
+
+/** Overdue first, then the soonest due date, then tasks without a date. Finished tasks are left out. */
+function activeTasks(tasks) {
+  return tasks
+    .filter((t) => t.status !== "completed")
+    .sort((a, b) => {
+      const da = a.due_date_raw ? calendarDaysUntil(a.due_date_raw) : Infinity;
+      const db = b.due_date_raw ? calendarDaysUntil(b.due_date_raw) : Infinity;
+      return da - db;
+    });
+}
+
+/** One cell per day (a morning + afternoon pair counts as one day): hours and the worst status that day. */
+function recentDays(records) {
+  const days = [];
+  const byDate = new Map();
+  for (const r of records) {
+    let day = byDate.get(r.attendance_date);
+    if (!day) {
+      day = { date: r.attendance_date, hours: 0, open: false, status: "approved" };
+      byDate.set(r.attendance_date, day);
+      days.push(day);
+    }
+    if (r.hours != null) day.hours += r.hours; else day.open = true;
+    if (r.status === "rejected") day.status = "rejected";
+    else if (r.status === "pending" && day.status !== "rejected") day.status = "pending";
+  }
+  return days.slice(0, 7).reverse();
+}
+
+const shortDate = (label) => {
+  const m = /^([A-Za-z]{3}) 0?(\d{1,2}),/.exec(label ?? "");
+  return m ? `${m[1]} ${m[2]}` : label;
 };
 
-function ProgressBar({ pct, tone = "bg-blue-600" }) {
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-      <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
-    </div>
-  );
-}
-
-function StatCard({ icon, tone, label, value, sub, pct }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex items-center gap-2.5">
-        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl sm:h-9 sm:w-9 ${tone}`}>
-          <Icon name={icon} size={16} className="text-white" />
-        </span>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      </div>
-      <p className="mt-3 text-xl font-semibold text-slate-900 sm:text-2xl">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
-      {typeof pct === "number" && <div className="mt-3"><ProgressBar pct={pct} /></div>}
-    </div>
-  );
-}
+const hoursText = (n) => `${Math.round(n * 10) / 10}h`;
 
 export default function InternDashboard() {
   const { user } = useCurrentUser();
   const [summary, setSummary] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const load = useCallback(() => {
-    Promise.all([fetchInternData("profile-summary"), fetchInternData("tasks")])
-      .then(([summaryData, tasksData]) => {
+    Promise.all([
+      fetchInternData("profile-summary"),
+      fetchInternData("tasks?view=active"), // open work only; the totals come from the summary
+      fetchInternData("attendance").catch(() => ({ records: [] })),
+    ])
+      .then(([summaryData, tasksData, attendanceData]) => {
         setSummary(summaryData);
-        setTasks((tasksData.tasks ?? []).slice(0, 5));
+        setTasks(tasksData.tasks ?? []);
+        setRecords(attendanceData.records ?? []);
+        setError(false);
       })
       .catch(() => {
-        setSummary(null);
-        setTasks([]);
+        // Keep whatever is already on screen; with nothing yet, say so (never "not deployed" or zeros).
+        setError(true);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  function retry() {
+    setLoading(true);
+    load();
+  }
 
   useEffect(() => {
     load();
@@ -74,87 +99,132 @@ export default function InternDashboard() {
   useLiveRefresh(LIVE_TYPES, load);
 
   const firstName = (user?.name || "").split(" ")[0] || "there";
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const deployed = !loading && summary?.has_deployment;
+  const finished = deployed && summary.is_finished;
+  const required = Number(summary?.required_hours ?? 0);
+  const rendered = Number(summary?.hours_completed ?? 0);
+  const left = Math.max(0, required - rendered);
+
+  const open = activeTasks(tasks);
+  const days = recentDays(records);
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">{today}</p>
-        <h1 className="mt-1 text-2xl font-semibold text-slate-900">Good day, {firstName}</h1>
-        <p className="mt-1 text-sm text-slate-600">Here&apos;s where things stand right now — this page updates live.</p>
-      </section>
+    <DashPage>
+      <DashHeader
+        title={`${greeting()}, ${firstName}`}
+        sentence={finished ? "You finished your required hours. Nice work." : "Here's where things stand today."}
+      >
+        {deployed && !finished && <TextLink className="dash-link max-sm:min-h-[44px]" href="/intern/attendance" arrow>Clock in</TextLink>}
+      </DashHeader>
+
+      {error && <Notice onRetry={retry}>We couldn&apos;t load your dashboard. Check your connection and try again.</Notice>}
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
-          ))}
-        </div>
-      ) : !summary?.has_deployment ? (
-        <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center">
-          <p className="text-sm text-slate-500">You&apos;re not deployed to a company yet — once your coordinator sets that up, your dashboard fills in here.</p>
-        </section>
+        <>
+          <Skel height={150} />
+          <Skel height={200} />
+        </>
+      ) : !summary ? null : !summary.has_deployment ? (
+        <Card>
+          <p className="dash-note">You&apos;re not deployed to a company yet. Once your coordinator sets that up, your dashboard fills in here.</p>
+        </Card>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-          <StatCard
-            icon="calendar"
-            tone="bg-blue-600"
-            label="Hours rendered"
-            value={`${summary.hours_completed}h / ${summary.required_hours}h`}
-            pct={summary.hours_progress_pct}
-          />
-          <StatCard
-            icon="check"
-            tone="bg-emerald-600"
-            label="Tasks"
-            value={`${summary.tasks_completed} / ${summary.tasks_total}`}
-            sub={summary.tasks_total > 0 ? `${summary.task_progress_pct}% complete` : "No tasks yet"}
-            pct={summary.tasks_total > 0 ? summary.task_progress_pct : undefined}
-          />
-          <StatCard
-            icon="spark"
-            tone="bg-purple-600"
-            label="Latest evaluation"
-            value={summary.latest_evaluation_score != null ? `${summary.latest_evaluation_score}%` : "—"}
-            sub={`${summary.evaluations_count} received`}
-          />
-          <StatCard
-            icon="file"
-            tone="bg-orange-500"
-            label="Narrative report"
-            value={summary.has_activity_today ? "Logged today" : "Not logged today"}
-            sub={summary.last_activity_date ? `Last: ${summary.last_activity_date}` : "No entries yet"}
-          />
-        </div>
-      )}
+        <Cols layout="even">
+          <Card title="Your hours" action={<TextLink className="dash-link max-sm:min-h-[44px]" href="/intern/attendance" arrow>Attendance</TextLink>}>
+            <p className="dash-big">
+              {hoursText(rendered)}
+              <span style={{ marginLeft: 8, fontSize: "0.9375rem", fontWeight: 400, letterSpacing: 0, color: "var(--d-muted)" }}>of {required}h required</span>
+            </p>
+            <Bar pct={summary.hours_progress_pct} size="thick" tone={finished ? "ok" : undefined} label="Hours rendered" />
+            <div className="dash-split" style={{ marginTop: 10 }}>
+              <span className="dash-note">{summary.hours_progress_pct}% done</span>
+              <span className="dash-note"><strong>{hoursText(left)}</strong> left</span>
+            </div>
+            {finished && (
+              <p className="dash-note" style={{ marginTop: 14, color: "var(--d-ok)" }}>You finished your required hours.</p>
+            )}
+          </Card>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Recent tasks</h2>
-          <Link href="/intern/tasks" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
-        </div>
-        {loading ? (
-          <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
-        ) : tasks.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">No tasks assigned yet.</p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {tasks.map((t) => (
-              <li key={t.id}>
-                <Link href="/intern/tasks" className="flex items-center justify-between gap-3 py-3 hover:bg-slate-50">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-800">{t.title}</p>
-                    <p className="text-xs text-slate-400">{t.company_name ?? "—"}{t.due_date ? ` · Due ${t.due_date}` : ""}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[t.status] ?? "bg-slate-100 text-slate-600"}`}>
-                    {t.status?.replace("_", " ")}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
+          <Card
+            title="Your tasks"
+            help={summary.tasks_total > 0 ? `${summary.tasks_completed} of ${summary.tasks_total} done` : undefined}
+            action={<TextLink className="dash-link max-sm:min-h-[44px]" href="/intern/tasks" arrow>All tasks</TextLink>}
+          >
+            {open.length === 0 ? (
+              <p className="dash-empty">{summary.tasks_total > 0 ? "You're all caught up on tasks." : "No tasks yet."}</p>
+            ) : (
+              <ul className="dash-list">
+                {open.slice(0, 4).map((t) => {
+                  const urgency = dueDateUrgency(t.due_date_raw, t.status);
+                  return (
+                    <li key={t.id}>
+                      <Link href="/intern/tasks" className="dash-row">
+                        <span className="dash-row-main">
+                          <span className="dash-row-title">{t.title}</span>
+                          <span className="dash-row-sub">{t.due_date ? `Due ${t.due_date}` : "No due date"}</span>
+                        </span>
+                        {urgency && URGENCY_CHIP[urgency.level] ? (
+                          <StatusChip tone={URGENCY_CHIP[urgency.level]}>{urgency.label}</StatusChip>
+                        ) : urgency ? (
+                          <span className="dash-row-side">{urgency.label}</span>
+                        ) : null}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+
+          <Card title="Recent attendance" action={<TextLink className="dash-link max-sm:min-h-[44px]" href="/intern/attendance" arrow>See all</TextLink>}>
+            {days.length === 0 ? (
+              <p className="dash-empty">No attendance yet. Your days will show up here after you clock in.</p>
+            ) : (
+              <>
+                <ul className="dash-days">
+                  {days.map((d) => (
+                    <li key={d.date} title={`${d.date}: ${DAY_WORD[d.status]}`}>
+                      <span className="dash-days-date">{shortDate(d.date)}</span>
+                      <span className="dash-days-hours">{d.open && d.hours === 0 ? "In" : hoursText(d.hours)}</span>
+                      <i style={{ background: DAY_DOT[d.status] }} aria-label={DAY_WORD[d.status]} />
+                    </li>
+                  ))}
+                </ul>
+                <p className="dash-note" style={{ marginTop: 14 }}>
+                  {summary.pending_attendance > 0
+                    ? `${summary.pending_attendance} ${summary.pending_attendance === 1 ? "entry is" : "entries are"} waiting for your supervisor to approve.`
+                    : "Everything so far has been looked at by your supervisor."}
+                </p>
+              </>
+            )}
+          </Card>
+
+          <Card title="Also on your plate">
+            <dl className="dash-facts">
+              <div>
+                <dt>Latest evaluation</dt>
+                <dd>{summary.latest_evaluation_score != null ? `${Number(summary.latest_evaluation_score)}%` : "Not yet"}</dd>
+              </div>
+              <div>
+                <dt>Today&apos;s narrative</dt>
+                <dd>
+                  {finished ? (
+                    "Not needed"
+                  ) : summary.has_activity_today ? (
+                    <StatusChip tone="ok">Logged today</StatusChip>
+                  ) : (
+                    <TextLink className="dash-link max-sm:min-h-[44px]" href="/intern/activities" arrow>Write today&apos;s entry</TextLink>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Last entry</dt>
+                <dd>{summary.last_activity_date ?? "None yet"}</dd>
+              </div>
+            </dl>
+          </Card>
+        </Cols>
+      )}
+    </DashPage>
   );
 }

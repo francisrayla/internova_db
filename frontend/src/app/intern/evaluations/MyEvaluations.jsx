@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchInternData } from "@/lib/internApi";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import EvaluationView from "@/components/EvaluationView";
+import { EmptyState, ErrorNote, Page, PageHeader, Section, SkeletonList } from "@/components/dash/page";
 
 const LIVE_TYPES = ["evaluation_submitted", "evaluation_updated"];
 
@@ -29,27 +30,22 @@ export default function MyEvaluations() {
   useLiveRefresh(LIVE_TYPES, load);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">My Evaluations</h2>
-        <p className="mt-1 text-sm text-slate-600">View feedback and performance history from your supervisor.</p>
-      </div>
+    <Page size="narrow">
+      <PageHeader title="My evaluations" sentence="Feedback and performance history from your supervisor." />
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {loading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm">Loading…</p>
+        <SkeletonList rows={2} height="h-40" />
       ) : evaluations.length === 0 ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400 shadow-sm">No evaluations yet — your supervisor has not submitted one.</p>
+        <EmptyState icon="evaluations" title="No evaluations yet" text="Your supervisor has not submitted one. It will show up here once they do." />
       ) : (
-        <div className="space-y-3">
-          {evaluations.map((e) => (
-            <div key={e.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <EvaluationView evaluation={e} />
-            </div>
-          ))}
-        </div>
+        evaluations.map((e) => (
+          <Section key={e.id}>
+            <EvaluationView evaluation={e} />
+          </Section>
+        ))
       )}
-    </div>
+    </Page>
   );
 }

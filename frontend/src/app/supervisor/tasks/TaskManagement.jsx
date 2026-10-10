@@ -6,13 +6,20 @@ import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import DueDateBadge from "@/components/DueDateBadge";
 import TaskHistoryRow from "@/components/TaskHistoryRow";
-import { isAwaitingRating, isTaskClosed } from "@/lib/taskState";
+import NavIcon from "@/components/NavIcon";
+import { isAwaitingRating } from "@/lib/taskState";
+import { useTaskHistory } from "@/lib/useTaskHistory";
+import { LoadMore } from "@/components/Pagination";
+import { manilaToday } from "@/lib/dueDateUrgency";
 
 import { inputProps } from "@/lib/inputRules";
-const STATUS_STYLES = {
-  pending: "bg-slate-100 text-slate-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  completed: "bg-emerald-100 text-emerald-700",
+import { Banner, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
+import { Btn, FilterBar, FormField, Input, Page, PageHeader, SearchField, Section, Select, SheetFrame, TabStrip, Textarea } from "@/components/dash/page";
+
+const STATUS_TONES = {
+  pending: "slate",
+  in_progress: "blue",
+  completed: "green",
 };
 
 const STATUS_LABELS = {
@@ -21,10 +28,10 @@ const STATUS_LABELS = {
   completed: "Done",
 };
 
-const PRIORITY_STYLES = {
-  low: "bg-slate-100 text-slate-600",
-  medium: "bg-amber-100 text-amber-700",
-  high: "bg-red-100 text-red-700",
+const PRIORITY_TONES = {
+  low: "slate",
+  medium: "amber",
+  high: "red",
 };
 
 /**
@@ -60,12 +67,17 @@ function InternPicker({ interns, selected, onChange }) {
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-300 p-2 focus-within:border-blue-500">
+      <div className="k-input flex flex-wrap items-center gap-1.5 !py-1.5 focus-within:border-[var(--ui-accent)] focus-within:shadow-[0_0_0_3px_var(--ui-ring)]">
         {selectedInterns.map((i) => (
-          <span key={i.deployment_id} className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
-            {i.name}
-            <button type="button" onClick={() => remove(i.deployment_id)} className="text-blue-500 hover:text-blue-800" aria-label={`Remove ${i.name}`}>
-              ×
+          <span key={i.deployment_id} className="k-pill is-info max-w-full items-center gap-1 !py-1 pr-1">
+            <span className="min-w-0 break-words">{i.name}</span>
+            <button
+              type="button"
+              onClick={() => remove(i.deployment_id)}
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-black/10 max-sm:-my-2 max-sm:h-11 max-sm:w-9"
+              aria-label={`Remove ${i.name}`}
+            >
+              <NavIcon name="close" size={13} />
             </button>
           </span>
         ))}
@@ -74,15 +86,16 @@ function InternPicker({ interns, selected, onChange }) {
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder={selectedInterns.length === 0 ? "Search interns…" : "Add another…"}
-          className="min-w-[100px] flex-1 border-none px-1 py-0.5 text-sm outline-none"
+          aria-label="Search interns to add"
+          className="min-h-[30px] min-w-[110px] flex-1 border-none bg-transparent px-1 py-0.5 text-sm text-slate-900 outline-none focus:shadow-none max-sm:min-h-[36px] max-sm:text-base"
         />
       </div>
       {open && (
-        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+        <div className="k-pop absolute z-10 mt-1 max-h-48 w-full overflow-y-auto p-1">
           {interns.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-slate-400">No interns are deployed at your company yet.</p>
+            <p className="px-3 py-2 text-sm text-slate-500">No interns are deployed at your company yet.</p>
           ) : filtered.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-slate-400">{selectedInterns.length === interns.length ? "All interns selected." : "No matches."}</p>
+            <p className="px-3 py-2 text-sm text-slate-500">{selectedInterns.length === interns.length ? "All interns selected." : "No matches."}</p>
           ) : (
             filtered.map((i) => (
               <button
@@ -90,10 +103,10 @@ function InternPicker({ interns, selected, onChange }) {
                 type="button"
                 disabled={!!i.starts_on}
                 onClick={() => add(i.deployment_id)}
-                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
+                className="k-menuitem justify-between gap-2 disabled:cursor-not-allowed disabled:text-slate-500 disabled:hover:bg-transparent"
               >
-                <span>{i.name}</span>
-                {i.starts_on && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">Starts {i.starts_on_label}</span>}
+                <span className="min-w-0 break-words">{i.name}</span>
+                {i.starts_on && <Pill size="sm" className="shrink-0">Starts {i.starts_on_label}</Pill>}
               </button>
             ))
           )}
@@ -111,6 +124,8 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
   const [error, setError] = useState("");
 
   const selectedInterns = interns.filter((i) => selected.includes(i.deployment_id));
+  const today = manilaToday();
+  const dueProblem = form.due_date && form.due_date < today ? "The due date cannot be in the past. Choose today or a later date." : "";
 
   function updateSelected(next) {
     setSelected(next);
@@ -130,6 +145,10 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
       setError("Enter a title.");
       return;
     }
+    if (dueProblem) {
+      setError(dueProblem);
+      return;
+    }
     if (selected.length > 1 && !leaderId) {
       setError("Choose a task leader. With more than one intern, the leader submits the task once the subtasks are done.");
       return;
@@ -143,7 +162,7 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
         body: JSON.stringify({ ...form, deployment_ids: selected, leader_id: leaderId || null }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not assign task.");
+      if (!res.ok || !data.success) throw new Error((data.errors ? Object.values(data.errors).flat()[0] : null) || data.message || "Could not assign task.");
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -153,87 +172,91 @@ function AssignTaskModal({ interns, onClose, onSaved }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Assign a task</h3>
-        <p className="mt-1 text-xs text-slate-500">Check one intern for an individual task, or several for a group task.</p>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div>
-            <span className="mb-1.5 block text-sm font-semibold text-slate-700">Interns</span>
-            <InternPicker interns={interns} selected={selected} onChange={updateSelected} />
-          </div>
-          {selectedInterns.length > 1 && (
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Task leader <span className="text-red-600" aria-hidden="true">*</span></span>
-              <select required value={leaderId} onChange={(e) => setLeaderId(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
-                <option value="">Choose the leader…</option>
-                {selectedInterns.map((i) => <option key={i.user_id} value={i.user_id}>{i.name}</option>)}
-              </select>
-              <span className="mt-1 block text-xs text-slate-500">Required for a group task. The leader splits the task into subtasks for the group and is the one who submits the task once every subtask is done.</span>
-            </label>
-          )}
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Title</span>
-            <input {...inputProps("title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" placeholder="e.g. Prepare weekly report" />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Description</span>
-            <textarea {...inputProps("longText")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Priority</span>
-              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Due date</span>
-              <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-            </label>
-          </div>
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-              {saving ? "Assigning…" : selected.length > 1 ? `Assign to ${selected.length} interns` : "Assign task"}
-            </button>
-          </div>
-        </form>
+    <SheetFrame
+      title="Assign a task"
+      description="Check one intern for an individual task, or several for a group task."
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      noValidate
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" type="submit" disabled={saving || !!dueProblem}>
+            {saving ? "Assigning…" : selected.length > 1 ? `Assign to ${selected.length} interns` : "Assign task"}
+          </Btn>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="k-field">
+          <span className="k-label">Interns</span>
+          <InternPicker interns={interns} selected={selected} onChange={updateSelected} />
+        </div>
+        {selectedInterns.length > 1 && (
+          <FormField
+            label="Task leader"
+            required
+            hint="Required for a group task. The leader splits the task into subtasks for the group and is the one who submits the task once every subtask is done."
+          >
+            <Select required value={leaderId} onChange={(e) => setLeaderId(e.target.value)}>
+              <option value="">Choose the leader…</option>
+              {selectedInterns.map((i) => <option key={i.user_id} value={i.user_id}>{i.name}</option>)}
+            </Select>
+          </FormField>
+        )}
+        <FormField label="Title">
+          <Input {...inputProps("title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Prepare weekly report" />
+        </FormField>
+        <FormField label="Description">
+          <Textarea {...inputProps("longText")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+        </FormField>
+        <div className="grid grid-cols-1 items-start gap-3 min-[420px]:grid-cols-2">
+          <FormField label="Priority">
+            <Select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </Select>
+          </FormField>
+          <FormField label="Due date" error={dueProblem} hint={!dueProblem ? "Today or later." : undefined}>
+            <Input type="date" min={today} value={form.due_date} aria-invalid={!!dueProblem} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
+          </FormField>
+        </div>
+        {error && <Banner tone="red">{error}</Banner>}
       </div>
-    </div>
+    </SheetFrame>
   );
 }
 
 function TaskRow({ task }) {
   const leaderName = task.leader_id ? task.assignees.find((a) => a.user_id === task.leader_id)?.name : null;
+  const awaiting = isAwaitingRating(task);
 
   return (
-    <Link
-      href={`/supervisor/tasks/${task.id}`}
-      className={`flex flex-wrap items-center justify-between gap-3 px-6 py-4 transition hover:bg-slate-50 ${isAwaitingRating(task) ? "bg-purple-50/50" : ""}`}
-    >
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${PRIORITY_STYLES[task.priority]}`}>{task.priority}</span>
-          <p className="truncate font-medium text-slate-900">{task.title}</p>
-          {task.is_group && <span className="shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-semibold text-purple-700">Group</span>}
-        </div>
-        <p className="mt-1.5 text-xs text-slate-400">
-          {task.assignees.map((a) => a.name).join(", ")} · Assigned {task.created_at}
-          {leaderName ? ` · Leader: ${leaderName}` : ""}
-          {task.subtask_total > 0 ? ` · ${task.subtask_done}/${task.subtask_total} subtasks done` : ""}
-        </p>
-        <div className="mt-1.5"><DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} /></div>
-      </div>
-      {isAwaitingRating(task) ? (
-        <span className="shrink-0 rounded-full bg-purple-600 px-2.5 py-1 text-xs font-semibold text-white">Needs your rating →</span>
-      ) : (
-        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[task.status]}`}>{STATUS_LABELS[task.status]}</span>
-      )}
-    </Link>
+    <li className={`border-l-4 ${awaiting ? "border-l-amber-500" : "border-l-transparent"}`}>
+      <Link href={`/supervisor/tasks/${task.id}`} className="k-row is-wrap flex-wrap">
+        <span className="k-row-main min-w-[16rem]">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Pill tone={PRIORITY_TONES[task.priority] ?? "slate"} size="sm" className="shrink-0 capitalize">{task.priority}</Pill>
+            <span className="min-w-0 break-words font-medium text-slate-900">{task.title}</span>
+            {task.is_group && <Pill size="sm" className="shrink-0">Group</Pill>}
+          </span>
+          <span className="mt-1.5 block text-xs text-slate-500">
+            {task.assignees.map((a) => a.name).join(", ")} · Assigned {task.created_at}
+            {leaderName ? ` · Leader: ${leaderName}` : ""}
+            {task.subtask_total > 0 ? ` · ${task.subtask_done}/${task.subtask_total} subtasks done` : ""}
+          </span>
+          <span className="mt-1.5 block"><DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} /></span>
+        </span>
+        <span className="k-row-side">
+          {awaiting ? (
+            <Pill tone="amber" className="gap-1">Needs your rating <NavIcon name="arrow" size={13} /></Pill>
+          ) : (
+            <Pill tone={STATUS_TONES[task.status] ?? "slate"}>{STATUS_LABELS[task.status]}</Pill>
+          )}
+        </span>
+      </Link>
+    </li>
   );
 }
 
@@ -245,6 +268,8 @@ function TaskRow({ task }) {
  */
 export default function TaskManagement() {
   const [tasks, setTasks] = useState([]);
+  const [counts, setCounts] = useState({ active: 0, history: 0, awaiting_rating: 0 });
+  const [reloads, setReloads] = useState(0);
   const [interns, setInterns] = useState([]);
   const [notSetUp, setNotSetUp] = useState([]);
   const [view, setView] = useState("active");
@@ -257,9 +282,12 @@ export default function TaskManagement() {
 
   function load() {
     setLoading(true);
-    fetchSupervisorData("tasks")
+    setReloads((n) => n + 1);
+    // Active = open work plus done tasks still waiting for a rating (all of it); History is fetched a page at a time below.
+    fetchSupervisorData("tasks?view=active")
       .then((r) => {
         setTasks(r.tasks ?? []);
+        setCounts(r.counts ?? { active: (r.tasks ?? []).length, history: 0, awaiting_rating: 0 });
         setInterns(r.interns ?? []);
         setNotSetUp(r.not_set_up ?? []);
       })
@@ -271,100 +299,114 @@ export default function TaskManagement() {
 
   // A finished task still needs your rating before it's truly closed out —
   // until then it stays visible here, not History.
-  const activeTasks = useMemo(() => tasks.filter((t) => !isTaskClosed(t)), [tasks]);
-  const historyTasks = useMemo(() => tasks.filter(isTaskClosed), [tasks]);
-  const awaitingCount = useMemo(() => tasks.filter(isAwaitingRating).length, [tasks]);
+  const activeTasks = tasks;
+  const awaitingCount = counts.awaiting_rating ?? 0;
+
+  const history = useTaskHistory({
+    fetcher: (qs) => fetchSupervisorData(`tasks?${qs}`),
+    enabled: view === "history",
+    search,
+    filters: { deployment_id: internFilter },
+    refreshKey: reloads,
+  });
+  const historyTasks = history.items;
 
   const visibleTasks = useMemo(() => {
-    const source = view === "active" ? activeTasks : historyTasks;
     const q = search.trim().toLowerCase();
-    return source.filter((t) => {
+    return activeTasks.filter((t) => {
       if (internFilter && !t.assignees.some((a) => String(a.deployment_id) === internFilter)) return false;
-      if (view === "active" && statusFilter && t.status !== statusFilter) return false;
+      if (statusFilter && t.status !== statusFilter) return false;
       if (q && !t.title.toLowerCase().includes(q) && !t.assignees.some((a) => a.name?.toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [activeTasks, historyTasks, view, internFilter, statusFilter, search]);
+  }, [activeTasks, internFilter, statusFilter, search]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Tasks</h2>
-          <p className="mt-1 text-sm text-slate-600">Assign work to the interns at your company — individually or as a group.</p>
-        </div>
-        <button onClick={() => setShowModal(true)} disabled={interns.length === 0} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40">
+    <Page>
+      <PageHeader title="Tasks" sentence="Assign work to the interns at your company — individually or as a group.">
+        <Btn variant="primary" onClick={() => setShowModal(true)} disabled={interns.length === 0}>
           Assign task
-        </button>
-      </div>
+        </Btn>
+      </PageHeader>
 
       {notSetUp.length > 0 && (
-        <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {notSetUp.join(", ")} {notSetUp.length === 1 ? "has" : "have"} not set up an account yet, so they are left out of task assignment until
-          they open their invitation. The coordinator can fix the email and resend the link.
-        </p>
+        <div className="k-note is-warn">
+          <span className="min-w-0">
+            {notSetUp.join(", ")} {notSetUp.length === 1 ? "has" : "have"} not set up an account yet, so they are left out of task assignment until
+            they open their invitation. The coordinator can fix the email and resend the link.
+          </span>
+        </div>
       )}
 
-      <div className="flex w-fit gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-        <button
-          onClick={() => setView("active")}
-          className={`rounded-xl px-4 py-1.5 text-sm font-semibold transition ${view === "active" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-        >
-          Active{awaitingCount > 0 ? ` · ${awaitingCount} to rate` : ""}
-        </button>
-        <button
-          onClick={() => setView("history")}
-          className={`rounded-xl px-4 py-1.5 text-sm font-semibold transition ${view === "history" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-        >
-          History ({historyTasks.length})
-        </button>
-      </div>
+      <TabStrip
+        label="Task list"
+        active={view}
+        onChange={setView}
+        tabs={[
+          { key: "active", label: `Active${awaitingCount > 0 ? ` · ${awaitingCount} to rate` : ""}` },
+          { key: "history", label: `History (${counts.history})` },
+        ]}
+      />
 
-      <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input {...inputProps("search")}
+      <FilterBar>
+        <SearchField
+          {...inputProps("search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by task title or intern name…"
-          className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          aria-label="Search tasks"
         />
         {view === "active" && (
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status">
             <option value="">All statuses</option>
             <option value="pending">Pending</option>
             <option value="in_progress">Ongoing</option>
-          </select>
+          </Select>
         )}
-        <select value={internFilter} onChange={(e) => setInternFilter(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+        <Select value={internFilter} onChange={(e) => setInternFilter(e.target.value)} aria-label="Filter by intern">
           <option value="">All interns</option>
           {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id}>{i.name}</option>)}
-        </select>
-      </section>
+        </Select>
+      </FilterBar>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {(error || history.error) && <ErrorNote>{error || history.error}</ErrorNote>}
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        {loading ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-500">Loading tasks…</p>
-        ) : view === "active" && activeTasks.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">No active tasks — check History for the ones already done.</p>
-        ) : view === "history" && historyTasks.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">No completed tasks yet.</p>
-        ) : visibleTasks.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">No tasks match your search/filters.</p>
+      <Section flush>
+        {view === "active" ? (
+          loading ? (
+            <div className="k-pad"><SkeletonList rows={4} height="h-16" /></div>
+          ) : activeTasks.length === 0 && error ? null : activeTasks.length === 0 ? (
+            <div className="k-pad"><EmptyState icon="tasks" title="No active tasks" text="Check History for the ones already done." /></div>
+          ) : visibleTasks.length === 0 ? (
+            <div className="k-pad"><EmptyState icon="search" title="No matches" text="No tasks match your search/filters." /></div>
+          ) : (
+            <ul className="k-list">
+              {visibleTasks.map((t) => <TaskRow key={t.id} task={t} />)}
+            </ul>
+          )
+        ) : history.loading ? (
+          <div className="k-pad"><SkeletonList rows={4} height="h-16" /></div>
+        ) : historyTasks.length === 0 && history.error ? null : historyTasks.length === 0 ? (
+          search.trim() || internFilter ? (
+            <div className="k-pad"><EmptyState icon="search" title="No matches" text="No tasks match your search/filters." /></div>
+          ) : (
+            <div className="k-pad"><EmptyState icon="tasks" title="No completed tasks yet" text="Tasks you have rated will be kept here." /></div>
+          )
         ) : (
-          <div className="divide-y divide-slate-100">
-            {visibleTasks.map((t) =>
-              view === "active"
-                ? <TaskRow key={t.id} task={t} />
-                : <TaskHistoryRow key={t.id} task={t} detailBasePath="/supervisor/tasks" subLabel={t.assignees.map((a) => a.name).join(", ")} />
-            )}
-          </div>
+          <>
+            <ul className="k-list">
+              {historyTasks.map((t) => (
+                <li key={t.id}><TaskHistoryRow task={t} detailBasePath="/supervisor/tasks" subLabel={t.assignees.map((a) => a.name).join(", ")} /></li>
+              ))}
+            </ul>
+            <LoadMore shown={historyTasks.length} total={history.total} hasMore={history.hasMore} loading={history.loadingMore} onClick={history.loadMore} />
+          </>
         )}
-      </section>
+      </Section>
 
       {showModal && (
         <AssignTaskModal interns={interns} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); load(); }} />
       )}
-    </div>
+    </Page>
   );
 }

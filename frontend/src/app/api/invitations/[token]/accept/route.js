@@ -1,15 +1,17 @@
 import { NextResponse } from 'next/server';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import { clientIpHeader } from '@/lib/serverProxy';
 
 export async function POST(request, { params }) {
   const { token } = await params;
   const body = await request.text();
 
-  const response = await fetch(`${BACKEND_URL}/api/invitations/${token}/accept`, {
+  const response = await fetch(`${BACKEND_URL}/api/invitations/${encodeURIComponent(token)}/accept`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...clientIpHeader(request),
     },
     body,
   });

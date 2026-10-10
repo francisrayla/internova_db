@@ -9,7 +9,9 @@ import TaskHistoryRow from "@/components/TaskHistoryRow";
 import ProofUploadModal from "@/components/ProofUploadModal";
 import { useCurrentUser } from "@/lib/UserContext";
 import { PLAN_FEATURES, hasPlanFeature } from "@/lib/planFeatures";
-import { isTaskClosed } from "@/lib/taskState";
+import { useTaskHistory } from "@/lib/useTaskHistory";
+import { LoadMore } from "@/components/Pagination";
+import { EmptyState, ErrorNote, FilterBar, Page, PageHeader, SearchField, Section, Select, SkeletonList, TabStrip } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
 const LIVE_TYPES = ["task_evaluated", "task_comment", "task_updated"];
@@ -26,6 +28,8 @@ export default function MyTasks() {
   const { user } = useCurrentUser();
   const requireProof = hasPlanFeature(user, PLAN_FEATURES.ATTACHMENTS);
   const [tasks, setTasks] = useState([]);
+  const [counts, setCounts] = useState({ active: 0, history: 0 });
+  const [reloads, setReloads] = useState(0);
   const [view, setView] = useState("active");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -43,10 +47,15 @@ export default function MyTasks() {
     }
   }, []);
 
+  // Active = open work plus done tasks still waiting for a rating (all of it); History is fetched a page at a time below.
   function load() {
     setLoading(true);
-    fetchInternData("tasks")
-      .then((r) => setTasks(r.tasks ?? []))
+    setReloads((n) => n + 1);
+    fetchInternData("tasks?view=active")
+      .then((r) => {
+        setTasks(r.tasks ?? []);
+        setCounts(r.counts ?? { active: (r.tasks ?? []).length, history: 0 });
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
@@ -55,6 +64,7 @@ export default function MyTasks() {
   useLiveRefresh(LIVE_TYPES, load);
 
   async function handleStatusChange(id, status) {
+    setError("");
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
     try {
       const res = await apiFetch(`/api/intern/tasks/${id}`, {
@@ -91,6 +101,7 @@ export default function MyTasks() {
   }
 
   async function completeDirectly(id) {
+    setError("");
     try {
       const res = await apiFetch(`/api/intern/tasks/${id}/complete`, { method: "POST", body: new FormData() });
       const data = await res.json();
@@ -102,20 +113,26 @@ export default function MyTasks() {
     }
   }
 
+  const history = useTaskHistory({
+    fetcher: (qs) => fetchInternData(`tasks?${qs}`),
+    enabled: view === "history",
+    search,
+    refreshKey: reloads,
+  });
+  const historyTasks = history.items;
+
   // A finished task still needs your supervisor's rating before it's truly
   // closed out — until then it stays visible here, not History.
-  const activeTasks = useMemo(() => tasks.filter((t) => !isTaskClosed(t)), [tasks]);
-  const historyTasks = useMemo(() => tasks.filter(isTaskClosed), [tasks]);
+  const activeTasks = tasks;
 
   const visibleTasks = useMemo(() => {
-    const source = view === "active" ? activeTasks : historyTasks;
     const q = search.trim().toLowerCase();
-    return source.filter((t) => {
-      if (view === "active" && statusFilter && t.status !== statusFilter) return false;
+    return activeTasks.filter((t) => {
+      if (statusFilter && t.status !== statusFilter) return false;
       if (q && !t.title.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [activeTasks, historyTasks, view, statusFilter, search]);
+  }, [activeTasks, statusFilter, search]);
 
   function subLabelFor(task) {
     const withOthers = task.assignees.filter((a) => a.user_id !== ownUserId).map((a) => a.name);
@@ -123,67 +140,62 @@ export default function MyTasks() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">My Tasks</h2>
-        <p className="mt-1 text-sm text-slate-600">Drag a task across columns, or open one with subtasks to drag those instead.</p>
-      </div>
+    <Page>
+      <PageHeader title="My tasks" sentence="Press and hold a task to move it between Pending, Ongoing and Done, or open it to see its subtasks." />
 
-      <div className="flex gap-1 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm w-fit">
-        <button
-          onClick={() => setView("active")}
-          className={`rounded-xl px-4 py-1.5 text-sm font-semibold transition ${view === "active" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-        >
-          Active
-        </button>
-        <button
-          onClick={() => setView("history")}
-          className={`rounded-xl px-4 py-1.5 text-sm font-semibold transition ${view === "history" ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-        >
-          History ({historyTasks.length})
-        </button>
-      </div>
+      <TabStrip
+        label="Task view"
+        active={view}
+        onChange={setView}
+        tabs={[
+          { key: "active", label: "Active" },
+          { key: "history", label: "History", count: counts.history },
+        ]}
+      />
 
-      <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input {...inputProps("search")}
+      <FilterBar>
+        <SearchField
+          {...inputProps("search")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by task title…"
-          className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
         />
         {view === "active" && (
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+          <Select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">All statuses</option>
             <option value="pending">Pending</option>
             <option value="in_progress">Ongoing</option>
-          </select>
+          </Select>
         )}
-      </section>
+      </FilterBar>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {(error || history.error) && <ErrorNote>{error || history.error}</ErrorNote>}
 
-      {loading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 shadow-sm">Loading tasks…</p>
-      ) : view === "active" ? (
-        activeTasks.length === 0 ? (
-          <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400 shadow-sm">No active tasks — check History for the ones already done.</p>
+      {view === "active" ? (
+        loading ? (
+          <SkeletonList rows={3} height="h-24" />
+        ) : activeTasks.length === 0 ? (
+          <EmptyState icon="tasks" title="No active tasks" text="Check History for the ones already done." />
         ) : visibleTasks.length === 0 ? (
-          <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-400 shadow-sm">No tasks match your search/filters.</p>
+          <EmptyState icon="search" title="No tasks match" text="Try a different search or status." />
         ) : (
           <TaskListBoard tasks={visibleTasks} detailBasePath="/intern/tasks" onStatusChange={handleStatusChange} onRequestComplete={requestComplete} subLabelFor={subLabelFor} />
         )
+      ) : history.loading ? (
+        <SkeletonList rows={3} height="h-24" />
+      ) : historyTasks.length === 0 ? (
+        search.trim() ? (
+          <EmptyState icon="search" title="No tasks match" text="Try a different search." />
+        ) : (
+          <EmptyState icon="tasks" title="No completed tasks yet" text="Tasks your supervisor has rated show up here." />
+        )
       ) : (
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          {historyTasks.length === 0 ? (
-            <p className="px-6 py-10 text-center text-sm text-slate-400">No completed tasks yet.</p>
-          ) : visibleTasks.length === 0 ? (
-            <p className="px-6 py-10 text-center text-sm text-slate-400">No tasks match your search.</p>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {visibleTasks.map((t) => <TaskHistoryRow key={t.id} task={t} detailBasePath="/intern/tasks" subLabel={subLabelFor(t)} />)}
-            </div>
-          )}
-        </section>
+        <Section flush>
+          <div className="divide-y divide-slate-100">
+            {historyTasks.map((t) => <TaskHistoryRow key={t.id} task={t} detailBasePath="/intern/tasks" subLabel={subLabelFor(t)} />)}
+          </div>
+          <LoadMore shown={historyTasks.length} total={history.total} hasMore={history.hasMore} loading={history.loadingMore} onClick={history.loadMore} />
+        </Section>
       )}
 
       {completingTask && (
@@ -193,6 +205,6 @@ export default function MyTasks() {
           onCancel={() => setCompletingTask(null)}
         />
       )}
-    </div>
+    </Page>
   );
 }

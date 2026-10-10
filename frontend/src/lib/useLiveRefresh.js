@@ -9,7 +9,7 @@ import { useCurrentUser } from "@/lib/UserContext";
  * onEvent whenever a push arrives whose `type` is in `types` — the same
  * "wake up and refetch" signal NotificationBell already listens to (see
  * backend NotificationService/NotificationCreated broadcasting on
- * user.{id}-notifications), reused here so an already-open screen updates
+ * private channel user.{id}.notifications), reused here so an already-open screen updates
  * itself the moment a supervisor/coordinator changes something relevant,
  * instead of the intern having to reload to find out.
  *
@@ -26,13 +26,13 @@ export function useLiveRefresh(types, onEvent) {
     const echo = getEcho();
     if (!echo) return;
 
-    const channelName = `user.${user.id}-notifications`;
+    const channelName = `user.${user.id}.notifications`;
     function handle(payload) {
       if (types.includes(payload.type)) onEvent();
     }
 
-    echo.channel(channelName).listen(".notification.created", handle);
-    return () => echo.channel(channelName).stopListening(".notification.created", handle);
+    echo.private(channelName).listen(".notification.created", handle);
+    return () => echo.private(channelName).stopListening(".notification.created", handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 }

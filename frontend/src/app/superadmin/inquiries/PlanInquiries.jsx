@@ -1,28 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { apiFetch } from "@/lib/apiFetch";
 import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
+import { ExternalLink } from "lucide-react";
+import { Btn, Chip, Chips, DataList, EmptyState, FilterBar, FormField, Input, KeyValueList, Page, PageHeader, Pill, Section, Select, SheetFrame, SkeletonList, TabStrip, Textarea } from "@/components/dash/page";
+import SaToast, { useSaToast } from "../SaToast";
+import { LoadMore } from "@/components/Pagination";
 
 import { inputProps } from "@/lib/inputRules";
-// List price per plan + billing period. Super Admin can still apply a discount below.
-const PLAN_PRICES = {
-  Basic:   { monthly: 1500,  yearly: 15000 },
-  Premium: { monthly: 3500,  yearly: 35000 },
-};
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
+// List price per plan + billing period comes from the Plans page data (GET superadmin/plans-features);
+// the shared constants are only the fallback while it loads or if it fails. Super Admin can still apply a discount below.
+import { PLAN_PRICES } from "@/lib/billingConstants";
 
 const STATUS_META = {
-  new:              { label: "New",              color: "bg-blue-100 text-blue-700",    dot: "bg-blue-500" },
-  contacted:        { label: "Contacted",        color: "bg-yellow-100 text-yellow-700", dot: "bg-yellow-500" },
-  under_discussion: { label: "Under Discussion", color: "bg-purple-100 text-purple-700", dot: "bg-purple-500" },
-  approved:         { label: "Approved",         color: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
-  converted:        { label: "Converted",        color: "bg-slate-200 text-slate-600",   dot: "bg-slate-400" },
-  rejected:         { label: "Rejected",         color: "bg-red-100 text-red-600",       dot: "bg-red-400" },
+  new:              { label: "New",              tone: "blue" },
+  contacted:        { label: "Contacted",        tone: "amber" },
+  under_discussion: { label: "Under Discussion", tone: "slate" },
+  approved:         { label: "Approved",         tone: "green" },
+  converted:        { label: "Converted",        tone: "slate" },
+  rejected:         { label: "Rejected",         tone: "red" },
 };
 
+// Same tone names as <Pill>, for the timeline where the chip is drawn by hand.
+const TONE_CLASS = { green: "is-ok", amber: "is-warn", red: "is-risk", blue: "is-info", slate: "" };
+
 const STATUS_FLOW = ["new", "contacted", "under_discussion", "approved", "converted"];
+
+const PER_PAGE = 15;
 
 const ACTIVE_STATUSES = ["new", "contacted", "under_discussion", "approved"];
 const ARCHIVE_STATUSES = ["converted", "rejected"];
@@ -36,27 +45,19 @@ function statusMeta(status) {
 
 function StatusBadge({ status }) {
   const m = statusMeta(status);
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${m.color}`}>
-      {m.label}
-    </span>
-  );
-}
-
-function Toast({ msg }) {
-  if (!msg) return null;
-  return (
-    <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 px-5 py-3 text-sm text-white shadow-lg">
-      {msg}
-    </div>
-  );
+  return <Pill tone={m.tone} className="shrink-0 whitespace-nowrap">{m.label}</Pill>;
 }
 
 // Email compose modal — sends real email via API
 function EmailModal({ inquiry, onClose, onSent }) {
   const [subject, setSubject] = useState(`Re: Internova Platform Inquiry — ${inquiry.school_name}`);
+  // "Basic Plan" reads as "the Basic plan"; answers like "Not sure — I need more info" can't be dropped into that sentence.
+  const planMatch = /^(Basic|Premium) Plan$/i.exec(inquiry.interested_plan || "");
+  const interest = planMatch
+    ? `you are interested in the ${planMatch[1]} plan for approximately ${inquiry.expected_interns} interns`
+    : `you would like to learn more about Internova for approximately ${inquiry.expected_interns} interns`;
   const [body, setBody] = useState(
-    `Dear ${inquiry.contact_person},\n\nThank you for your interest in Internova! We have received your inquiry and would like to discuss how we can support ${inquiry.school_name}.\n\nBased on your submission, you are interested in the ${inquiry.interested_plan} plan for approximately ${inquiry.expected_interns} interns.\n\nWe would love to schedule a short demo at your convenience. Please let us know your availability.\n\nBest regards,\nInternova Team`
+    `Dear ${inquiry.contact_person},\n\nThank you for your interest in Internova! We have received your inquiry and would like to discuss how we can support ${inquiry.school_name}.\n\nBased on your submission, ${interest}.\n\nWe would love to schedule a short demo at your convenience. Please let us know your availability.\n\nBest regards,\nInternova Team`
   );
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -93,46 +94,42 @@ function EmailModal({ inquiry, onClose, onSent }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-2xl rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-900">Compose Email</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
-        </div>
-        <div className="space-y-3">
-          <div className="rounded-xl bg-slate-50 px-4 py-2 text-sm">
-            <span className="text-slate-500">To: </span>
-            <span className="font-medium text-slate-900">{inquiry.contact_person} &lt;{inquiry.email}&gt;</span>
-          </div>
-          <input {...inputProps("subject")}
+    <SheetFrame
+      title="Compose Email"
+      size="md"
+      onClose={onClose}
+      footer={
+        <>
+          <Btn onClick={onClose} disabled={sending}>Cancel</Btn>
+          <Btn variant="primary" onClick={handleSend} disabled={sending}>
+            <Icon name="send" size={14} />
+            {sending ? "Sending…" : "Send Email"}
+          </Btn>
+        </>
+      }
+    >
+      <div className="grid gap-3">
+        <p className="rounded-xl px-4 py-2.5 text-sm break-words" style={{ background: "var(--ui-soft)" }}>
+          <span style={{ color: "var(--ui-muted)" }}>To: </span>
+          <span className="font-medium" style={{ color: "var(--ui-ink)" }}>{inquiry.contact_person} &lt;{inquiry.email}&gt;</span>
+        </p>
+        <FormField label="Subject">
+          <Input {...inputProps("subject")}
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500"
             placeholder="Subject"
           />
-          <textarea {...inputProps("message")}
+        </FormField>
+        <FormField label="Message">
+          <Textarea {...inputProps("message")}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={10}
-            className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 resize-none"
           />
-          {error && (
-            <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p>
-          )}
-          <div className="flex justify-end gap-3">
-            <button onClick={onClose} disabled={sending} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Cancel</button>
-            <button
-              onClick={handleSend}
-              disabled={sending}
-              className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-            >
-              <Icon name="send" size={14} />
-              {sending ? "Sending…" : "Send Email"}
-            </button>
-          </div>
-        </div>
+        </FormField>
+        {error && <p className="k-note is-risk" role="alert">{error}</p>}
       </div>
-    </div>
+    </SheetFrame>
   );
 }
 
@@ -186,7 +183,7 @@ function sanitizeAmount(value, max) {
 const PH_MOBILE = /^\d{11}$/;
 const SCHOOL_CODE = /^[A-Z0-9]+(-[A-Z0-9]+)*$/;
 
-function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
+function ConvertToSchoolModal({ inquiry, prices, onClose, onConverted }) {
   const [form, setForm] = useState({
     school_name: applyConvertLimit("school_name", inquiry.school_name || ""),
     school_code: applyConvertLimit("school_code", slugifySchoolCode(inquiry.school_name)),
@@ -208,14 +205,14 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
       // Switching to a cheaper plan/period re-caps a discount that was valid
       // for the old price, so the field never shows more than the plan costs.
       if (name === "plan_name" || name === "billing_period") {
-        const price = PLAN_PRICES[next.plan_name]?.[next.billing_period] ?? 0;
+        const price = prices[next.plan_name]?.[next.billing_period] ?? 0;
         next.discount_amount = sanitizeAmount(next.discount_amount, price);
       }
       return next;
     });
   }
 
-  const listPrice = PLAN_PRICES[form.plan_name]?.[form.billing_period] ?? 0;
+  const listPrice = prices[form.plan_name]?.[form.billing_period] ?? 0;
   const discount = Math.min(Number(form.discount_amount) || 0, listPrice);
   const finalAmount = Math.max(listPrice - discount, 0);
   const needsReason = discount > 0;
@@ -278,146 +275,116 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-2xl rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-semibold text-slate-900">Approve School & Send Subscription Offer</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
+    <SheetFrame
+      title="Approve School & Send Subscription Offer"
+      description={`${inquiry.contact_person} (${inquiry.email}) already registered an account. This creates the school tenant and links their existing login to it — no new invitation needed.`}
+      size="md"
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Btn onClick={onClose} disabled={saving}>Cancel</Btn>
+          <Btn variant="primary" type="submit" disabled={saving}>
+            {saving ? "Sending…" : "Approve School & Send Subscription Offer"}
+          </Btn>
+        </>
+      }
+    >
+      <div className="grid gap-4">
+        <p className="k-label">School Details</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="School Name">
+            <Input name="school_name" value={form.school_name} onChange={handleChange} required
+              maxLength={CONVERT_LIMITS.school_name.maxLength} />
+          </FormField>
+          <FormField label="School Code" hint="Letters, numbers and hyphens only.">
+            <Input name="school_code" value={form.school_code} onChange={handleChange} required
+              autoCapitalize="characters" spellCheck={false} className="font-mono" />
+          </FormField>
         </div>
-        <p className="mb-4 text-sm text-slate-500">
-          {inquiry.contact_person} ({inquiry.email}) already registered an account. This creates the school tenant and
-          links their existing login to it — no new invitation needed.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <p className="text-xs font-semibold uppercase text-slate-500">School Details</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">School Name</label>
-              <input name="school_name" value={form.school_name} onChange={handleChange} required
-                maxLength={CONVERT_LIMITS.school_name.maxLength}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">School Code</label>
-              <input name="school_code" value={form.school_code} onChange={handleChange} required
-                autoCapitalize="characters" spellCheck={false}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono outline-none focus:border-blue-500" />
-              <p className="mt-1 text-xs text-slate-400">Letters, numbers and hyphens only.</p>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Address</label>
-            <input name="address" value={form.address} onChange={handleChange}
-              maxLength={CONVERT_LIMITS.address.maxLength}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Email</label>
-              <input name="contact_email" type="email" value={form.contact_email} onChange={handleChange} required
-                autoComplete="off" spellCheck={false}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Number</label>
-              <input name="contact_number" type="tel" inputMode="numeric" value={form.contact_number} onChange={handleChange}
-                placeholder="09171234567"
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-              <p className="mt-1 text-xs text-slate-400">11 digits, e.g. 09171234567.</p>
-            </div>
-          </div>
+        <FormField label="Address">
+          <Input name="address" value={form.address} onChange={handleChange}
+            maxLength={CONVERT_LIMITS.address.maxLength} />
+        </FormField>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="Contact Email">
+            <Input name="contact_email" type="email" value={form.contact_email} onChange={handleChange} required
+              autoComplete="off" spellCheck={false} />
+          </FormField>
+          <FormField label="Contact Number" hint="11 digits, e.g. 09171234567.">
+            <Input name="contact_number" type="tel" inputMode="numeric" value={form.contact_number} onChange={handleChange}
+              placeholder="09171234567" />
+          </FormField>
+        </div>
 
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
-            <p className="text-xs font-semibold uppercase text-slate-500 mb-1">Coordinator Account</p>
-            <p className="font-medium text-slate-900">{inquiry.contact_person} · {inquiry.email}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Password was already set during registration.</p>
-          </div>
+        <div className="rounded-xl px-4 py-3 text-sm break-words" style={{ background: "var(--ui-soft)" }}>
+          <p className="k-label">Dean Account</p>
+          <p className="mt-1 font-medium" style={{ color: "var(--ui-ink)" }}>{inquiry.contact_person} · {inquiry.email}</p>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--ui-muted)" }}>Password was already set during registration.</p>
+        </div>
 
-          <p className="text-xs font-semibold uppercase text-slate-500 pt-2">Agreed Subscription</p>
-          <p className="text-xs text-slate-500 -mt-2">
-            Their inquiry expressed interest in: <strong>{inquiry.interested_plan || "—"}</strong>. Confirm the actual plan you agreed on below.
+        <div>
+          <p className="k-label">Agreed Subscription</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--ui-muted)" }}>
+            Their inquiry expressed interest in: <strong style={{ color: "var(--ui-ink)" }}>{inquiry.interested_plan || "—"}</strong>. Confirm the actual plan you agreed on below.
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Agreed Plan</label>
-              <select name="plan_name" value={form.plan_name} onChange={handleChange}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
-                <option value="Basic">Basic</option>
-                <option value="Premium">Premium</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Billing Period</label>
-              <select name="billing_period" value={form.billing_period} onChange={handleChange}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-            </div>
-          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <FormField label="Agreed Plan">
+            <Select name="plan_name" value={form.plan_name} onChange={handleChange}>
+              <option value="Basic">Basic</option>
+              <option value="Premium">Premium</option>
+            </Select>
+          </FormField>
+          <FormField label="Billing Period">
+            <Select name="billing_period" value={form.billing_period} onChange={handleChange}>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </Select>
+          </FormField>
+        </div>
 
-          <div className="rounded-2xl border border-slate-200 p-4 space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">Plan Price</span>
-              <span className="font-semibold text-slate-900">₱{listPrice.toLocaleString()}</span>
-            </div>
-            <div>
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-sm text-slate-500 shrink-0">Discount (optional)</label>
-                <div className="flex items-center rounded-xl border border-slate-300 px-3 py-1.5 focus-within:border-blue-500">
-                  <span className="text-sm text-slate-400">₱</span>
-                  <input
-                    name="discount_amount" type="text" inputMode="decimal" autoComplete="off"
-                    value={form.discount_amount}
-                    onChange={(e) => setForm((f) => ({ ...f, discount_amount: sanitizeAmount(e.target.value, listPrice) }))}
-                    onBlur={() => setForm((f) => ({
-                      ...f,
-                      discount_amount: f.discount_amount === "" || f.discount_amount === "." ? "0" : String(Number(f.discount_amount)),
-                    }))}
-                    className="w-28 bg-transparent pl-1 text-sm text-right tabular-nums outline-none"
-                  />
-                </div>
-              </div>
-              <p className="mt-1 text-right text-xs text-slate-400">Up to ₱{listPrice.toLocaleString()}</p>
-              {needsReason && (
-                <input
-                  name="agreement_note"
-                  value={form.agreement_note}
-                  maxLength={CONVERT_LIMITS.agreement_note.maxLength}
-                  onChange={handleChange}
-                  placeholder="Discount reason / agreement note (required)"
-                  className="mt-2 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm outline-none focus:border-amber-500"
-                />
-              )}
-            </div>
-            <div className="flex justify-between border-t border-slate-200 pt-3 text-sm">
-              <span className="font-semibold text-slate-700">Final Amount</span>
-              <span className="text-lg font-bold text-blue-700">₱{finalAmount.toLocaleString()}</span>
-            </div>
+        <div className="grid gap-3 rounded-xl border p-4" style={{ borderColor: "var(--ui-line)" }}>
+          <KeyValueList items={[{ label: "Plan Price", value: `₱${listPrice.toLocaleString()}` }]} />
+          <FormField label="Discount (optional, ₱)" hint={`Up to ₱${listPrice.toLocaleString()}`}>
+            <Input
+              name="discount_amount" type="text" inputMode="decimal" autoComplete="off"
+              value={form.discount_amount}
+              onChange={(e) => setForm((f) => ({ ...f, discount_amount: sanitizeAmount(e.target.value, listPrice) }))}
+              onBlur={() => setForm((f) => ({
+                ...f,
+                discount_amount: f.discount_amount === "" || f.discount_amount === "." ? "0" : String(Number(f.discount_amount)),
+              }))}
+              className="text-right tabular-nums"
+            />
+          </FormField>
+          {needsReason && (
+            <FormField label="Discount reason / agreement note" required>
+              <Input
+                name="agreement_note"
+                value={form.agreement_note}
+                maxLength={CONVERT_LIMITS.agreement_note.maxLength}
+                onChange={handleChange}
+                placeholder="Discount reason / agreement note (required)"
+              />
+            </FormField>
+          )}
+          <div className="flex items-baseline justify-between gap-3 pt-3" style={{ borderTop: "1px solid var(--ui-line)" }}>
+            <span className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>Final Amount</span>
+            <span className="text-lg font-semibold" style={{ color: "var(--ui-accent)" }}>₱{finalAmount.toLocaleString()}</span>
           </div>
+        </div>
 
-          <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3 text-xs text-blue-800">
+        <p className="k-note">
+          <span className="min-w-0">
             This sends a subscription offer (status <strong>Awaiting Acceptance</strong>) to {inquiry.email} as the school&apos;s Dean —
             they can log in with their existing password to review, accept, and pay. The offer expires in 14 days if unanswered.
-          </div>
+          </span>
+        </p>
 
-          {error && (
-            <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{error}</p>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} disabled={saving}
-              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
-              Cancel
-            </button>
-            <button type="submit" disabled={saving}
-              className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-              {saving ? "Sending…" : "Approve School & Send Subscription Offer"}
-            </button>
-          </div>
-        </form>
+        {error && <p className="k-note is-risk" role="alert">{error}</p>}
       </div>
-    </div>
+    </SheetFrame>
   );
 }
 
@@ -425,93 +392,170 @@ function ConvertToSchoolModal({ inquiry, onClose, onConverted }) {
 function NotesModal({ inquiry, onClose, onSave }) {
   const [notes, setNotes] = useState(inquiry.notes ?? "");
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-900">Internal Notes</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><Icon name="x" size={16} /></button>
-        </div>
-        <textarea {...inputProps("longText")}
+    <SheetFrame
+      title="Internal Notes"
+      onClose={onClose}
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => { onSave(notes); onClose(); }}>Save Notes</Btn>
+        </>
+      }
+    >
+      <FormField label="Notes">
+        <Textarea {...inputProps("longText")}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={5}
           placeholder="Add notes about this inquiry (not visible to the school)…"
-          className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 resize-none"
         />
-        <div className="mt-4 flex justify-end gap-3">
-          <button onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button>
-          <button
-            onClick={() => { onSave(notes); onClose(); }}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white"
-          >Save Notes</button>
-        </div>
-      </div>
-    </div>
+      </FormField>
+    </SheetFrame>
   );
 }
 
 export default function InquiriesPage() {
   const [inquiries, setInquiries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState({});
+  const requestRef = useRef(0);
+  const firstLoad = useRef(true);
   const [selected, setSelected] = useState(null);
   const [view, setView] = useState("active"); // "active" | "archive"
   const [activeTab, setActiveTab] = useState("All");
-  const [toast, setToast] = useState("");
+  const [toast, showToast] = useSaToast();
   const [showEmail, setShowEmail] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showConvert, setShowConvert] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [planPrices, setPlanPrices] = useState(PLAN_PRICES);
 
-  function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 3500); }
 
-  useEffect(() => {
-    fetchSuperadminData("plan-inquiries")
+  // Which statuses the list asks the server for: the whole view, or the one status picked in the chips.
+  function statusesFor(v, tab) {
+    if (tab === "All") return (v === "active" ? ACTIVE_STATUSES : ARCHIVE_STATUSES).join(",");
+    return tab.toLowerCase().replace(" ", "_");
+  }
+
+  // Page 1 replaces the list (view or chip changed); a later page is appended under it.
+  function load(nextPage = 1) {
+    const request = ++requestRef.current; // a slower, older answer must not replace a newer one
+    fetchSuperadminData(`plan-inquiries?page=${nextPage}&per_page=${PER_PAGE}&statuses=${statusesFor(view, activeTab)}`)
       .then((r) => {
+        if (request !== requestRef.current) return;
         const data = r.inquiries ?? [];
-        setInquiries(data);
+        setInquiries((prev) => {
+          if (nextPage === 1) return data;
+          const have = new Set(prev.map((i) => i.id));
+          return [...prev, ...data.filter((i) => !have.has(i.id))];
+        });
+        setPage(nextPage);
+        setHasMore(Boolean(r.has_more));
+        setTotal(r.total ?? data.length);
+        setCounts(r.counts ?? {});
         // Auto-picking one to show in the detail pane only makes sense on
         // desktop, where the list stays visible alongside it — on mobile
         // (list and detail share one column, see below) it would skip
         // straight past the list to a detail screen on first load, with no
         // "list" state to land on at all until Back is tapped once.
-        if (typeof window !== "undefined" && window.innerWidth >= 1024) {
-          const firstActive = data.find((i) => ACTIVE_STATUSES.includes(i.status)) ?? data[0];
-          if (firstActive) setSelected(firstActive);
+        if (nextPage === 1 && firstLoad.current && typeof window !== "undefined" && window.innerWidth >= 1024 && data[0]) {
+          setSelected(data[0]);
         }
+        firstLoad.current = false;
       })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (request !== requestRef.current) return;
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  }
+
+  useEffect(() => {
+    load(1);
+  }, [view, activeTab]);
+
+  // Live list prices, so a plan edited on the Plans page is offered at its new price.
+  useEffect(() => {
+    fetchSuperadminData("plans-features")
+      .then((r) => {
+        const live = {};
+        for (const p of r.plans ?? []) {
+          if (p.is_active !== false) live[p.name] = { monthly: Number(p.monthly_price) || 0, yearly: Number(p.yearly_price) || 0 };
+        }
+        if (Object.keys(live).length > 0) setPlanPrices((prev) => ({ ...prev, ...live }));
+      })
+      .catch(() => {});
   }, []);
 
-  function updateInquiry(id, patch) {
+  function loadMore() {
+    setLoadingMore(true);
+    load(page + 1);
+  }
+
+  // The list is cut into pages by the server, so the status counts come from it too; keep them right after a local change.
+  function shiftCount(from, to) {
+    if (!from || !to || from === to) return;
+    setCounts((c) => ({ ...c, [from]: Math.max(0, (c[from] ?? 0) - 1), [to]: (c[to] ?? 0) + 1 }));
+  }
+
+  // Shows the change at once, saves it, and puts the old values back (with an error message) if the save fails.
+  // Resolves true when the server accepted the change.
+  async function updateInquiry(id, patch) {
+    const current = inquiries.find((i) => i.id === id) ?? (selected?.id === id ? selected : null);
+    const before = current ? Object.fromEntries(Object.keys(patch).map((k) => [k, current[k]])) : null;
+    if (patch.status) shiftCount(current?.status, patch.status);
     setInquiries((prev) => prev.map((i) => i.id === id ? { ...i, ...patch } : i));
     setSelected((prev) => prev?.id === id ? { ...prev, ...patch } : prev);
 
-    // Persist to database
-    apiFetch(`/api/superadmin/plan-inquiries/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    }).catch(console.error);
+    try {
+      const res = await apiFetch(`/api/superadmin/plan-inquiries/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) throw new Error(data.message || "The change was not saved.");
+      return true;
+    } catch (err) {
+      if (before) {
+        if (patch.status) shiftCount(patch.status, before.status);
+        setInquiries((prev) => prev.map((i) => i.id === id ? { ...i, ...before } : i));
+        setSelected((prev) => prev?.id === id ? { ...prev, ...before } : prev);
+      }
+      showToast(`Could not save: ${err.message || "check your connection and try again."}`);
+      return false;
+    }
   }
 
   // "converted" is only ever set by actually creating the school account — not a manual step.
   const MANUAL_STATUS_FLOW = ["new", "contacted", "under_discussion", "approved"];
 
-  function advanceStatus(inquiry) {
+  async function advanceStatus(inquiry) {
     const idx = MANUAL_STATUS_FLOW.indexOf(inquiry.status);
     if (idx === -1 || idx >= MANUAL_STATUS_FLOW.length - 1) return;
     const next = MANUAL_STATUS_FLOW[idx + 1];
-    updateInquiry(inquiry.id, { status: next });
-    showToast(`Status moved to: ${next.replace("_", " ")}`);
+    if (await updateInquiry(inquiry.id, { status: next })) showToast(`Status moved to: ${next.replace("_", " ")}`);
   }
 
-  function rejectInquiry(inquiry) {
-    updateInquiry(inquiry.id, { status: "rejected" });
-    showToast(`${inquiry.school_name} inquiry rejected.`);
+  async function rejectInquiry(inquiry) {
+    setRejecting(false);
+    if (await updateInquiry(inquiry.id, { status: "rejected" })) showToast(`${inquiry.school_name} inquiry rejected.`);
   }
 
   function copyToClipboard(text, label) {
-    navigator.clipboard.writeText(text).then(() => showToast(`${label} copied!`));
+    if (!navigator.clipboard?.writeText) {
+      showToast("Could not copy. Select the text and copy it by hand.");
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      () => showToast(`${label} copied!`),
+      () => showToast("Could not copy. Select the text and copy it by hand."),
+    );
   }
 
   // Filter logic: first split by view (active pipeline vs converted/archive), then by status tab within that view
@@ -526,26 +570,31 @@ export default function InquiriesPage() {
       return i.status === tabKey;
     });
 
-  const counts = {};
-  [...ACTIVE_STATUSES, ...ARCHIVE_STATUSES].forEach((s) => {
-    counts[s] = inquiries.filter((i) => i.status === s).length;
-  });
-
   function switchView(v) {
+    setLoading(true);
     setView(v);
     setActiveTab("All");
     setSelected(null);
   }
 
+  function pickTab(tab) {
+    setLoading(true);
+    setActiveTab(tab);
+  }
+
+  const activeTotal = ACTIVE_STATUSES.reduce((n, s) => n + (counts[s] ?? 0), 0);
+  const archiveTotal = ARCHIVE_STATUSES.reduce((n, s) => n + (counts[s] ?? 0), 0);
+
   return (
-    <div className="space-y-5">
-      <Toast msg={toast} />
+    <Page size="wide">
+      <SaToast msg={toast} />
       {showEmail && selected && (
         <EmailModal
           inquiry={selected}
           onClose={() => setShowEmail(false)}
           onSent={() => {
-            updateInquiry(selected.id, { status: selected.status === "new" ? "contacted" : selected.status });
+            // The server already moves "new" to "contacted" when it sends the reply; mirror it on screen. Any other status stays as it is.
+            if (selected.status === "new") updateInquiry(selected.id, { status: "contacted" });
             showToast(`Email sent to ${selected.contact_person} at ${selected.email}`);
           }}
         />
@@ -553,8 +602,10 @@ export default function InquiriesPage() {
       {showConvert && selected && (
         <ConvertToSchoolModal
           inquiry={selected}
+          prices={planPrices}
           onClose={() => setShowConvert(false)}
           onConverted={(data) => {
+            shiftCount(selected.status, "converted");
             setInquiries((prev) => prev.map((i) => i.id === selected.id ? { ...i, status: "converted", school_id: data.school_id } : i));
             setSelected((prev) => prev?.id === selected.id ? { ...prev, status: "converted", school_id: data.school_id } : prev);
             setView("archive");
@@ -568,313 +619,260 @@ export default function InquiriesPage() {
           inquiry={selected}
           onClose={() => setShowNotes(false)}
           onSave={(notes) => {
-            updateInquiry(selected.id, { notes });
-            showToast("Notes saved.");
+            updateInquiry(selected.id, { notes }).then((ok) => ok && showToast("Notes saved."));
           }}
         />
       )}
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* View toggle: Active pipeline vs Converted/Archive */}
-          <div className="flex w-full gap-1 rounded-xl bg-slate-100 p-1 sm:w-fit sm:gap-2">
-          <button
-            onClick={() => switchView("active")}
-            className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition sm:flex-none sm:px-4 ${
-              view === "active" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            Active Inquiries
-            <span className="ml-1.5 opacity-70">
-              {ACTIVE_STATUSES.reduce((n, s) => n + (counts[s] ?? 0), 0)}
-            </span>
-          </button>
-          <button
-            onClick={() => switchView("archive")}
-            className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition sm:flex-none sm:px-4 ${
-              view === "archive" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            <span className="sm:hidden">Archive</span>
-            <span className="hidden sm:inline">Converted / Archive</span>
-            <span className="ml-1.5 opacity-70">
-              {ARCHIVE_STATUSES.reduce((n, s) => n + (counts[s] ?? 0), 0)}
-            </span>
-          </button>
-          </div>
-          <Link
-            href="/inquiry"
-            target="_blank"
-            className="rounded-xl border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-          >
-            View Public Form ↗
-          </Link>
-        </div>
+      <ConfirmDialog
+        open={rejecting && !!selected}
+        title="Reject this inquiry?"
+        confirmLabel="Reject inquiry"
+        onConfirm={() => selected && rejectInquiry(selected)}
+        onCancel={() => setRejecting(false)}
+      >
+        <p>{selected?.school_name} will move to the Archive as rejected. The school is not emailed.</p>
+      </ConfirmDialog>
 
-        {/* Status sub-tabs within the current view */}
+      <PageHeader
+        title="Plan Inquiries"
+        sentence="Schools that asked about Internova. Reply, approve and send a subscription offer, or reject."
+      >
+        <Btn href="/inquiry" target="_blank">
+          View Public Form <ExternalLink size={15} aria-hidden="true" />
+        </Btn>
+      </PageHeader>
+
+      <FilterBar>
+        <TabStrip
+          label="Inquiry view"
+          active={view}
+          onChange={switchView}
+          tabs={[
+            { key: "active", label: "Active Inquiries", count: activeTotal },
+            { key: "archive", label: <><span className="sm:hidden">Archive</span><span className="hidden sm:inline">Converted / Archive</span></>, count: archiveTotal },
+          ]}
+        />
         {/* One swipeable row on phones instead of chips wrapping into a
             second and third line; wraps normally from sm up. */}
-        <div className="no-scrollbar -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 sm:mx-0 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:px-0">
+        <Chips label="Filter by status">
           {tabs.map((tab) => {
             const value = tab === "All"
               ? viewStatuses.reduce((n, s) => n + (counts[s] ?? 0), 0)
               : counts[tab.toLowerCase().replace(" ", "_")] ?? 0;
             return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold transition sm:rounded-xl sm:px-4 sm:py-2 ${
-                  activeTab === tab
-                    ? "bg-blue-600 text-white"
-                    : "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {tab} <span className="ml-1 opacity-80">{value}</span>
-              </button>
+              <Chip key={tab} on={activeTab === tab} count={value} onClick={() => pickTab(tab)}>
+                {tab}
+              </Chip>
             );
           })}
-        </div>
-      </section>
+        </Chips>
+      </FilterBar>
 
       {/* Two-column: list + detail */}
-      <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start">
 
         {/* Left: inquiry list — hidden on mobile once something's selected,
             since a master-detail split only makes sense side by side; below
             lg: it's really two full-width screens, so show one at a time
             (list, then detail with a way back) instead of stacking both. */}
-        <div className={`space-y-3 ${selected ? "hidden lg:block" : ""}`}>
+        <Section flush className={selected ? "hidden lg:block" : ""}>
           {loading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
-            ))
+            <div className="k-pad"><SkeletonList rows={3} height="h-24" /></div>
           ) : filtered.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-              No inquiries in this category
+            <div className="k-pad">
+              <EmptyState icon="inquiries" title="No inquiries in this category" text="New requests from the public form show up here." />
             </div>
           ) : (
-            filtered.map((inq) => {
-              const isActive = selected?.id === inq.id;
-              return (
-                <button
-                  key={inq.id}
-                  onClick={() => setSelected(inq)}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
-                    isActive
-                      ? "border-blue-400 bg-blue-50 shadow-sm"
-                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-slate-900">{inq.school_name}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">{inq.contact_person} · {inq.position}</p>
-                    </div>
-                    <StatusBadge status={inq.status} />
-                  </div>
-                  <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
-                    <span className="flex items-center gap-1"><Icon name="card" size={12} /> {inq.interested_plan}</span>
-                    <span className="flex items-center gap-1"><Icon name="users" size={12} /> {inq.expected_interns} interns</span>
-                  </div>
-                  <p className="mt-2 line-clamp-2 text-xs text-slate-500">{inq.message}</p>
-                  <p className="mt-2 text-xs text-slate-400">{inq.submitted_at}</p>
-                </button>
-              );
-            })
+            <DataList>
+              {filtered.map((inq) => {
+                const isActive = selected?.id === inq.id;
+                return (
+                  <li key={inq.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(inq)}
+                      aria-pressed={isActive}
+                      className={`k-row w-full items-start text-left ${isActive ? "bg-blue-50" : ""}`}
+                    >
+                      <span className="k-row-main">
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="min-w-0">
+                            <span className="block break-words font-semibold" style={{ color: "var(--ui-ink)" }}>{inq.school_name}</span>
+                            <span className="block text-xs" style={{ color: "var(--ui-muted)" }}>{inq.contact_person} · {inq.position}</span>
+                          </span>
+                          <StatusBadge status={inq.status} />
+                        </span>
+                        <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: "var(--ui-muted)" }}>
+                          <span className="flex items-center gap-1"><Icon name="card" size={12} /> {inq.interested_plan}</span>
+                          <span className="flex items-center gap-1"><Icon name="users" size={12} /> {inq.expected_interns} interns</span>
+                        </span>
+                        <span className="mt-2 line-clamp-2 block text-xs" style={{ color: "var(--ui-muted)" }}>{inq.message}</span>
+                        <span className="mt-2 block text-xs" style={{ color: "var(--ui-muted)" }}>{inq.submitted_at}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </DataList>
           )}
-        </div>
+          {!loading && <LoadMore shown={filtered.length} total={total} hasMore={hasMore} loading={loadingMore} onClick={loadMore} />}
+        </Section>
 
         {/* Right: detail panel */}
         {selected ? (
-          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              className="flex w-full items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-6 py-3 text-sm font-semibold text-blue-600 hover:text-blue-700 lg:hidden"
-            >
-              <Icon name="arrow" size={14} className="rotate-180" /> Back to Inquiries
+          <section className="dash-card is-flush">
+            <button type="button" onClick={() => setSelected(null)} className="k-back px-4 pt-2 lg:hidden">
+              <NavIcon name="back" size={16} /> Back to Inquiries
             </button>
             {/* Detail header */}
-            <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold text-slate-900">{selected.school_name}</h3>
-                  <p className="text-sm text-slate-500">{selected.school_type} · {selected.address}</p>
+            <div className="k-pad" style={{ borderBottom: "1px solid var(--ui-line)" }}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="break-words text-xl font-semibold" style={{ color: "var(--ui-ink)" }}>{selected.school_name}</h2>
+                  <p className="text-sm break-words" style={{ color: "var(--ui-muted)" }}>{selected.school_type} · {selected.address}</p>
                 </div>
                 <StatusBadge status={selected.status} />
               </div>
 
               {/* Status timeline */}
-              <div className="mt-4 flex items-center gap-1 overflow-x-auto pb-1">
+              <ol className="no-scrollbar mt-4 flex items-center gap-1.5 overflow-x-auto pb-1" aria-label="Inquiry progress">
                 {STATUS_FLOW.map((s, idx) => {
                   const currentIdx = STATUS_FLOW.indexOf(selected.status);
                   const done = idx <= currentIdx;
                   const m = STATUS_META[s];
                   return (
-                    <div key={s} className="flex items-center gap-1">
-                      <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${done ? m.color : "bg-slate-100 text-slate-400"}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${done ? m.dot : "bg-slate-300"}`} />
+                    <li key={s} className="flex shrink-0 items-center gap-1.5" aria-current={idx === currentIdx ? "step" : undefined}>
+                      <span className={`k-pill ${done ? TONE_CLASS[m.tone] : ""}`} style={done ? undefined : { opacity: 0.75 }}>
                         {m.label}
-                      </div>
-                      {idx < STATUS_FLOW.length - 1 && (
-                        <span className={`text-xs ${done && idx < currentIdx ? "text-slate-400" : "text-slate-200"}`}>→</span>
-                      )}
-                    </div>
+                      </span>
+                      {idx < STATUS_FLOW.length - 1 && <NavIcon name="arrow" size={12} />}
+                    </li>
                   );
                 })}
-              </div>
+              </ol>
 
               {selected.status === "converted" && selected.school_id && (
                 <Link
                   href={`/superadmin/schools?highlight=${selected.school_id}`}
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:underline"
+                  className="dash-link mt-3 inline-flex min-h-[44px] items-center gap-1.5 sm:min-h-0"
                 >
                   <Icon name="building" size={14} /> View School Profile <Icon name="arrow" size={14} />
                 </Link>
               )}
             </div>
 
-            <div className="p-6 space-y-6">
+            <div className="k-pad grid gap-6">
               {/* Two-column info */}
               <div className="grid gap-6 md:grid-cols-2">
 
                 {/* Contact info */}
-                <div className="rounded-2xl bg-slate-50 p-4 space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contact Person</p>
-                  <div>
-                    <p className="font-semibold text-slate-900">{selected.contact_person}</p>
-                    <p className="text-sm text-slate-500">{selected.position}</p>
+                <div className="min-w-0">
+                  <h3 className="k-label">Contact Person</h3>
+                  <div className="mt-2">
+                    <p className="font-semibold" style={{ color: "var(--ui-ink)" }}>{selected.contact_person}</p>
+                    <p className="text-sm" style={{ color: "var(--ui-muted)" }}>{selected.position}</p>
                   </div>
-                  <div className="space-y-2">
+                  <div className="mt-3 grid gap-2">
                     {/* Copying either of these lives in Actions below (Reply
                         via Email, Copy Phone Number) — a second Copy button
                         right here just duplicated that. */}
-                    <div className="flex items-center gap-2 text-sm text-slate-700">
-                      <Icon name="mail" size={15} className="shrink-0 text-slate-400" />
-                      <span>{selected.email}</span>
+                    <div className="flex items-center gap-2 text-sm" style={{ color: "var(--ui-ink)" }}>
+                      <Icon name="mail" size={15} className="shrink-0" />
+                      <span className="min-w-0 break-all">{selected.email}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-700">
-                      <Icon name="phone" size={15} className="shrink-0 text-slate-400" />
+                    <div className="flex items-center gap-2 text-sm" style={{ color: "var(--ui-ink)" }}>
+                      <Icon name="phone" size={15} className="shrink-0" />
                       <span>{selected.phone}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Inquiry info */}
-                <div className="rounded-2xl bg-slate-50 p-4 space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inquiry Details</p>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Interested Plan</span>
-                      <span className="font-semibold text-slate-900">{selected.interested_plan}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Expected Interns</span>
-                      <span className="font-semibold text-slate-900">{selected.expected_interns}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Coordinators</span>
-                      <span className="font-semibold text-slate-900">{selected.expected_coordinators}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Heard From</span>
-                      <span className="font-semibold text-slate-900">{selected.heard_from}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Submitted</span>
-                      <span className="font-semibold text-slate-900">{selected.submitted_at}</span>
-                    </div>
-                  </div>
+                <div className="min-w-0">
+                  <h3 className="k-label">Inquiry Details</h3>
+                  <KeyValueList
+                    className="mt-1"
+                    items={[
+                      { label: "Interested Plan", value: selected.interested_plan },
+                      { label: "Expected Interns", value: selected.expected_interns },
+                      { label: "Coordinators", value: selected.expected_coordinators ?? "—" },
+                      { label: "Heard From", value: selected.heard_from || "—" },
+                      { label: "Submitted", value: selected.submitted_at },
+                    ]}
+                  />
                 </div>
               </div>
 
               {/* Their message */}
               <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Their Message</p>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 leading-relaxed">
+                <h3 className="k-label mb-2">Their Message</h3>
+                <p className="whitespace-pre-line break-words rounded-xl px-4 py-3 text-sm leading-relaxed" style={{ background: "var(--ui-soft)", color: "var(--ui-ink)" }}>
                   {selected.message}
-                </div>
+                </p>
               </div>
 
               {/* Internal notes */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Internal Notes</p>
-                  <button onClick={() => setShowNotes(true)} className="text-xs font-semibold text-blue-600 hover:underline">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="k-label">Internal Notes</h3>
+                  <button type="button" onClick={() => setShowNotes(true)} className="dash-link min-h-[44px] sm:min-h-0">
                     {selected.notes ? "Edit" : "+ Add note"}
                   </button>
                 </div>
                 {selected.notes ? (
-                  <div className="rounded-2xl bg-yellow-50 border border-yellow-200 p-4 text-sm text-slate-700">
-                    {selected.notes}
-                  </div>
+                  <p className="k-note is-warn whitespace-pre-line break-words">{selected.notes}</p>
                 ) : (
-                  <button
-                    onClick={() => setShowNotes(true)}
-                    className="w-full rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-400 hover:border-slate-400 hover:text-slate-500"
-                  >
+                  <Btn block onClick={() => setShowNotes(true)}>
                     Click to add internal notes about this inquiry…
-                  </button>
+                  </Btn>
                 )}
               </div>
 
               {/* Action buttons */}
-              <div className="border-t border-slate-200 pt-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setShowEmail(true)}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
-                  >
+              <div className="pt-4" style={{ borderTop: "1px solid var(--ui-line)" }}>
+                <h3 className="k-label mb-3">Actions</h3>
+                <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                  <Btn variant="primary" onClick={() => setShowEmail(true)}>
                     <Icon name="mail" size={15} /> Reply via Email
-                  </button>
-                  <button
-                    onClick={() => copyToClipboard(selected.phone, "Phone number")}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
+                  </Btn>
+                  <Btn onClick={() => copyToClipboard(selected.phone, "Phone number")}>
                     <Icon name="phone" size={15} /> Copy Phone Number
-                  </button>
-                  <button
+                  </Btn>
+                  <Btn
                     onClick={() => advanceStatus(selected)}
                     disabled={selected.status === "converted" || selected.status === "rejected"}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-blue-300 px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Icon name="check" size={15} /> Advance Status
-                  </button>
-                  <button
+                  </Btn>
+                  <Btn
                     onClick={() => setShowConvert(true)}
                     disabled={selected.status === "converted"}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Icon name="building" size={15} /> Approve School & Send Offer
-                  </button>
-                  <button
-                    onClick={() => setShowNotes(true)}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                  >
+                  </Btn>
+                  <Btn onClick={() => setShowNotes(true)}>
                     <Icon name="edit" size={15} /> Add / Edit Notes
-                  </button>
-                  <button
-                    onClick={() => rejectInquiry(selected)}
+                  </Btn>
+                  <Btn
+                    variant="danger-quiet"
+                    onClick={() => setRejecting(true)}
                     disabled={selected.status === "rejected" || selected.status === "converted"}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Icon name="x" size={15} /> Reject Inquiry
-                  </button>
+                  </Btn>
                 </div>
               </div>
             </div>
-          </div>
+          </section>
         ) : (
-          <div className="hidden items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center lg:flex">
-            <div>
-              <Icon name="file" size={40} className="mx-auto text-slate-300" />
-              <p className="mt-3 font-semibold text-slate-700">Select an inquiry to view details</p>
-              <p className="mt-1 text-sm text-slate-500">Click any inquiry card on the left to review it.</p>
-            </div>
+          <div className="hidden lg:block">
+            <Section>
+              <EmptyState icon="file" title="Select an inquiry to view details" text="Click any inquiry card on the left to review it." />
+            </Section>
           </div>
         )}
       </div>
-    </div>
+    </Page>
   );
 }

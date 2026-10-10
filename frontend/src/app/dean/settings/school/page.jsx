@@ -1,12 +1,15 @@
 import SchoolDetailsCard from "@/components/SchoolDetailsCard";
-import SettingsScreen from "@/components/settings/SettingsScreen";
+import { Page, PageHeader } from "@/components/dash/page";
 
-export default function Page() {
+export default function SchoolSettingsPage() {
   return (
-    <SettingsScreen role="dean">
-      <h2 className="text-xl font-semibold text-slate-900">School information</h2>
-      <p className="mt-1 text-sm text-slate-600">Basic information for your school account. Your coordinator can see these details but not edit them.</p>
+    <Page className="max-w-4xl">
+      <PageHeader
+        back={{ href: "/dean/settings", label: "Settings" }}
+        title="School information"
+        sentence="Basic information for your school account. Your coordinator can see these details but not edit them."
+      />
       <SchoolDetailsCard role="dean" />
-    </SettingsScreen>
+    </Page>
   );
 }

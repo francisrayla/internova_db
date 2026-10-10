@@ -3,12 +3,28 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { inputProps } from "@/lib/inputRules";
+import { manilaToday } from "@/lib/dueDateUrgency";
+import { Banner } from "@/components/ui";
+import { Btn, FormField, Input, Select, SheetFrame, Textarea } from "@/components/dash/page";
 
 /**
  * Supervisor fixes a task's details after assigning it (title, description, priority, due date).
  * Who it is assigned to and its status are not editable here. The backend refuses once the task is rated.
+ * The due date can stay, move forward (never before today in Manila, never before the date already set) or be cleared
+ * (no due date). An overdue task keeps its old date untouched; to change it, pick today or later.
  */
+export function dueDateProblem(value, original, today = manilaToday()) {
+  if (value === (original || "")) return "";
+  if (!value) return ""; // cleared: the task simply has no due date
+  if (value < today) return "The due date cannot be in the past. Choose today or a later date.";
+  if (original && value < original) return "The due date can only be moved forward from the current one.";
+  return "";
+}
+
 export default function EditTaskModal({ task, apiBase, onClose, onSaved }) {
+  const today = manilaToday();
+  const original = task.due_date_raw ?? "";
+  const minDue = original && original > today ? original : today;
   const [form, setForm] = useState({
     title: task.title ?? "",
     description: task.description ?? "",
@@ -18,10 +34,16 @@ export default function EditTaskModal({ task, apiBase, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const dueProblem = dueDateProblem(form.due_date, original, today);
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!form.title.trim()) {
       setError("Enter a title.");
+      return;
+    }
+    if (dueProblem) {
+      setError(dueProblem);
       return;
     }
     setSaving(true);
@@ -46,42 +68,47 @@ export default function EditTaskModal({ task, apiBase, onClose, onSaved }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4">
-      <div className="sheet-panel max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Edit task</h3>
-        <p className="mt-1 text-xs text-slate-500">The interns on this task are notified of the change. You can edit until you rate the task.</p>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Title</span>
-            <input {...inputProps("title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-base outline-none focus:border-blue-500 sm:text-sm" />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Description</span>
-            <textarea {...inputProps("longText")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-base outline-none focus:border-blue-500 sm:text-sm" />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Priority</span>
-              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-base outline-none focus:border-blue-500 sm:text-sm">
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Due date</span>
-              <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-base outline-none focus:border-blue-500 sm:text-sm" />
-            </label>
-          </div>
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-              {saving ? "Saving…" : "Save changes"}
-            </button>
-          </div>
-        </form>
+    <SheetFrame
+      title="Edit task"
+      description="The interns on this task are notified of the change. You can edit until you rate the task."
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      noValidate
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" type="submit" disabled={saving || !!dueProblem}>{saving ? "Saving…" : "Save changes"}</Btn>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <FormField label="Title">
+          <Input {...inputProps("title")} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+        </FormField>
+        <FormField label="Description">
+          <Textarea {...inputProps("longText")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+        </FormField>
+        <div className="grid grid-cols-1 items-start gap-4">
+          <FormField label="Priority">
+            <Select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </Select>
+          </FormField>
+          <FormField
+            label="Due date"
+            error={dueProblem}
+            hint={!dueProblem ? (original && original < today ? "This task is overdue. Keep the date, pick today or a later date, or clear it." : original ? "Keep it, move it later, or clear it." : "Pick today or a later date, or clear it.") : undefined}
+          >
+            <div className="flex items-stretch gap-2">
+              <Input type="date" min={minDue} value={form.due_date} aria-invalid={!!dueProblem} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
+              <Btn className="shrink-0" onClick={() => setForm((f) => ({ ...f, due_date: "" }))} disabled={!form.due_date}>Clear date</Btn>
+            </div>
+          </FormField>
+        </div>
+        {error && <Banner tone="red">{error}</Banner>}
       </div>
-    </div>
+    </SheetFrame>
   );
 }

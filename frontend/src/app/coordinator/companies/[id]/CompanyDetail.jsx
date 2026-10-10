@@ -8,7 +8,8 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useUrlTab } from "@/lib/useUrlTab";
 import AddInternModal from "@/components/AddInternModal";
 import Icon from "@/components/Icon";
-import { Avatar, Banner, BackLink, EmptyState, ErrorNote, Pill, SectionTitle, SkeletonList, TabBar } from "@/components/ui";
+import { Avatar, Banner, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
+import { Btn, Chip, Chips, DataList, DataRow, FilterBar, FormField, Input, Page, PageHeader, SearchField, Section, SheetFrame, TabStrip } from "@/components/dash/page";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import InternRoster from "@/components/coordinator/InternRoster";
 import SupervisorCard from "@/components/coordinator/SupervisorCard";
@@ -80,55 +81,47 @@ function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-base font-semibold text-slate-900">Edit company</h3>
-        <ConfirmDialog open={confirmDelete} title={`Delete ${company.company_name}?`} confirmLabel="Delete company" busy={saving} error={error} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)}>
-          <p>This removes the company for good and can&apos;t be undone. A company that still has supervisors, interns or transfer history can&apos;t be deleted &mdash; mark it inactive instead.</p>
-        </ConfirmDialog>
-        <form onSubmit={(e) => { e.preventDefault(); save(); }} className="mt-4 space-y-4">
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Company name</span>
-            <input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Address</span>
-            <input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <EmailField
-              label="Contact email"
-              value={form.contact_email}
-              onChange={(contact_email) => { setForm((f) => ({ ...f, contact_email })); setEmailError(""); }}
-              serverError={emailError}
-              showErrors={attempted}
-            />
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Contact number</span>
-              <input {...inputProps("phone")} type="tel" value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: clean("phone", e.target.value) }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-            </label>
-          </div>
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <div className="flex items-center justify-between gap-2 pt-2">
-            <button type="button" onClick={() => setConfirmDelete(true)} disabled={saving} className="rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
-              Delete
-            </button>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => save({ status: company.status === "active" ? "inactive" : "active" })}
-                disabled={saving}
-                className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-              >
-                {company.status === "active" ? "Mark inactive" : "Mark active"}
-              </button>
-              <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Saving…" : "Save changes"}</button>
-            </div>
-          </div>
-        </form>
+    <SheetFrame
+      onClose={onClose}
+      title="Edit company"
+      zIndex={60}
+      onSubmit={(e) => { e.preventDefault(); save(); }}
+      footer={
+        <>
+          <Btn variant="danger-quiet" className="sm:mr-auto" onClick={() => setConfirmDelete(true)} disabled={saving}>Delete</Btn>
+          <Btn onClick={() => save({ status: company.status === "active" ? "inactive" : "active" })} disabled={saving}>
+            {company.status === "active" ? "Mark inactive" : "Mark active"}
+          </Btn>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" type="submit" disabled={saving}>{saving ? "Saving…" : "Save changes"}</Btn>
+        </>
+      }
+    >
+      <ConfirmDialog open={confirmDelete} title={`Delete ${company.company_name}?`} confirmLabel="Delete company" busy={saving} error={error} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)}>
+        <p>This removes the company for good and can&apos;t be undone. A company that still has supervisors, interns or transfer history can&apos;t be deleted &mdash; mark it inactive instead.</p>
+      </ConfirmDialog>
+      <div className="space-y-4">
+        <FormField label="Company name">
+          <Input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} />
+        </FormField>
+        <FormField label="Address">
+          <Input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
+        </FormField>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <EmailField
+            label="Contact email"
+            value={form.contact_email}
+            onChange={(contact_email) => { setForm((f) => ({ ...f, contact_email })); setEmailError(""); }}
+            serverError={emailError}
+            showErrors={attempted}
+          />
+          <FormField label="Contact number">
+            <Input {...inputProps("phone")} type="tel" value={form.contact_number} onChange={(e) => setForm((f) => ({ ...f, contact_number: clean("phone", e.target.value) }))} />
+          </FormField>
+        </div>
+        {error && <p className="k-note is-risk" role="alert">{error}</p>}
       </div>
-    </div>
+    </SheetFrame>
   );
 }
 
@@ -148,10 +141,10 @@ function internMatches(i, filter) {
 
 function Stat({ label, value, note }) {
   return (
-    <div className="min-w-0 rounded-2xl bg-slate-50 px-4 py-3">
-      <p className="text-xl font-bold text-slate-900">{value}</p>
-      <p className="truncate text-sm font-semibold text-slate-700">{label}</p>
-      {note && <p className="truncate text-xs text-slate-500">{note}</p>}
+    <div className="dash-fig">
+      <span className="dash-fig-label">{label}</span>
+      <span className="dash-fig-value">{value}</span>
+      {note && <span className="dash-fig-note">{note}</span>}
     </div>
   );
 }
@@ -198,15 +191,15 @@ export default function CompanyDetail() {
   const supervisorActions = useSupervisorActions(callbacks);
 
   if (loading && !data) {
-    return <SkeletonList rows={3} height="h-28" />;
+    return <Page><SkeletonList rows={3} height="h-28" /></Page>;
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-4">
-        <BackLink href="/coordinator/companies">&larr; Back to Companies</BackLink>
+      <Page>
+        <PageHeader title="Company" back={{ href: "/coordinator/companies", label: "Back to Companies" }} />
         <ErrorNote onRetry={load}>{error || "Company not found."}</ErrorNote>
-      </div>
+      </Page>
     );
   }
 
@@ -225,40 +218,29 @@ export default function CompanyDetail() {
   const contact = [company.contact_email, company.contact_number].filter(Boolean).join(" · ");
 
   return (
-    <div className="space-y-5">
-      <BackLink href="/coordinator/companies">&larr; Back to Companies</BackLink>
+    <Page>
+      <PageHeader
+        back={{ href: "/coordinator/companies", label: "Back to Companies" }}
+        title={<span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1"><span className="break-words">{company.company_name}</span><Pill tone={company.status === "active" ? "green" : "slate"}>{company.status === "active" ? "Active" : "Inactive"}</Pill></span>}
+        sentence={company.company_code}
+        meta={<span className="break-words">{location} · {contact || "No contact details yet"}</span>}
+      >
+        <Btn onClick={() => setEditingCompany(true)}>
+          <Icon name="edit" size={15} /> Edit
+        </Btn>
+      </PageHeader>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex items-start gap-3">
-          <Avatar name={company.company_name} size={52} />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="min-w-0 break-words text-base font-semibold text-slate-900">{company.company_name}</h2>
-              <Pill tone={company.status === "active" ? "green" : "slate"}>{company.status === "active" ? "Active" : "Inactive"}</Pill>
-            </div>
-            <p className="truncate text-xs text-slate-500">{company.company_code}</p>
-            <p className="mt-2 flex min-w-0 items-center gap-1.5 text-sm text-slate-600">
-              <Icon name="location" size={14} />
-              <span className="truncate" title={location}>{location}</span>
-            </p>
-            <p className="mt-1 flex min-w-0 items-center gap-1.5 text-sm text-slate-600">
-              <Icon name="mail" size={14} />
-              <span className="truncate" title={contact}>{contact || "No contact details yet"}</span>
-            </p>
-          </div>
-          <button type="button" onClick={() => setEditingCompany(true)} className="shrink-0 rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-        </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-3">
-          <Stat label="Supervisors" value={`${supervisors.length} of ${MAX_SUPERVISORS}`} note={atLimit ? "Full" : "Room for more"} />
-          <Stat label="Active interns" value={summary.active ?? 0} note={summary.invitation_pending ? `${summary.invitation_pending} invitation pending` : undefined} />
-          <Stat label="Completed" value={summary.completed ?? 0} />
-        </div>
-      </section>
+      <div className="dash-strip" style={{ "--cols": 3 }}>
+        <Stat label="Supervisors" value={`${supervisors.length} of ${MAX_SUPERVISORS}`} note={atLimit ? "Full" : "Room for more"} />
+        <Stat label="Active interns" value={summary.active ?? 0} note={summary.invitation_pending ? `${summary.invitation_pending} invitation pending` : undefined} />
+        <Stat label="Completed" value={summary.completed ?? 0} />
+      </div>
 
       {notice && <Banner tone="green" onDismiss={() => setNotice("")}>{notice}</Banner>}
       {actionError && <Banner tone="red" onDismiss={() => setActionError("")}>{actionError}</Banner>}
 
-      <TabBar
+      <TabStrip
+        label="Company sections"
         tabs={[
           { key: "supervisors", label: "Supervisors", count: supervisors.length },
           { key: "interns", label: "Interns", count: interns.length },
@@ -268,113 +250,107 @@ export default function CompanyDetail() {
       />
 
       {tab === "supervisors" && (
-        <section className="space-y-3">
-          <SectionTitle
-            title="Supervisors"
-            help="They log and approve your interns' attendance and tasks."
-            action={
-              !atLimit && (
-                <button type="button" onClick={() => setShowAddSupervisor(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-                  <Icon name="plus" size={15} /> Add supervisor
-                </button>
-              )
-            }
-          />
+        <Section
+          title="Supervisors"
+          help="They log and approve your interns' attendance and tasks."
+          flush
+          action={
+            !atLimit && (
+              <Btn variant="primary" sm onClick={() => setShowAddSupervisor(true)}>
+                <Icon name="plus" size={15} /> Add supervisor
+              </Btn>
+            )
+          }
+        >
           {atLimit && (
-            <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm text-blue-700">
-              This company already has its {MAX_SUPERVISORS} supervisors. Edit one to replace them.
-            </p>
+            <div className="k-pad pb-0">
+              <p className="k-note">This company already has its {MAX_SUPERVISORS} supervisors. Edit one to replace them.</p>
+            </div>
           )}
           {supervisors.length === 0 ? (
-            <EmptyState
-              icon="user"
-              title="No supervisors yet"
-              text="Add a supervisor so interns here can log attendance and get their work reviewed."
-              action={<button type="button" onClick={() => setShowAddSupervisor(true)} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Add supervisor</button>}
-            />
+            <div className="k-pad">
+              <EmptyState
+                icon="user"
+                title="No supervisors yet"
+                text="Add a supervisor so interns here can log attendance and get their work reviewed."
+                action={<Btn variant="primary" onClick={() => setShowAddSupervisor(true)}>Add supervisor</Btn>}
+              />
+            </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <DataList>
               {supervisors.map((s) => (
                 <SupervisorCard key={s.user_id} supervisor={s} showCompany={false} menuItems={supervisorActions.menuFor(s)} />
               ))}
-            </div>
+            </DataList>
           )}
-        </section>
+        </Section>
       )}
 
       {tab === "interns" && (
-        <section className="space-y-3">
-          <SectionTitle
-            title="Interns deployed here"
-            action={
-              company.status === "active" && (
-                <button type="button" onClick={() => setShowAddIntern(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-                  <Icon name="plus" size={15} /> Add intern
-                </button>
-              )
-            }
-          />
+        <Section
+          title="Interns deployed here"
+          flush
+          action={
+            company.status === "active" && (
+              <Btn variant="primary" sm onClick={() => setShowAddIntern(true)}>
+                <Icon name="plus" size={15} /> Add intern
+              </Btn>
+            )
+          }
+        >
           {(interns.length > 0 || transferredOut.length > 0) && (
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-              <input
-                {...inputProps("search")}
-                value={internQuery}
-                onChange={(e) => setInternQuery(e.target.value)}
-                placeholder="Search interns by name…"
-                aria-label="Search interns"
-                className="w-full min-w-0 rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500 sm:max-w-sm"
-              />
-              <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter by status">
-                {filters.map((f) => (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => setInternFilter(f.key)}
-                    aria-pressed={internFilter === f.key}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                      internFilter === f.key ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
+            <div className="k-pad pb-0">
+              <FilterBar>
+                <SearchField
+                  {...inputProps("search")}
+                  value={internQuery}
+                  onChange={(e) => setInternQuery(e.target.value)}
+                  placeholder="Search interns by name…"
+                  aria-label="Search interns"
+                />
+                <Chips label="Filter by status">
+                  {filters.map((f) => (
+                    <Chip key={f.key} on={internFilter === f.key} onClick={() => setInternFilter(f.key)}>{f.label}</Chip>
+                  ))}
+                </Chips>
+              </FilterBar>
             </div>
           )}
           {showingTransferred ? (
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <p className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">These interns were moved to another company. Their earlier hours and records stay with them.</p>
+            <>
+              <p className="k-pad pb-0 text-xs text-slate-600">These interns were moved to another company. Their earlier hours and records stay with them.</p>
               {filteredTransferred.length === 0 ? (
                 <p className="px-6 py-8 text-center text-sm text-slate-500">No one matches your search.</p>
               ) : (
-                <ul className="divide-y divide-slate-100">
+                <DataList>
                   {filteredTransferred.map((i) => (
-                    <li key={i.deployment_id} className="flex items-center gap-2.5 p-3">
-                      <Avatar name={i.intern_name} size={36} />
-                      <div className="min-w-0 flex-1">
-                        <Link href={`/coordinator/interns/${i.deployment_id}/report`} className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline">{i.intern_name}</Link>
-                        <p className="truncate text-xs text-slate-500">Now at {i.transferred_to ?? "another company"}{i.moved_on ? ` since ${new Date(i.moved_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}</p>
-                      </div>
-                      <Pill tone="slate" size="sm" className="shrink-0">Transferred out</Pill>
-                    </li>
+                    <DataRow
+                      key={i.deployment_id}
+                      wrap
+                      href={`/coordinator/interns/${i.deployment_id}/report`}
+                      lead={<Avatar name={i.intern_name} size={36} />}
+                      title={i.intern_name}
+                      sub={`Now at ${i.transferred_to ?? "another company"}${i.moved_on ? ` since ${new Date(i.moved_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}`}
+                      side={<Pill tone="slate" size="sm">Transferred out</Pill>}
+                    />
                   ))}
-                </ul>
+                </DataList>
               )}
-            </div>
+            </>
           ) : interns.length === 0 ? (
-            <EmptyState
-              icon="users"
-              title="No interns deployed here yet"
-              text={company.status === "active" ? "Add an intern to deploy them to this company." : "This company is inactive. Mark it active to deploy interns here."}
-            />
-          ) : filteredInterns.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">No interns match these filters.</p>
-          ) : (
-            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <InternRoster interns={filteredInterns} menuFor={internActions.menuFor} showCompany={false} />
+            <div className="k-pad">
+              <EmptyState
+                icon="users"
+                title="No interns deployed here yet"
+                text={company.status === "active" ? "Add an intern to deploy them to this company." : "This company is inactive. Mark it active to deploy interns here."}
+              />
             </div>
+          ) : filteredInterns.length === 0 ? (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">No interns match these filters.</p>
+          ) : (
+            <InternRoster interns={filteredInterns} menuFor={internActions.menuFor} showCompany={false} />
           )}
-        </section>
+        </Section>
       )}
 
       {internActions.dialogs}
@@ -403,6 +379,6 @@ export default function CompanyDetail() {
           onSaved={() => { setShowAddIntern(false); setNotice("Intern added. They will get an email invitation."); load(); }}
         />
       )}
-    </div>
+    </Page>
   );
 }

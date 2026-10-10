@@ -175,6 +175,7 @@ class AttendanceModeTest extends TestCase
 
     public function test_supervisor_can_log_a_morning_and_afternoon_day(): void
     {
+        $this->mode('split');
         Sanctum::actingAs($this->sup);
         $this->postJson('/api/supervisor/attendance', [
             'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-12',

@@ -6,6 +6,7 @@ import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import FeedbackThread from "@/components/dean/FeedbackThread";
 import { FEEDBACK_READ_EVENT } from "@/components/FeedbackUnreadWatcher";
 import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
+import { Page, PageHeader } from "@/components/dash/page";
 
 export default function FeedbackFromDean() {
   const [items, setItems] = useState(null);
@@ -28,11 +29,8 @@ export default function FeedbackFromDean() {
   useEffect(load, [load]);
 
   return (
-    <div className="space-y-5 sm:p-2 lg:p-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Feedback from Dean</h1>
-        <p className="mt-1 text-slate-600">Remarks your Dean has sent you. Tap Acknowledge to let them know you have seen it, or reply to follow up. They mark it resolved once it is dealt with.</p>
-      </div>
+    <Page size="narrow">
+      <PageHeader title="Feedback from Dean" sentence="Remarks your Dean has sent you. Tap Acknowledge to let them know you have seen it, or reply to follow up. They mark it resolved once it is dealt with." />
 
       {error && <ErrorNote onRetry={load}>We couldn&apos;t load your feedback.</ErrorNote>}
       {!items && !error && <SkeletonList rows={2} height="h-24" />}
@@ -46,6 +44,6 @@ export default function FeedbackFromDean() {
           <FeedbackThread key={f.id} thread={f} viewer="coordinator" base="/api/coordinator/feedback" onUpdate={(u) => setItems((list) => list.map((x) => (x.id === u.id ? u : x)))} />
         ))}
       </ul>
-    </div>
+    </Page>
   );
 }

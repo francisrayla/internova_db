@@ -92,9 +92,10 @@ class EvaluationRulesTest extends TestCase
         $row = collect($this->getJson('/api/supervisor/evaluations')->json('interns'))->firstWhere('deployment_id', $this->dep->id);
         $this->assertTrue($row['can_evaluate']);
 
-        // No type is sent any more: it defaults to Final.
-        $id = $this->postJson('/api/supervisor/evaluations', $this->formalPayload())->assertOk()->json('id');
-        $this->assertSame('Final', Evaluation::findOrFail($id)->evaluation_type);
+        // There is no Prelim / Midterm / Final: no type is stored, and one sent by an old client is ignored.
+        $id = $this->postJson('/api/supervisor/evaluations', $this->formalPayload(['evaluation_type' => 'Midterm']))->assertOk()->json('id');
+        $this->assertNull(Evaluation::findOrFail($id)->evaluation_type);
+        $this->assertArrayNotHasKey('evaluation_type', collect($this->getJson('/api/supervisor/evaluations')->json('evaluations'))->firstWhere('id', $id));
         $this->assertEquals(100, Evaluation::findOrFail($id)->overall_score);
 
         $this->postJson('/api/supervisor/evaluations', $this->formalPayload())
@@ -159,7 +160,7 @@ class EvaluationRulesTest extends TestCase
         $e = Evaluation::findOrFail($id);
         $this->assertEquals(85.5, $e->overall_score);
         $this->assertSame('better', $e->remarks);
-        $this->assertSame('Manual', $e->evaluation_type);
+        $this->assertNull($e->evaluation_type);
         $this->assertNotNull($e->edited_at);
         // Without a breakdown, per-criterion scores are not invented.
         $this->assertSame(0, EvaluationScore::where('evaluation_id', $id)->count());
@@ -183,17 +184,19 @@ class EvaluationRulesTest extends TestCase
 
     public function test_existing_duplicates_stay_readable_and_the_latest_is_official(): void
     {
-        $mk = fn ($date, $score) => Evaluation::create([
-            'deployment_id' => $this->dep->id, 'evaluator_id' => $this->sup->id, 'evaluation_type' => 'Midterm',
+        // Old data: one row per term (the column is still there, but nothing reads or shows it).
+        $mk = fn ($type, $date, $score) => Evaluation::forceCreate([
+            'deployment_id' => $this->dep->id, 'evaluator_id' => $this->sup->id, 'evaluation_type' => $type,
             'evaluation_date' => $date, 'overall_score' => $score, 'status' => 'submitted',
         ]);
-        $old = $mk('2026-08-01', 41);
-        $new = $mk('2026-09-01', 44);
+        $old = $mk('Prelim', '2026-08-01', 41);
+        $new = $mk('Midterm', '2026-09-01', 44);
 
         Sanctum::actingAs($this->sup);
         $res = $this->getJson('/api/supervisor/evaluations')->assertOk();
         $by = collect($res->json('evaluations'))->keyBy('id');
         $this->assertCount(2, $by);
+        $this->assertArrayNotHasKey('evaluation_type', $by[$new->id]);
         $this->assertTrue($by[$new->id]['is_official']);
         $this->assertFalse($by[$old->id]['is_official']);
         $this->assertSame($new->id, Evaluation::officialFor($this->dep->id)->id);
@@ -252,5 +255,30 @@ class EvaluationRulesTest extends TestCase
 
         // Word splits runs; stripping the tags is enough for substring checks.
         return html_entity_decode(strip_tags($xml));
+    }
+
+    public function test_an_evaluation_cannot_be_dated_in_the_future_or_repeat_a_criterion(): void
+    {
+        $this->finishHours();
+        Sanctum::actingAs($this->sup);
+        $future = now()->addDays(30)->toDateString();
+
+        $this->postJson('/api/supervisor/evaluations', $this->formalPayload(['evaluation_date' => $future]))
+            ->assertStatus(422)->assertJsonValidationErrors('evaluation_date');
+        $this->postJson('/api/supervisor/evaluations/manual', ['deployment_id' => $this->dep->id, 'evaluation_date' => $future, 'overall_score' => 80])
+            ->assertStatus(422)->assertJsonValidationErrors('evaluation_date');
+
+        // One criterion sent twice would count twice in the weighted total.
+        $first = EvaluationCriterion::where('school_id', $this->dep->school_id)->where('status', 'active')->orderBy('id')->first();
+        $twice = [['criteria_id' => $first->id, 'score' => (float) $first->max_score], ['criteria_id' => $first->id, 'score' => (float) $first->max_score]];
+        $this->postJson('/api/supervisor/evaluations', $this->formalPayload(['scores' => $twice]))
+            ->assertStatus(422)->assertJsonValidationErrors('scores.1.criteria_id');
+        $this->assertSame(0, Evaluation::count());
+
+        $id = $this->postJson('/api/supervisor/evaluations', $this->formalPayload(['evaluation_date' => now()->toDateString()]))->assertOk()->json('id');
+        $this->patchJson("/api/supervisor/evaluations/{$id}", $this->formalPayload(['evaluation_date' => $future]))
+            ->assertStatus(422)->assertJsonValidationErrors('evaluation_date');
+        $this->patchJson("/api/supervisor/evaluations/{$id}", $this->formalPayload(['scores' => $twice]))
+            ->assertStatus(422)->assertJsonValidationErrors('scores.1.criteria_id');
     }
 }

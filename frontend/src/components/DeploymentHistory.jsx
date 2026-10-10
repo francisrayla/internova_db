@@ -11,9 +11,9 @@ import { Pill } from "@/components/ui";
 export default function DeploymentHistory({ history, compact = false, printable = false, bare = false, title = "Deployment history", className = "" }) {
   if (!Array.isArray(history) || history.length < 2) return null;
   return (
-    <section className={`${bare ? "" : "rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"} ${printable ? "" : "print:hidden"} ${compact || bare ? "" : "sm:p-5"} ${className}`} aria-label={title}>
+    <section className={`${bare ? "" : "dash-card"} ${printable ? "" : "print:hidden"} ${className}`} aria-label={title}>
       <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-      {!compact && <p className="mt-0.5 text-xs text-slate-500">One deployment, moved between companies. Hours and records carry over.</p>}
+      {!compact && <p className="mt-0.5 text-sm text-slate-500">One deployment, moved between companies. Hours and records carry over.</p>}
       <ol className="mt-3 space-y-0">
         {history.map((h, idx) => {
           const last = idx === history.length - 1;
@@ -26,8 +26,8 @@ export default function DeploymentHistory({ history, compact = false, printable 
                   <p className="min-w-0 truncate text-sm font-semibold text-slate-900" title={h.company_name ?? ""}>{h.company_name ?? "Company removed"}</p>
                   <Pill tone={h.is_current ? "green" : "slate"} size="sm">{h.is_current ? (h.status === "active" ? "Current" : "Last placement") : "Moved"}</Pill>
                 </div>
-                <p className="truncate text-xs text-slate-500" title={h.supervisor_name ?? ""}>{h.supervisor_name ?? "No supervisor"}</p>
-                <p className="text-xs text-slate-600">
+                <p className="truncate text-sm text-slate-500" title={h.supervisor_name ?? ""}>{h.supervisor_name ?? "No supervisor"}</p>
+                <p className="text-sm text-slate-600">
                   {h.range}
                   <span className="mx-1 text-slate-300">·</span>
                   <span className="font-semibold text-slate-800">{h.hours} h</span>

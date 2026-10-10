@@ -16,6 +16,8 @@ export default function Login() {
   const [error, setError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
+  // Why the user was sent back here (apiFetch adds ?reason=expired when the server ended their session).
+  const [notice, setNotice] = useState("");
 
   // Already signed in (e.g. reopened the installed app, or just navigated
   // back here) — skip straight to the dashboard instead of making them look
@@ -25,7 +27,12 @@ export default function Login() {
     resolveLandingPath(readStoredUser()).then((landingPath) => {
       if (cancelled) return;
       if (landingPath) router.replace(landingPath);
-      else setCheckingSession(false);
+      else {
+        if (new URLSearchParams(window.location.search).get("reason") === "expired") {
+          setNotice("Your session has ended, so we signed you out to keep your account safe. Please sign in again.");
+        }
+        setCheckingSession(false);
+      }
     });
     return () => {
       cancelled = true;
@@ -119,6 +126,7 @@ export default function Login() {
           </button>
         </form>
 
+        {notice && !error && !message ? <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">{notice}</p> : null}
         {error ? <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</p> : null}
         {!error && message ? <p className="rounded-xl bg-blue-50 px-3 py-2 text-sm text-blue-700">{message}</p> : null}
 

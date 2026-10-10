@@ -1,21 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { getEcho } from "@/lib/echo";
+import { greeting } from "@/lib/timeAgo";
+import { plural } from "@/lib/format";
+import { Card, Cols, DashHeader, DashPage, Notice, SegmentedBar, StatusChip, TextLink } from "@/components/dash";
 import RevenuePanel from "./RevenuePanel";
 
 const ACTIVE_INQUIRY_STATUSES = ["new", "contacted", "under_discussion", "approved"];
 const EXPIRED_STATUSES = ["expired", "offer_expired"];
 const PENDING_STATUSES = ["pending_payment", "awaiting_acceptance", "accepted"];
 
-const INQUIRY_STATUS_STYLE = {
-  new: "bg-blue-100 text-blue-700",
-  contacted: "bg-yellow-100 text-yellow-700",
-  under_discussion: "bg-purple-100 text-purple-700",
-  approved: "bg-blue-100 text-blue-700",
-};
+const INQUIRY_TONE = { new: "info", contacted: "warn", under_discussion: undefined, approved: "ok" };
 
 function statusLabel(status) {
   return (status ?? "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -28,6 +25,8 @@ export default function DashboardPage() {
   const [aiUsage, setAiUsage] = useState(null);
   const [revenue, setRevenue] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [lastLiveUpdate, setLastLiveUpdate] = useState(null);
   const echoChannelRef = useRef(null);
 
@@ -46,9 +45,16 @@ export default function DashboardPage() {
         setInquiries(inquiriesRes.inquiries ?? []);
         setActivity(activityRes.logs ?? []);
         setAiUsage(aiRes);
+        setError(false);
+        setLoadedOnce(true);
       })
-      .catch(console.error)
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
+  }
+
+  function retry() {
+    setLoading(true);
+    load();
   }
 
   useEffect(() => {
@@ -66,10 +72,10 @@ export default function DashboardPage() {
       load();
     }
 
-    echoChannelRef.current = echo.channel("superadmin-notifications").listen(".notification.created", handlePush);
+    echoChannelRef.current = echo.private("superadmin.notifications").listen(".notification.created", handlePush);
 
     return () => {
-      echo.channel("superadmin-notifications").stopListening(".notification.created", handlePush);
+      echo.private("superadmin.notifications").stopListening(".notification.created", handlePush);
       echoChannelRef.current = null;
     };
   }, []);
@@ -81,201 +87,129 @@ export default function DashboardPage() {
 
   const pendingInquiries = inquiries.filter((i) => ACTIVE_INQUIRY_STATUSES.includes(i.status));
   // `inquiries` already comes back newest-first (see SuperadminFullController::planInquiries),
-  // so the widget just takes the 3 most recent submissions regardless of status — a status-first
+  // so the widget just takes the 4 most recent submissions regardless of status — a status-first
   // grouping would otherwise bury a brand-new inquiry behind an older one still pending review.
-  const recentInquiries = inquiries.slice(0, 3);
+  const recentInquiries = inquiries.slice(0, 4);
 
   const expiringSoon = schools
     .filter((s) => s.days_until_expiry !== null && s.days_until_expiry !== undefined && s.days_until_expiry >= 0 && s.days_until_expiry <= 30)
     .sort((a, b) => a.days_until_expiry - b.days_until_expiry)
     .slice(0, 5);
 
-  const totalForPercent = schools.length || 1;
-  const activePercent = Math.round((activeSchools.length / totalForPercent) * 100);
-
-  const stats = [
-    { label: "Total Schools", value: schools.length, note: "Approved tenants", href: "/superadmin/schools", urgent: false },
-    { label: "Active Subscriptions", value: activeSchools.length, note: "Currently paying and active", href: "/superadmin/billing", urgent: false },
-    { label: "Pending Inquiries", value: pendingInquiries.length, note: pendingInquiries.length > 0 ? "Awaiting your review" : "All caught up", href: "/superadmin/inquiries", urgent: pendingInquiries.length > 0 },
-    { label: "Expired / Offer Expired", value: expiredSchools.length, note: expiredSchools.length > 0 ? "Needs follow-up" : "Nothing overdue", href: "/superadmin/billing", urgent: expiredSchools.length > 0 },
-  ];
+  const aiCount = aiUsage ? (aiUsage.polished_count ?? 0) + (aiUsage.drafted_count ?? 0) : null;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-600 to-blue-800 p-6 text-white shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-bold">Good day, Super Admin 👋</h2>
-            <p className="mt-1 text-sm text-blue-100">Here&apos;s your platform at a glance.</p>
-          </div>
-          {lastLiveUpdate && (
-            <span className="flex items-center gap-1.5 text-xs text-blue-100">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-              Live — updated {lastLiveUpdate.toLocaleTimeString()}
-            </span>
-          )}
-        </div>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/superadmin/inquiries" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
-            View Inquiries
-          </Link>
-          <Link href="/superadmin/billing" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
-            Billing Status
-          </Link>
-        </div>
-      </section>
+    <DashPage>
+      <DashHeader
+        title={`${greeting()}, Super Admin`}
+        sentence="Here's how the platform is doing today."
+        meta={lastLiveUpdate ? `Updated live at ${lastLiveUpdate.toLocaleTimeString()}` : undefined}
+      >
+        <TextLink href="/superadmin/inquiries" arrow>View inquiries</TextLink>
+        <TextLink href="/superadmin/billing" arrow>Billing status</TextLink>
+      </DashHeader>
 
-      {/* KPI cards */}
-      <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
-            ))
-          : stats.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm outline-none sm:p-5 transition hover:border-blue-300 hover:shadow-md focus-visible:border-blue-400 focus-visible:ring-2 focus-visible:ring-blue-200"
-              >
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                <p className="mt-2 text-2xl font-bold text-slate-900 sm:mt-3 sm:text-3xl">{item.value}</p>
-                <p className={`mt-2 text-xs font-medium ${item.urgent ? "text-red-600" : "text-blue-600"}`}>{item.note}</p>
-              </Link>
-            ))}
-      </section>
+      {error && <Notice onRetry={retry}>We couldn&apos;t load the platform figures. Check your connection and try again.</Notice>}
 
+      {/* Nothing is drawn until a first load worked, so a failed load never shows as zeros. */}
+      {(loadedOnce || !error) && (<>
       {/* Revenue (server-side, from money actually paid) */}
       <RevenuePanel revenue={revenue} loading={loading} />
 
-      {/* AI row */}
-      <section>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">AI Requests This Month</p>
-          <p className="mt-3 text-3xl font-bold text-slate-900">
-            {aiUsage ? (aiUsage.polished_count ?? 0) + (aiUsage.drafted_count ?? 0) : "—"}
-          </p>
-          <Link href="/superadmin/ai-usage" className="mt-1 text-xs text-blue-600 hover:underline">
-            {aiUsage?.feature_live ? "Narratives polished and drafted — view usage →" : "AI isn't set up yet — view details →"}
-          </Link>
-        </div>
-      </section>
+      <Card
+        title="Subscriptions"
+        help={loading ? undefined : `${plural(schools.length, "school")} in total${aiCount !== null && aiUsage?.feature_live ? `. AI requests this month: ${aiCount}` : ""}.`}
+        action={<TextLink href="/superadmin/billing" arrow>Manage</TextLink>}
+      >
+        {loading ? (
+          <p className="dash-empty">Loading…</p>
+        ) : schools.length === 0 ? (
+          <p className="dash-empty">No schools yet.</p>
+        ) : (
+          <SegmentedBar
+            label="Schools by subscription"
+            segments={[
+              { key: "active", label: "Active", value: activeSchools.length, tone: "ok", href: "/superadmin/billing" },
+              { key: "pending", label: "Pending", value: pendingSchools.length, tone: "warn", href: "/superadmin/billing" },
+              { key: "expired", label: "Expired", value: expiredSchools.length, tone: "risk", href: "/superadmin/billing" },
+              { key: "suspended", label: "Suspended", value: suspendedSchools.length, tone: "muted", href: "/superadmin/schools" },
+            ]}
+          />
+        )}
+      </Card>
 
-      {/* Main 3-column grid */}
-      <section className="grid gap-6 lg:grid-cols-3">
-
-        {/* Recent plan inquiries */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">Recent Plan Inquiries</h3>
-            <Link href="/superadmin/inquiries" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
-          </div>
-          <div className="mt-4 space-y-3">
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading…</p>
-            ) : recentInquiries.length === 0 ? (
-              <p className="text-sm text-slate-500">No inquiries yet</p>
-            ) : (
-              recentInquiries.map((inq) => (
-                <div key={inq.id} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">{inq.school_name}</p>
-                    <p className="text-xs text-slate-500">{inq.interested_plan ?? "—"} · {inq.expected_interns ?? "—"} interns</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${INQUIRY_STATUS_STYLE[inq.status] ?? "bg-slate-100 text-slate-600"}`}>
-                    {statusLabel(inq.status)}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Subscription status */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">Subscription Status</h3>
-            <Link href="/superadmin/billing" className="text-xs font-semibold text-blue-600 hover:underline">Manage</Link>
-          </div>
-          <div className="mt-4 space-y-2">
-            {[
-              { label: "Active", value: activeSchools.length, color: "bg-blue-500" },
-              { label: "Pending", value: pendingSchools.length, color: "bg-amber-500" },
-              { label: "Expired", value: expiredSchools.length, color: "bg-red-500" },
-              { label: "Suspended", value: suspendedSchools.length, color: "bg-slate-400" },
-            ].map((row) => (
-              <div key={row.label} className="flex items-center gap-3">
-                <span className={`h-2 w-2 rounded-full ${row.color}`} />
-                <span className="flex-1 text-sm text-slate-700">{row.label}</span>
-                <span className="text-sm font-semibold text-slate-900">{row.value}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-blue-500" style={{ width: `${activePercent}%` }} />
-          </div>
-          <p className="mt-1 text-xs text-slate-500">{activePercent}% active</p>
-        </div>
-
-        {/* Expiring soon */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900">Expiring Soon</h3>
-            <Link href="/superadmin/billing" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
-          </div>
-          <div className="mt-4 space-y-3">
-            {loading ? (
-              <p className="text-sm text-slate-500">Loading…</p>
-            ) : expiringSoon.length === 0 ? (
-              <p className="text-sm text-slate-500">No subscriptions expiring in the next 30 days</p>
-            ) : (
-              expiringSoon.map((s) => (
-                <div key={s.id} className="flex items-center justify-between rounded-xl bg-orange-50 px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">{s.name}</p>
-                    <p className="text-xs text-slate-500">{s.plan}</p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">{s.expiry}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Recent activity */}
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900">Recent System Activity</h3>
-          <Link href="/superadmin/activity-logs" className="text-xs font-semibold text-blue-600 hover:underline">View all logs</Link>
-        </div>
-        <div className="mt-4 space-y-2">
+      <Cols layout="even">
+        <Card
+          title="Recent plan inquiries"
+          help={loading ? undefined : pendingInquiries.length > 0 ? `${pendingInquiries.length} still open` : "Nothing waiting for you"}
+          action={<TextLink href="/superadmin/inquiries" arrow>View all</TextLink>}
+        >
           {loading ? (
-            <p className="text-sm text-slate-500">Loading…</p>
-          ) : activity.length === 0 ? (
-            <p className="text-sm text-slate-500">No activity recorded yet.</p>
+            <p className="dash-empty">Loading…</p>
+          ) : recentInquiries.length === 0 ? (
+            <p className="dash-empty">No inquiries yet.</p>
           ) : (
-            activity.slice(0, 5).map((item) => (
-              // Stacked below sm: — with no flex-wrap at all, the timestamp
-              // (shrink-0, ~150px) shared one line with the flex-1 text
-              // column no matter how little room was left, squeezing
-              // "Updated Maintenance Mode" down to a few characters per line.
-              <div key={item.id} className="flex flex-col gap-1 rounded-xl bg-slate-50 px-4 py-3 sm:flex-row sm:items-start sm:gap-3">
-                <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-blue-400" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-900">{item.action}</p>
-                    <p className="text-xs text-slate-500">
-                      {item.description}{item.school ? ` · ${item.school}` : ""}
-                    </p>
+            <ul className="dash-list">
+              {recentInquiries.map((inq) => (
+                <li key={inq.id}>
+                  <div className="dash-row">
+                    <span className="dash-row-main">
+                      <span className="dash-row-title">{inq.school_name}</span>
+                      <span className="dash-row-sub">{inq.interested_plan ?? "No plan chosen"} · {inq.expected_interns ?? "—"} interns</span>
+                    </span>
+                    <StatusChip tone={INQUIRY_TONE[inq.status]}>{statusLabel(inq.status)}</StatusChip>
                   </div>
-                </div>
-                <span className="shrink-0 pl-5 text-xs text-slate-400 sm:pl-0">{item.timestamp}</span>
-              </div>
-            ))
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      </section>
-    </div>
+        </Card>
+
+        <Card title="Expiring soon" help="Subscriptions ending in the next 30 days." action={<TextLink href="/superadmin/billing" arrow>View all</TextLink>}>
+          {loading ? (
+            <p className="dash-empty">Loading…</p>
+          ) : expiringSoon.length === 0 ? (
+            <p className="dash-empty">Nothing ends in the next 30 days.</p>
+          ) : (
+            <ul className="dash-list">
+              {expiringSoon.map((s) => (
+                <li key={s.id}>
+                  <div className="dash-row">
+                    <span className="dash-row-main">
+                      <span className="dash-row-title">{s.name}</span>
+                      <span className="dash-row-sub">{s.plan}</span>
+                    </span>
+                    <span className="dash-row-side">{s.expiry}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </Cols>
+
+      <Card title="Recent system activity" action={<TextLink href="/superadmin/activity-logs" arrow>View all logs</TextLink>}>
+        {loading ? (
+          <p className="dash-empty">Loading…</p>
+        ) : activity.length === 0 ? (
+          <p className="dash-empty">No activity recorded yet.</p>
+        ) : (
+          <ul className="dash-time">
+            {activity.slice(0, 5).map((item) => (
+              <li key={item.id}>
+                <div className="dash-time-top">
+                  <span className="dash-time-title">{item.action}</span>
+                  <span className="dash-time-when">{item.timestamp}</span>
+                </div>
+                <p className="dash-time-sub">
+                  {item.description}{item.school ? ` · ${item.school}` : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      </>)}
+    </DashPage>
   );
 }

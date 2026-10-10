@@ -86,4 +86,21 @@ class GroupTaskLeaderTest extends TestCase
 
         $this->assertSame([null, null], Task::orderBy('id')->pluck('leader_id')->all());
     }
+
+    public function test_a_member_sees_who_the_leader_is_but_a_solo_task_has_none(): void
+    {
+        $members = $this->deps->take(2);
+        $leader = $members->last()->intern_id;
+        $this->create(['deployment_ids' => $members->pluck('id')->all(), 'leader_id' => $leader])->assertOk();
+        $this->create(['title' => 'Solo', 'deployment_ids' => [$this->deps->last()->id]])->assertOk();
+        $group = Task::where('title', 'Shared job')->firstOrFail();
+        $solo = Task::where('title', 'Solo')->firstOrFail();
+
+        Sanctum::actingAs(User::findOrFail($members->first()->intern_id));
+        $this->getJson("/api/intern/tasks/{$group->id}")->assertOk()
+            ->assertJsonPath('task.leader_id', $leader)->assertJsonPath('task.is_leader', false);
+
+        Sanctum::actingAs(User::findOrFail($this->deps->last()->intern_id));
+        $this->getJson("/api/intern/tasks/{$solo->id}")->assertOk()->assertJsonPath('task.leader_id', null);
+    }
 }

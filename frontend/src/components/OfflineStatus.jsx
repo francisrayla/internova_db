@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
 import { getPendingAttendance, syncPendingAttendance, QUEUE_CHANGED_EVENT } from "@/lib/offlineQueue";
 
 export const ATTENDANCE_SYNCED_EVENT = "internova-attendance-synced";
@@ -77,24 +77,20 @@ export default function OfflineStatus() {
   return (
     <div className="space-y-2 print:hidden">
       {!online && (
-        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <Icon name="bellOff" size={16} className="mt-0.5 shrink-0" />
+        <div className="k-note is-warn flex-nowrap justify-start gap-2">
+          <NavIcon name="alert" size={16} className="mt-0.5 shrink-0" />
           <p>
             <span className="font-semibold">You&apos;re offline.</span> Showing the last data loaded on this device — some of it may be out of date.
           </p>
         </div>
       )}
       {pendingCount > 0 && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        <div className="k-note">
           {pendingCount} attendance {pendingCount === 1 ? "entry is" : "entries are"} saved on this device and will sync automatically once you&apos;re back online.
         </div>
       )}
       {syncNotice && (
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            syncNotice.tone === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-          }`}
-        >
+        <div className={`k-note ${syncNotice.tone === "error" ? "is-risk" : "is-ok"}`}>
           {syncNotice.text}
         </div>
       )}

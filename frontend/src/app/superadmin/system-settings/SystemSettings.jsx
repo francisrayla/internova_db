@@ -3,19 +3,17 @@
 import { useEffect, useState } from "react";
 import { fetchSuperadminData } from "@/lib/superadminApi";
 import { apiFetch } from "@/lib/apiFetch";
+import { Check } from "lucide-react";
+import { Btn, DataList, EmptyState, Input, Page, PageHeader, Section, SkeletonList } from "@/components/dash/page";
+import SaToast, { useSaToast } from "../SaToast";
 
 import { inputProps } from "@/lib/inputRules";
 export default function SystemSettingsPage() {
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState(null);
-  const [toast, setToast] = useState("");
+  const [toast, showToast] = useSaToast();
   const [drafts, setDrafts] = useState({});
-
-  function showToast(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(""), 3000);
-  }
 
   useEffect(() => {
     fetchSuperadminData("system-settings")
@@ -48,63 +46,69 @@ export default function SystemSettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {toast && <div className="fixed bottom-6 right-6 z-50 rounded-2xl bg-slate-900 px-5 py-3 text-sm text-white shadow-lg">{toast}</div>}
+    <Page size="narrow">
+      <SaToast msg={toast} />
 
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">System Settings</h2>
-        <p className="mt-1 text-sm text-slate-600">Each setting saves immediately — there&apos;s nothing to lose by leaving this page.</p>
-      </div>
+      <PageHeader
+        back={{ href: "/superadmin/settings", label: "Settings" }}
+        title="System Settings"
+        sentence="Switches save at once; text fields need their Save button."
+      />
 
       {loading ? (
-        <p className="text-sm text-slate-600">Loading settings…</p>
+        <Section><SkeletonList rows={3} height="h-16" /></Section>
+      ) : settings.length === 0 ? (
+        <Section>
+          <EmptyState icon="settings" title="No settings found" text="System settings are created on the server. Reload the page, or check that the backend is running." />
+        </Section>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {settings.map((setting) => (
-            <div key={setting.key} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-semibold text-slate-900">{setting.name}</p>
-              <p className="mt-1 text-sm text-slate-600">{setting.description}</p>
-              {setting.key === "maintenance_mode" && setting.value && (
-                <p className="mt-2 text-xs font-medium text-amber-600">
-                  Live now — every school and role except Super Admin sees a maintenance page until this is turned off.
-                </p>
-              )}
+        <Section flush>
+          <DataList>
+            {settings.map((setting) => (
+              <li key={setting.key} className="k-item grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-6">
+                <div className="min-w-0">
+                  <p className="text-[0.9375rem] font-medium" style={{ color: "var(--ui-ink)" }}>{setting.name}</p>
+                  <p className="mt-0.5 text-sm" style={{ color: "var(--ui-muted)" }}>{setting.description}</p>
+                  {setting.key === "maintenance_mode" && setting.value && (
+                    <p className="k-note is-warn mt-2">
+                      <span className="min-w-0">Live now — every school and role except Super Admin sees a maintenance page until this is turned off.</span>
+                    </p>
+                  )}
+                </div>
 
-              <div className="mt-4">
                 {setting.type === "toggle" ? (
-                  <button
+                  <Btn
+                    variant={setting.value ? "primary" : "secondary"}
+                    aria-pressed={Boolean(setting.value)}
                     onClick={() => saveSetting(setting.key, !setting.value)}
                     disabled={savingKey === setting.key}
-                    className={`rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50 ${
-                      setting.value
-                        ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                        : "border-slate-300 text-slate-700 hover:bg-slate-50"
-                    }`}
+                    className="sm:min-w-[7.5rem]"
                   >
-                    {savingKey === setting.key ? "Saving…" : setting.value ? "Enabled" : "Disabled"}
-                  </button>
+                    {savingKey === setting.key ? "Saving…" : setting.value ? (<><Check size={15} aria-hidden="true" /> Enabled</>) : "Disabled"}
+                  </Btn>
                 ) : (
-                  <div className="flex gap-2">
-                    <input {...inputProps("settingValue")}
+                  <div className="flex gap-2 sm:w-80">
+                    <Input {...inputProps("settingValue")}
                       type="text"
+                      aria-label={setting.name}
                       value={drafts[setting.key] ?? ""}
                       onChange={(e) => setDrafts((d) => ({ ...d, [setting.key]: e.target.value }))}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                      className="min-w-0 flex-1"
                     />
-                    <button
+                    <Btn
                       onClick={() => saveSetting(setting.key, drafts[setting.key])}
                       disabled={savingKey === setting.key || drafts[setting.key] === setting.value}
-                      className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      className="shrink-0"
                     >
                       {savingKey === setting.key ? "Saving…" : "Save"}
-                    </button>
+                    </Btn>
                   </div>
                 )}
-              </div>
-            </div>
-          ))}
-        </div>
+              </li>
+            ))}
+          </DataList>
+        </Section>
       )}
-    </div>
+    </Page>
   );
 }

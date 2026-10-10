@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { clampOnBlur } from "@/lib/clampNumber";
 import { cleanNumber } from "@/lib/inputRules";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import { Btn, FormField, Input, Select, SheetFrame } from "@/components/dash/page";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 import { todayLocalDate } from "@/lib/timeAgo";
@@ -86,76 +87,70 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-lg rounded-t-3xl bg-white p-4 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-base font-semibold text-slate-900">Manage deployment</h3>
-        <p className="mt-1 text-sm text-slate-500">{intern.intern_name} — currently at {intern.company_name}</p>
-
-        <form onSubmit={handleUpdateHours} className="mt-5 space-y-3 rounded-2xl border border-slate-200 p-4">
+    <SheetFrame
+      onClose={onClose}
+      title="Manage deployment"
+      description={`${intern.intern_name} — currently at ${intern.company_name}`}
+      size="md"
+      zIndex={60}
+      footer={<Btn onClick={onClose}>Close</Btn>}
+    >
+      <div className="space-y-6">
+        <form onSubmit={handleUpdateHours} className="space-y-3">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Update deployment details</p>
-            <p className="text-xs text-slate-500">Adjust hours or the start date. Supervisors are not picked per intern: everyone supervising at {intern.company_name} handles them.</p>
+            <h3 className="text-sm font-semibold text-slate-900">Update deployment details</h3>
+            <p className="k-hint mt-0.5">Adjust hours or the start date. Supervisors are not picked per intern: everyone supervising at {intern.company_name} handles them.</p>
           </div>
           <CompanySupervisorsNote companyId={currentCompanyId} companyName={intern.company_name} />
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Required hours</span>
-              <input
+          <div className="grid gap-3 sm:grid-cols-2">
+            <FormField label="Required hours">
+              <Input
                 type="text"
                 inputMode="numeric"
                 autoComplete="off"
                 value={hoursForm.required_hours}
                 onChange={(e) => setHoursForm((f) => ({ ...f, required_hours: cleanNumber(e.target.value, { max: 2000 }) }))}
                 onBlur={(e) => setHoursForm((f) => ({ ...f, required_hours: clampOnBlur(e.target.value, 1, 2000) }))}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
               />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1.5 block font-semibold text-slate-700">Start date</span>
-              <input type="date" value={hoursForm.start_date} min={[startDateBounds().min, intern.start_date_raw].filter(Boolean).sort()[0]} max={[startDateBounds().max, intern.start_date_raw].filter(Boolean).sort().at(-1)} onChange={(e) => setHoursForm((f) => ({ ...f, start_date: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-              <span className="mt-1 block text-xs text-slate-500">{START_DATE_HINT}</span>
-            </label>
+            </FormField>
+            <FormField label="Start date" hint={START_DATE_HINT}>
+              <Input type="date" value={hoursForm.start_date} min={[startDateBounds().min, intern.start_date_raw].filter(Boolean).sort()[0]} max={[startDateBounds().max, intern.start_date_raw].filter(Boolean).sort().at(-1)} onChange={(e) => setHoursForm((f) => ({ ...f, start_date: e.target.value }))} />
+            </FormField>
           </div>
-          {hoursError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{hoursError}</p>}
+          {hoursError && <p className="k-note is-risk" role="alert">{hoursError}</p>}
           <div className="flex justify-end">
-            <button type="submit" disabled={savingHours} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{savingHours ? "Saving…" : "Save"}</button>
+            <Btn variant="primary" type="submit" disabled={savingHours} className="max-sm:w-full">{savingHours ? "Saving…" : "Save"}</Btn>
           </div>
         </form>
 
-        <form onSubmit={askReassign} className="mt-4 space-y-3 rounded-2xl border border-slate-200 p-4">
+        <form onSubmit={askReassign} className="space-y-3 border-t border-slate-200 pt-6">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Reassign to a different company</p>
-            <p className="text-xs text-slate-500">Same deployment, new company. Their hours, attendance, journal and tasks stay with them and still count toward the total ({intern.hours_completed ?? 0} of {intern.required_hours} h so far). The move is saved in their deployment history.</p>
+            <h3 className="text-sm font-semibold text-slate-900">Reassign to a different company</h3>
+            <p className="k-hint mt-0.5">Same deployment, new company. Their hours, attendance, journal and tasks stay with them and still count toward the total ({intern.hours_completed ?? 0} of {intern.required_hours} h so far). The move is saved in their deployment history.</p>
           </div>
           {otherActiveCompanies.length === 0 ? (
-            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">No other active partner companies yet.</p>
+            <p className="k-note is-warn">No other active partner companies yet.</p>
           ) : (
             <>
-              <label className="block text-sm">
-                <span className="mb-1.5 block font-semibold text-slate-700">New company</span>
-                <select value={reassignForm.company_id} onChange={(e) => setReassignForm((f) => ({ ...f, company_id: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
+              <FormField label="New company">
+                <Select value={reassignForm.company_id} onChange={(e) => setReassignForm((f) => ({ ...f, company_id: e.target.value }))}>
                   <option value="">Select a company…</option>
                   {otherActiveCompanies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
-                </select>
-              </label>
+                </Select>
+              </FormField>
               <CompanySupervisorsNote companyId={reassignForm.company_id} companyName={newCompany?.company_name} />
-              <label className="block text-sm">
-                <span className="mb-1.5 block font-semibold text-slate-700">Moves on</span>
-                <input type="date" value={reassignForm.transferred_on} min={intern.start_date_raw ?? undefined} onChange={(e) => setReassignForm((f) => ({ ...f, transferred_on: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-              </label>
+              <FormField label="Moves on">
+                <Input type="date" value={reassignForm.transferred_on} min={intern.start_date_raw ?? undefined} onChange={(e) => setReassignForm((f) => ({ ...f, transferred_on: e.target.value }))} />
+              </FormField>
             </>
           )}
-          {reassignError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{reassignError}</p>}
+          {reassignError && <p className="k-note is-risk" role="alert">{reassignError}</p>}
           <div className="flex justify-end">
-            <button type="submit" disabled={reassigning || otherActiveCompanies.length === 0} className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+            <Btn type="submit" disabled={reassigning || otherActiveCompanies.length === 0} className="max-sm:w-full">
               {reassigning ? "Reassigning…" : "Reassign"}
-            </button>
+            </Btn>
           </div>
         </form>
-
-        <div className="mt-4 flex justify-end">
-          <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Close</button>
-        </div>
       </div>
       <ConfirmDialog
         open={confirmOpen}
@@ -172,6 +167,6 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
           They will show under {newCompany?.company_name ?? "the new company"} from now on, and no longer under {intern.company_name}, where they stay listed as &ldquo;Transferred out&rdquo;. {intern.company_name}&rsquo;s supervisors will no longer see them; the supervisors at the new company will.
         </p>
       </ConfirmDialog>
-    </div>
+    </SheetFrame>
   );
 }

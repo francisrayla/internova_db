@@ -1,6 +1,6 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: 6bc841a
-updated: 2026-10-06
+last_commit: 8c21eaf + uncommitted
+updated: 2026-10-10
 
 ## Map (where the code lives)
 - Phase 1 (account/billing): migration 2026_10_06_000000 (role dean only if roles has rows, dean_profiles); Models/DeanProfile.php; Services/SchoolStaff.php (roleId, dean, coordinator = the single seat, accountState pending|active|inactive); Services/AccountInvitationService.php; Controllers/Api/DeanController.php (dashboard, coordinator, invite/resend/updateEmail/deactivate, school settings); DeanSubscriptionController.php (billing, renamed from Coordinator*); Middleware/EnsureDeanOfSchool (`dean.school`); SuperadminFullController (inviteDean etc.); NotificationService::toSchoolDean; seeder dean@internova.test/password; tests/Feature/DeanTest.php.
@@ -16,6 +16,9 @@ updated: 2026-10-06
 - Frontend added: components/dean/{monitoring.jsx (GroupPill, Projection, AttendanceCalendar, CalendarDots), InternTable.jsx, FeedbackThread.jsx (both sides), WeeklyEmailPreference.jsx}; app/dean/coordinator/Insights.jsx (scorecard, chart, checklist); DeanInterns (strip, Cards/Table toggle in localStorage `dean.internsView`, download), InternDetail (projection + 4-week calendar), DeanDashboard (group tiles, Setup x of N, download); FeedbackUnreadWatcher takes role (dean badge on Coordinator nav); DownloadDocxButton fallbackName.
 
 - supervisor_name on rows (InternMonitoringService, DeploymentSummaryService) = names of the company's ACTIVE supervisors joined with ', ' (null = none); dean scorecard 'Active interns with a supervisor', checklist 'Every active intern has a supervisor' and 'no_supervisor' attention now mean the company has >=1 active supervisor. (see coordinator-monitoring log for the shared rule)
+- PAGING (2026-10-10, uncommitted): GET /dean/interns is opt-in paged (page/per_page, default 18) after the existing search/status/company/group/attention filters; DeanInterns.jsx uses Pagination, dean/coordinator/InternsTab.jsx Load more (12). summary/companies still describe the whole school. Test: PaginationRosterTest.
+
+- SORT (2026-10-10): GET /dean/interns?sort=name|group|company|hours|finish|clock|journal|tasks|eval|narrative&dir=asc|desc orders the whole filtered list before paging (DeanMonitoringController::sortRows, nulls last); InternTable.jsx is controlled (sort/onSort from DeanInterns.jsx). internDetail adds `totals` {attendance, activities, tasks}. Tests: tests/Feature/DeanQaFixesTest.php.
 
 ## How it works
 - One Dean + one coordinator per school. Dean pays/edits settings, invites/deactivates the coordinator (see Phase 1 rules in git history/code), and monitors read-only.
@@ -35,8 +38,8 @@ updated: 2026-10-06
 - Frontend: `npx eslint <touched>` (pre-existing set-state-in-effect errors in coordinator/layout.jsx, billing, AppShell); build from a scratch copy: tar copy of frontend minus node_modules/.next, mklink /J node_modules, `npx next build --webpack`, remove junction then copy.
 
 ## History (newest first, keep only the last 5)
-- 2026-10-08 uncommitted — Dean intern detail Attendance tab (dean/interns/[deploymentId]/InternDetail.jsx AttendanceTab, DeanMonitoringController intern detail attendance rows) shows the shared RedFlagBadge + red left border; the Dean has NO cross-intern attendance list (only this per-intern table and the calendar; the Interns list already has a search), so no new search bar there; no Dean notification for red flags — result: headless 390/1440 ok (see attendance log)
-- 2026-10-06 5a24cfb + uncommitted — calendar/scorecard/weekly summary/report docx 'today' now LocalTime::todayDate()/now() (Manila); last clock-in day via LocalTime::date
-- 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)
-- 2026-10-06 5a24cfb + uncommitted — reassigned interns now stay ONE deployment (see coordinator-monitoring): InternMonitoringService rows add moved_from, internDetail adds history (DeploymentHistoryService), InternDetail shows DeploymentHistory, InternCard/InternTable show 'Moved from' — result: pass (tests 68/68)
-- 2026-10-06 5a24cfb + uncommitted — same size pass on dean screens (numbers text-xl, cards p-4/p-5, avatars 40/48); checked 1229 and 390, no overflow/errors — result: pass
+- 2026-10-10 8c21eaf + uncommitted � QA pass: GET /dean/interns now takes sort/dir (whole filtered list, InternTable controlled by DeanInterns, SORT_KEYS in DeanMonitoringController), intern detail returns `totals` + 'Showing the latest N of M' note (lists stay capped 31/40/60), route params id/deploymentId/taskId/subtaskId/userId are numeric-only (AppServiceProvider, /abc is 404 not 500), Load more dedupes (ActivityTab, InternsTab), page past the end steps back, gated Dean menu hides Settings, 429 on change-password shows a sentence � result: DeanQaFixesTest 5/5 on private DB :3322
+- 2026-10-10 8c21eaf + uncommitted — S4: bank details, plan prices and the Test-mode flag moved to lib/billingConstants.js (NEXT_PUBLIC_PAYMONGO_LIVE=true hides test wording), corrupt localStorage user no longer crashes billing, account page uses SettingsScreen (one h1), WeeklyEmailPreference retry — result: shots, eslint only the old billing error
+- 2026-10-10 8c21eaf + uncommitted — Dean interns paged on the server — result: PaginationRosterTest ok
+- 2026-10-10 uncommitted — phase B restyle only (no logic): all dean screens on the page kit; new components/dean/PendingApproval.jsx for /dean/pending; PreviewMode no longer uses WorkspaceShell; billing emoji replaced by Lucide — result: eslint clean except old billing error, screens checked light/dark 1440/390 (see ui-design.md)
+- 2026-10-09 uncommitted — Dean alerts extracted from overview() into buildAlerts() + attentionQueue(User) (shown in the bell, no longer on DeanDashboard; overview still returns `alerts`); dashboard arrows/EmptyState/MODULE_ICON/Insights checklist use Lucide via NavIcon — result: DeanMonitoringTest/DeanInsightsTest pass, NotificationAttentionTest dean scoping pass

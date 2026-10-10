@@ -234,7 +234,7 @@ class DeanMonitoringTest extends TestCase
         \DB::flushQueryLog();
         \DB::enableQueryLog();
         $this->getJson('/api/dean/interns')->assertOk();
-        $this->assertLessThan(30, count(\DB::getQueryLog()));
+        $this->assertLessThan(40, count(\DB::getQueryLog())); // budget includes the school-access gate (school + subscription lookups)
     }
 
     public function test_intern_detail_and_narrative_docx_for_the_dean(): void

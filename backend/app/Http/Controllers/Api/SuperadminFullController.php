@@ -27,7 +27,10 @@ use App\Services\SchoolStaff;
 use App\Services\DefaultEvaluationCriteria;
 use App\Services\NarrativeAiService;
 use App\Services\NotificationService;
+use App\Services\PayMongoService;
+use App\Services\PaymentActivation;
 use App\Services\PlanFeatures;
+use App\Support\Paging;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +41,12 @@ use Illuminate\Validation\Rule;
 
 class SuperadminFullController extends Controller
 {
+    /** The "needs attention" queue for the Super Admin dashboard (see DashboardQueueService::superAdmin). */
+    public function dashboard(): JsonResponse
+    {
+        return response()->json(['queue' => \App\Services\DashboardQueueService::superAdmin()]);
+    }
+
     public function schools(): JsonResponse
     {
         $schools = School::with(['users.roles', 'coordinatorProfiles.user', 'subscriptions.plan'])
@@ -126,31 +135,44 @@ class SuperadminFullController extends Controller
         ];
     }
 
-    public function planInquiries(): JsonResponse
+    public function planInquiries(Request $request): JsonResponse
     {
-        $inquiries = PlanInquiry::orderBy('created_at', 'desc')
-            ->get()
-            ->map(fn($i) => [
-                'id'                    => $i->id,
-                'school_name'           => $i->school_name,
-                'school_type'           => $i->school_type,
-                'address'               => $i->address,
-                'contact_person'        => $i->contact_person,
-                'position'              => $i->position,
-                'email'                 => $i->email,
-                'phone'                 => $i->phone,
-                'expected_interns'      => $i->intern_range,
-                'expected_coordinators' => $i->expected_coordinators,
-                'interested_plan'       => $i->interested_plan,
-                'heard_from'            => $i->heard_from,
-                'message'               => $i->message,
-                'status'                => $i->status,
-                'notes'                 => $i->notes,
-                'school_id'             => $i->school_id,
-                'submitted_at'          => $i->created_at?->local()?->format('M d, Y · g:i A'),
-            ]);
+        $query = PlanInquiry::orderBy('created_at', 'desc')->orderByDesc('id');
+        $map = fn ($i) => [
+            'id'                    => $i->id,
+            'school_name'           => $i->school_name,
+            'school_type'           => $i->school_type,
+            'address'               => $i->address,
+            'contact_person'        => $i->contact_person,
+            'position'              => $i->position,
+            'email'                 => $i->email,
+            'phone'                 => $i->phone,
+            'expected_interns'      => $i->intern_range,
+            'expected_coordinators' => $i->expected_coordinators,
+            'interested_plan'       => $i->interested_plan,
+            'heard_from'            => $i->heard_from,
+            'message'               => $i->message,
+            'status'                => $i->status,
+            'notes'                 => $i->notes,
+            'school_id'             => $i->school_id,
+            'submitted_at'          => $i->created_at?->local()?->format('M d, Y · g:i A'),
+        ];
 
-        return response()->json(['inquiries' => $inquiries]);
+        // Opt-in paging: `statuses` (comma list) narrows the whole set first, `counts` always covers every inquiry.
+        if (Paging::requested($request)) {
+            if ($statuses = array_filter(explode(',', (string) $request->query('statuses')))) {
+                $query->whereIn('status', $statuses);
+            }
+            $page = $query->paginate(Paging::perPage($request, 15, 50));
+
+            return response()->json([
+                'inquiries' => collect($page->items())->map($map)->values(),
+                ...Paging::meta($page),
+                'counts' => PlanInquiry::selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status'),
+            ]);
+        }
+
+        return response()->json(['inquiries' => $query->get()->map($map)]);
     }
 
     /**
@@ -266,9 +288,9 @@ class SuperadminFullController extends Controller
             'contact_number'   => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'plan_name'        => 'required|string|in:Basic,Premium',
             'billing_period'   => 'required|string|in:monthly,yearly',
-            'list_price'       => 'required|numeric|min:0',
+            'list_price'       => 'required|numeric|min:0|max:9999999.99',
             'discount_amount'  => 'nullable|numeric|min:0|lte:list_price|decimal:0,2',
-            'amount'           => 'required|numeric|min:0',
+            'amount'           => 'required|numeric|min:0|max:9999999.99',
             'agreement_note'   => [
                 Rule::requiredIf(fn () => (float) ($request->discount_amount ?? 0) > 0),
                 'nullable', 'string', 'max:500',
@@ -279,7 +301,19 @@ class SuperadminFullController extends Controller
             'discount_amount.lte'  => 'Discount cannot be more than the plan price.',
         ]);
 
-        $school = DB::transaction(function () use ($data, $inquiry) {
+        // The offer must be the price list minus the stated discount: the form only displays the sum,
+        // the server does not trust it (a tampered request could otherwise offer a school for 1 peso).
+        $plan = SubscriptionPlan::where('name', $data['plan_name'])->firstOrFail();
+        $planPrice = round((float) ($data['billing_period'] === 'yearly' ? $plan->yearly_price : $plan->monthly_price), 2);
+        $discount = round((float) ($data['discount_amount'] ?? 0), 2);
+        if (abs((float) $data['list_price'] - $planPrice) > 0.005 || abs((float) $data['amount'] - ($planPrice - $discount)) > 0.005) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The amount does not match the plan price minus the discount. Reload the page and try again.',
+            ], 422);
+        }
+
+        $school = DB::transaction(function () use ($data, $inquiry, $plan) {
             $school = School::create([
                 'school_code'    => $data['school_code'],
                 'school_name'    => $data['school_name'],
@@ -288,8 +322,6 @@ class SuperadminFullController extends Controller
                 'contact_number' => $data['contact_number'] ?? null,
                 'status'         => 'awaiting_acceptance',
             ]);
-
-            $plan = SubscriptionPlan::where('name', $data['plan_name'])->firstOrFail();
 
             // start_date/end_date stay null until payment is actually confirmed — a school
             // that hasn't paid yet shouldn't have its subscription year silently ticking down.
@@ -358,6 +390,7 @@ class SuperadminFullController extends Controller
 
     /**
      * Super Admin manually verifies a bank transfer payment after reviewing the uploaded proof.
+     * Goes through PaymentActivation, so verifying twice (double click, two admins) activates once.
      */
     public function verifySchoolPayment(Request $request, int $schoolId): JsonResponse
     {
@@ -368,12 +401,11 @@ class SuperadminFullController extends Controller
             return response()->json(['success' => false, 'message' => 'No payment is awaiting verification for this school.'], 422);
         }
 
-        $subscription->activate();
-        $school->update(['status' => 'active']);
-        $school->subscriptions()->where('status', 'active')->where('id', '!=', $subscription->id)->update(['status' => 'superseded']);
+        $outcome = PaymentActivation::activate($subscription);
 
-        PaymentTransaction::where('subscription_id', $subscription->id)
-            ->update(['status' => 'paid', 'paid_at' => now()]);
+        if ($outcome['result'] !== PaymentActivation::ACTIVATED) {
+            return response()->json(['success' => false, 'message' => 'No payment is awaiting verification for this school.'], 422);
+        }
 
         NotificationService::toSchoolDean(
             $school->id,
@@ -386,7 +418,7 @@ class SuperadminFullController extends Controller
         ActivityLogService::record(
             module: 'Payment',
             action: 'Verified bank transfer',
-            description: "{$school->school_name}'s payment was verified and the school activated.",
+            description: "{$school->school_name}'s payment of " . number_format((float) $subscription->amount, 2) . ' was verified and the school activated.',
             schoolId: $school->id,
             request: $request
         );
@@ -395,70 +427,92 @@ class SuperadminFullController extends Controller
     }
 
     /**
-     * Manual payment confirmation until a real payment gateway is integrated.
-     * Marks the school's current subscription as paid and activates the school.
+     * Manual payment confirmation (override) for money received outside the gateway,
+     * or a plan with nothing to pay. Marks the school's current subscription as paid
+     * and activates it. Always written to the audit log with who did it, what state
+     * it overrode and the optional note, because it activates a school without the
+     * gateway proving the payment. Open PayMongo checkouts for the same invoice are
+     * closed so the school cannot pay twice.
      */
     public function confirmSchoolPayment(Request $request, int $schoolId): JsonResponse
     {
         $school = School::findOrFail($schoolId);
-        $subscription = $school->latestBillableSubscription();
+        $data = $request->validate(['note' => 'nullable|string|max:300']);
 
-        if (!$subscription) {
-            return response()->json(['success' => false, 'message' => 'This school has no subscription record.'], 422);
-        }
+        return DB::transaction(function () use ($request, $school, $data) {
+            School::whereKey($school->id)->lockForUpdate()->first();
+            $subscription = $school->subscriptions()->where('status', '!=', 'scheduled')->latest('id')->lockForUpdate()->first();
 
-        if ($subscription->status === 'active') {
-            return response()->json(['success' => false, 'message' => 'This subscription is already active.'], 422);
-        }
+            if (!$subscription) {
+                return response()->json(['success' => false, 'message' => 'This school has no subscription record.'], 422);
+            }
 
-        $waived = (float) $subscription->amount <= 0;
+            if ($subscription->status === 'active') {
+                $message = $subscription->isRenewalExpired()
+                    ? "This school's subscription has expired. Ask the Dean to start the renewal from Billing, then confirm the payment."
+                    : 'This subscription is already active.';
 
-        $subscription->activate();
-        $school->update(['status' => 'active']);
-        $school->subscriptions()->where('status', 'active')->where('id', '!=', $subscription->id)->update(['status' => 'superseded']);
+                return response()->json(['success' => false, 'message' => $message], 422);
+            }
 
-        // A fully discounted (₱0) plan has nothing to collect: record it clearly as waived.
-        if ($waived) {
-            PaymentTransaction::where('subscription_id', $subscription->id)->whereIn('status', ['pending', 'pending_verification'])->delete();
-            PaymentTransaction::create([
-                'school_id'       => $school->id,
-                'subscription_id' => $subscription->id,
-                'payment_type'    => 'initial',
-                'new_plan_id'     => $subscription->plan_id,
-                'payment_method'  => 'waived',
-                'amount'          => 0,
-                'status'          => 'paid',
-                'paid_at'         => now(),
-            ]);
-            $subscription->update(['payment_method' => 'waived']);
-        }
+            $before = "{$subscription->status}/" . ($subscription->payment_status ?? 'none');
+            $waived = (float) $subscription->amount <= 0;
 
-        // A manual confirmation may happen with no checkout ever started (no
-        // transaction row yet) — record one so revenue reports count the money.
-        if (!PaymentTransaction::where('subscription_id', $subscription->id)->exists()) {
-            PaymentTransaction::create([
-                'school_id'       => $school->id,
-                'subscription_id' => $subscription->id,
-                'payment_type'    => 'initial',
-                'new_plan_id'     => $subscription->plan_id,
-                'payment_method'  => $subscription->payment_method ?? 'manual',
-                'amount'          => $subscription->amount,
-                'status'          => 'pending',
-            ]);
-        }
+            // An open online checkout would let the school pay again after this override.
+            $openOnline = PaymentTransaction::where('subscription_id', $subscription->id)
+                ->whereIn('status', ['pending', 'failed'])
+                ->where('gateway_reference', 'like', 'cs_%')
+                ->get();
+            foreach ($openOnline as $txn) {
+                PayMongoService::expireCheckoutSession((string) $txn->gateway_reference);
+                $txn->update(['status' => 'cancelled']);
+            }
 
-        PaymentTransaction::where('subscription_id', $subscription->id)
-            ->update(['status' => 'paid', 'paid_at' => now()]);
+            // A fully discounted (₱0) plan has nothing to collect: record it clearly as waived.
+            if ($waived) {
+                PaymentTransaction::where('subscription_id', $subscription->id)->whereIn('status', ['pending', 'pending_verification'])->delete();
+                PaymentTransaction::create([
+                    'school_id'       => $school->id,
+                    'subscription_id' => $subscription->id,
+                    'payment_type'    => 'initial',
+                    'new_plan_id'     => $subscription->plan_id,
+                    'payment_method'  => 'waived',
+                    'amount'          => 0,
+                    'status'          => 'paid',
+                    'paid_at'         => now(),
+                ]);
+                $subscription->update(['payment_method' => 'waived']);
+            } elseif (!$subscription->payment_method || $openOnline->isNotEmpty()) {
+                $subscription->update(['payment_method' => 'manual']);
+            }
 
-        ActivityLogService::record(
-            module: 'Payment',
-            action: 'Confirmed payment',
-            description: "{$school->school_name}'s payment was manually confirmed and the school activated.",
-            schoolId: $school->id,
-            request: $request
-        );
+            $outcome = PaymentActivation::activate($subscription);
 
-        return response()->json(['success' => true, 'message' => "Payment confirmed. {$school->school_name} is now active."]);
+            if ($outcome['result'] !== PaymentActivation::ACTIVATED) {
+                return response()->json(['success' => false, 'message' => 'This subscription is already active.'], 422);
+            }
+
+            $who = $request->user()?->email ?? 'unknown';
+            $note = !empty($data['note']) ? " Note: {$data['note']}" : '';
+            ActivityLogService::record(
+                module: 'Payment',
+                action: 'Confirmed payment (manual override)',
+                description: "{$school->school_name}: {$who} manually confirmed " . ($waived ? 'a waived (0) plan' : 'a payment of ' . number_format((float) $subscription->amount, 2))
+                    . " and activated the school (was {$before}).{$note}",
+                schoolId: $school->id,
+                request: $request
+            );
+
+            NotificationService::toSchoolDean(
+                $school->id,
+                'payment_verified',
+                'Payment confirmed',
+                "Your payment was confirmed — {$school->school_name} is now active.",
+                '/dean/billing'
+            );
+
+            return response()->json(['success' => true, 'message' => "Payment confirmed. {$school->school_name} is now active."]);
+        });
     }
 
     /**
@@ -733,8 +787,21 @@ class SuperadminFullController extends Controller
 
     public function approvePlanChange(Request $request, int $id): JsonResponse
     {
-        $planChangeRequest = PlanChangeRequest::with('school')->findOrFail($id);
+        PlanChangeRequest::findOrFail($id);
 
+        // One transaction with the request and school rows locked: two admins approving the
+        // same request, or an approval racing a payment, cannot both write subscription rows.
+        return DB::transaction(function () use ($request, $id) {
+            $planChangeRequest = PlanChangeRequest::whereKey($id)->lockForUpdate()->firstOrFail();
+            School::whereKey($planChangeRequest->school_id)->lockForUpdate()->first();
+            $planChangeRequest->load('school');
+
+            return $this->approvePlanChangeLocked($request, $planChangeRequest);
+        });
+    }
+
+    private function approvePlanChangeLocked(Request $request, PlanChangeRequest $planChangeRequest): JsonResponse
+    {
         if ($planChangeRequest->status !== 'pending') {
             return response()->json(['success' => false, 'message' => 'This request was already reviewed.'], 422);
         }
@@ -793,9 +860,16 @@ class SuperadminFullController extends Controller
         $stillRunning = $running && $running->status === 'active' && !$running->isRenewalExpired();
 
         // Replace an earlier approved-but-unpaid change and any waiting scheduled switch.
-        $school->subscriptions()->whereIn('status', ['scheduled', 'accepted'])
-            ->where('id', '>', $running?->id ?? 0)
-            ->update(['status' => 'cancelled']);
+        // Their open PayMongo checkouts are closed too, or the old invoice could still be paid.
+        $replaced = $school->subscriptions()->whereIn('status', ['scheduled', 'accepted'])
+            ->where('id', '>', $running?->id ?? 0);
+        foreach (PaymentTransaction::whereIn('subscription_id', (clone $replaced)->pluck('id'))->whereIn('status', ['pending', 'failed'])->get() as $openTxn) {
+            if (str_starts_with((string) $openTxn->gateway_reference, 'cs_')) {
+                PayMongoService::expireCheckoutSession((string) $openTxn->gateway_reference);
+            }
+            $openTxn->update(['status' => 'cancelled']);
+        }
+        $replaced->update(['status' => 'cancelled']);
 
         if ($running && $running->status === 'active' && !$stillRunning) {
             $running->update(['status' => 'expired']);
@@ -890,9 +964,14 @@ class SuperadminFullController extends Controller
         $inquiry = PlanInquiry::findOrFail($id);
 
         $data = $request->validate([
-            'status' => 'sometimes|string|in:new,contacted,under_discussion,approved,converted,rejected',
+            // 'converted' is only ever set by convertInquiryToSchool (it is what creates the school).
+            'status' => 'sometimes|string|in:new,contacted,under_discussion,approved,rejected',
             'notes'  => 'sometimes|nullable|string|max:2000',
         ]);
+
+        if (isset($data['status']) && $inquiry->school_id) {
+            return response()->json(['success' => false, 'message' => 'This registration was already approved and has a school; its status can no longer be changed.'], 422);
+        }
 
         $inquiry->update($data);
 
@@ -933,6 +1012,14 @@ class SuperadminFullController extends Controller
         ]);
     }
 
+    /** Schools currently on a plan: same rule as the revenue report (active and not past its end date), so an expired school is not counted as active. */
+    private function activeSchoolsOn(int $planId): int
+    {
+        return SchoolSubscription::where('plan_id', $planId)->where('status', 'active')
+            ->where(fn ($q) => $q->whereNull('end_date')->orWhere('end_date', '>=', \App\Support\LocalTime::today()))
+            ->count();
+    }
+
     public function plansFeatures(): JsonResponse
     {
         $plans = SubscriptionPlan::orderBy('monthly_price')
@@ -946,7 +1033,7 @@ class SuperadminFullController extends Controller
                     'yearly_price'   => (float) $plan->yearly_price,
                     'features'       => $plan->features ?? [],
                     'is_active'      => $plan->is_active,
-                    'active_schools' => SchoolSubscription::where('plan_id', $plan->id)->where('status', 'active')->count(),
+                    'active_schools' => $this->activeSchoolsOn($plan->id),
                 ];
             });
 
@@ -965,8 +1052,8 @@ class SuperadminFullController extends Controller
 
         $data = $request->validate([
             'description'   => 'nullable|string|max:500',
-            'monthly_price' => 'required|numeric|min:0',
-            'yearly_price'  => 'required|numeric|min:0',
+            'monthly_price' => 'required|numeric|min:0|max:9999999.99',
+            'yearly_price'  => 'required|numeric|min:0|max:9999999.99',
             'features'      => 'required|array|min:1',
             'features.*'    => 'string|max:100',
             'is_active'     => 'required|boolean',
@@ -1002,7 +1089,7 @@ class SuperadminFullController extends Controller
                 'yearly_price'   => (float) $plan->yearly_price,
                 'features'       => $plan->features ?? [],
                 'is_active'      => $plan->is_active,
-                'active_schools' => SchoolSubscription::where('plan_id', $plan->id)->where('status', 'active')->count(),
+                'active_schools' => $this->activeSchoolsOn($plan->id),
             ],
         ]);
     }
@@ -1093,12 +1180,26 @@ class SuperadminFullController extends Controller
         ];
     }
 
-    public function supportMessages(): JsonResponse
+    public function supportMessages(Request $request): JsonResponse
     {
-        $tickets = SupportTicket::with(['school', 'coordinator', 'messages'])->orderByDesc('updated_at')->get();
+        $query = SupportTicket::with(['school', 'coordinator', 'messages'])->orderByDesc('updated_at')->orderByDesc('id');
+
+        // Opt-in paging: the status filter (Open / Resolved) narrows the whole set before it is cut into pages.
+        if (Paging::requested($request)) {
+            if (in_array($status = $request->query('status'), ['Open', 'Resolved'], true)) {
+                $query->where('status', $status);
+            }
+            $page = $query->paginate(Paging::perPage($request, 15, 50));
+
+            return response()->json([
+                'messages' => collect($page->items())->map(fn (SupportTicket $t) => $this->mapSupportTicket($t))->values(),
+                ...Paging::meta($page),
+                'channel_live' => true,
+            ]);
+        }
 
         return response()->json([
-            'messages' => $tickets->map(fn (SupportTicket $t) => $this->mapSupportTicket($t)),
+            'messages' => $query->get()->map(fn (SupportTicket $t) => $this->mapSupportTicket($t)),
             'channel_live' => true,
         ]);
     }
@@ -1134,7 +1235,7 @@ class SuperadminFullController extends Controller
             $attachment = [
                 'attachment_path' => $file->store("support-attachments/{$request->user()->id}", 'public'),
                 'attachment_name' => $file->getClientOriginalName(),
-                'attachment_type' => $file->getClientMimeType(),
+                'attachment_type' => $file->getMimeType(),
                 'attachment_size' => $file->getSize(),
             ];
         }
@@ -1299,7 +1400,9 @@ class SuperadminFullController extends Controller
         $setting = Setting::where('key', $key)->firstOrFail();
 
         $data = $request->validate([
-            'value' => $setting->type === 'toggle' ? 'required|boolean' : 'required|string|max:255',
+            'value' => $setting->type === 'toggle'
+                ? 'required|boolean'
+                : ($key === 'support_email' ? 'required|email|max:255' : 'required|string|max:255'),
         ]);
 
         $setting->update(['value' => $setting->type === 'toggle' ? ($data['value'] ? '1' : '0') : $data['value']]);

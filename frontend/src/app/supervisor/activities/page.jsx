@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import InternActivities from "./InternActivities";
 
 export default function Page() {
-  return <InternActivities />;
+  return (
+    <Suspense fallback={null}>
+      <InternActivities />
+    </Suspense>
+  );
 }

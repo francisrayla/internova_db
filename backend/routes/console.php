@@ -12,3 +12,6 @@ Artisan::command('inspire', function () {
 // Needs a process running `php artisan schedule:work` (or cron `schedule:run` every minute)
 // plus the queue worker to actually deliver it.
 Schedule::command('dean:weekly-summary')->weeklyOn(1, '07:00')->timezone('Asia/Manila')->withoutOverlapping();
+
+// Tokens older than the Sanctum expiration (7 days) are already rejected; this just deletes the dead rows.
+Schedule::command('sanctum:prune-expired --hours=24')->daily();

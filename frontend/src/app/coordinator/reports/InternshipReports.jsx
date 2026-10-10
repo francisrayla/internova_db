@@ -1,71 +1,98 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
+import Pagination from "@/components/Pagination";
+import { EmptyState, ErrorNote, SkeletonList } from "@/components/ui";
+import { Btn, DataList, DataRow, FilterBar, Page, PageHeader, SearchField, Section } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
+const PER_PAGE = 15;
+
 export default function InternshipReports() {
   const [interns, setInterns] = useState([]);
+  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [loading, setLoading] = useState(true);
+  const [paging, setPaging] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const requestRef = useRef(0);
 
   useEffect(() => {
-    fetchCoordinatorData("interns")
-      .then((r) => setInterns(r.interns ?? []))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+    const t = setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
-  const filtered = interns.filter((i) =>
-    !query ||
-    i.intern_name?.toLowerCase().includes(query.toLowerCase()) ||
-    i.company_name?.toLowerCase().includes(query.toLowerCase())
-  );
+  // One page at a time; the search runs on the server over every intern.
+  useEffect(() => {
+    const qs = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
+    if (debouncedQuery) qs.set("search", debouncedQuery);
+    const request = ++requestRef.current; // a slower, older answer must not replace a newer one
+    fetchCoordinatorData(`interns?${qs}`)
+      .then((r) => {
+        if (request !== requestRef.current) return;
+        setInterns(r.interns ?? []);
+        setMeta({ total: r.total ?? 0, last_page: r.last_page ?? 1 });
+        setError("");
+      })
+      .catch((e) => request === requestRef.current && setError(e.message))
+      .finally(() => {
+        if (request !== requestRef.current) return;
+        setLoading(false);
+        setPaging(false);
+      });
+  }, [page, debouncedQuery]);
+
+  function goToPage(next) {
+    setPaging(true);
+    setPage(next);
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Internship Reports</h2>
-        <p className="mt-1 text-sm text-slate-600">Generate a formal, printable progress report for any intern — hours rendered, task standing, and every evaluation on file.</p>
-      </div>
+    <Page>
+      <PageHeader title="Internship Reports" sentence="Generate a formal, printable progress report for any intern — hours rendered, task standing, and every evaluation on file." />
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input {...inputProps("search")}
+      <FilterBar>
+        <SearchField
+          {...inputProps("search")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by intern or company…"
-          className="w-full max-w-sm rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500"
+          aria-label="Search interns"
         />
-      </section>
+      </FilterBar>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <Section flush>
         {loading ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-500">Loading interns…</p>
-        ) : filtered.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">
-            {interns.length === 0 ? "No interns have been deployed yet." : "No interns match this search."}
-          </p>
+          <div className="k-pad"><SkeletonList rows={3} height="h-14" /></div>
+        ) : interns.length === 0 ? (
+          !debouncedQuery ? (
+            <div className="k-pad"><EmptyState icon="reports" title="No interns have been deployed yet." text="Once interns are deployed you can generate their reports here." /></div>
+          ) : (
+            <p className="px-6 py-10 text-center text-sm text-slate-500">No interns match this search.</p>
+          )
         ) : (
-          filtered.map((i) => (
-            <div key={i.deployment_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 last:border-b-0">
-              <div className="min-w-0">
-                <p className="font-medium text-slate-900">{i.intern_name}</p>
-                <p className="text-xs text-slate-500">{i.company_name ?? "—"} · {i.hours_completed}h / {i.required_hours}h</p>
-              </div>
-              <Link
-                href={`/coordinator/interns/${i.deployment_id}/report`}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50"
-              >
-                View report →
-              </Link>
-            </div>
-          ))
+          <DataList>
+            {interns.map((i) => (
+              <DataRow
+                key={i.deployment_id}
+                wrap
+                title={i.intern_name}
+                sub={`${i.company_name ?? "—"} · ${i.hours_completed}h / ${i.required_hours}h`}
+                actions={<Btn sm href={`/coordinator/interns/${i.deployment_id}/report`}>View report</Btn>}
+              />
+            ))}
+          </DataList>
         )}
-      </section>
-    </div>
+        <Pagination page={page} totalPages={meta.last_page} total={meta.total} loading={paging} onPageChange={goToPage} />
+      </Section>
+    </Page>
   );
 }

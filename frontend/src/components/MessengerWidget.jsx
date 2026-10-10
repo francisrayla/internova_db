@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getEcho } from "@/lib/echo";
 import Icon from "@/components/Icon";
@@ -12,6 +12,8 @@ import { inputProps } from "@/lib/inputRules";
 import { initialsOf, formatBytes } from "@/lib/format";
 const ROLE_LABELS = { coordinator: "Coordinator", supervisor: "Supervisor", intern: "Intern" };
 const MAX_OPEN_CHATS = 3;
+// Messages loaded when a chat opens, and per "Load earlier messages" click.
+const THREAD_PAGE = 30;
 // Only a coordinator/supervisor starts a group (see backend
 // MessageController::createGroup) — once it exists, every member added,
 // interns included, can read and post in it like anyone else.
@@ -35,7 +37,7 @@ function messagePreview(m) {
   if (!m) return "";
   if (m.message) return m.message;
   if (m.attachment_url) {
-    return m.attachment_type?.startsWith("image/") ? "📷 Photo" : `📎 ${m.attachment_name || "File"}`;
+    return m.attachment_type?.startsWith("image/") ? "Photo" : (m.attachment_name || "File");
   }
   return "";
 }
@@ -95,7 +97,7 @@ function MinimizedBubble({ conversation, onRestore, onClose }) {
 // viewport rather than a full page, so chatting never interrupts whatever
 // screen the conversation started from. Works for both a 1:1 conversation
 // and a group (sender names above bubbles, member count in the subtitle).
-function ChatWindow({ conversation, messages, loading, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, forwardTargets, currentUserId }) {
+function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, onLoadEarlier, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, forwardTargets, currentUserId }) {
   const [text, setText] = useState("");
   const [showOptions, setShowOptions] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
@@ -113,9 +115,22 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
   const isGroup = conversation.type === "group";
   const activeColor = conversation.color || (isGroup ? "#9333ea" : DEFAULT_CHAT_COLOR);
 
-  useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  // Older messages are added above the ones on screen: keep the reader where they were instead of jumping to the bottom.
+  const keepScrollRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!listRef.current) return;
+    if (keepScrollRef.current !== null) {
+      listRef.current.scrollTop = listRef.current.scrollHeight - keepScrollRef.current;
+      keepScrollRef.current = null;
+      return;
+    }
+    listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, isTyping]);
+
+  function loadEarlier() {
+    keepScrollRef.current = listRef.current ? listRef.current.scrollHeight : null;
+    onLoadEarlier();
+  }
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -311,7 +326,15 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
             {isGroup ? "No messages yet." : `Say hello to ${conversation.name.split(" ")[0]}.`}
           </p>
         ) : (
-          messages.map((m) => {
+          <>
+          {hasMore && (
+            <div className="text-center">
+              <button type="button" onClick={loadEarlier} disabled={loadingEarlier} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-60 max-sm:min-h-[44px]">
+                {loadingEarlier ? "Loading…" : "Load earlier messages"}
+              </button>
+            </div>
+          )}
+          {messages.map((m) => {
             if (m.is_system) {
               return (
                 <p key={m.id} className="my-1 text-center text-[11px] text-slate-400">
@@ -413,7 +436,8 @@ function ChatWindow({ conversation, messages, loading, isTyping, typingName, onS
                 </div>
               </div>
             );
-          })
+          })}
+          </>
         )}
         {isTyping && (
           <div className="flex justify-start">
@@ -830,7 +854,7 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
  * Header messages icon + dropdown conversation list (1:1 and group) +
  * floating chat windows — the whole thing is self-contained so any layout
  * only has to render <MessengerWidget currentUser={user} /> once, next to
- * the notification bell. Real-time delivery reuses the same public-channel
+ * the notification bell. Real-time delivery reuses the same private-channel
  * Echo/Reverb setup as NotificationBell (see backend App\Events\MessageSent
  * / GroupMessageSent / UserTyping / GroupUserTyping).
  */
@@ -915,7 +939,7 @@ export default function MessengerWidget({ currentUser }) {
     const echo = getEcho();
     if (!echo) return;
 
-    const channelName = `user.${currentUser.id}-messages`;
+    const channelName = `user.${currentUser.id}.messages`;
 
     function appendToThread(key, message) {
       setThreads((prev) => {
@@ -958,16 +982,16 @@ export default function MessengerWidget({ currentUser }) {
       startTypingTimer(`group-${payload.group_id}`, payload.sender_name);
     }
 
-    echo.channel(channelName).listen(".message.sent", handleMessage);
-    echo.channel(channelName).listen(".user.typing", handleTyping);
-    echo.channel(channelName).listen(".group.message.sent", handleGroupMessage);
-    echo.channel(channelName).listen(".group.user.typing", handleGroupTyping);
+    echo.private(channelName).listen(".message.sent", handleMessage);
+    echo.private(channelName).listen(".user.typing", handleTyping);
+    echo.private(channelName).listen(".group.message.sent", handleGroupMessage);
+    echo.private(channelName).listen(".group.user.typing", handleGroupTyping);
 
     return () => {
-      echo.channel(channelName).stopListening(".message.sent", handleMessage);
-      echo.channel(channelName).stopListening(".user.typing", handleTyping);
-      echo.channel(channelName).stopListening(".group.message.sent", handleGroupMessage);
-      echo.channel(channelName).stopListening(".group.user.typing", handleGroupTyping);
+      echo.private(channelName).stopListening(".message.sent", handleMessage);
+      echo.private(channelName).stopListening(".user.typing", handleTyping);
+      echo.private(channelName).stopListening(".group.message.sent", handleGroupMessage);
+      echo.private(channelName).stopListening(".group.user.typing", handleGroupTyping);
     };
   }, [currentUser?.id, loadConversations]);
 
@@ -985,13 +1009,36 @@ export default function MessengerWidget({ currentUser }) {
 
     if (!threads[key]) {
       setThreads((prev) => ({ ...prev, [key]: { messages: [], loading: true } }));
-      const url = conversation.type === "group" ? `/api/messages/groups/${conversation.id}` : `/api/messages/thread/${conversation.id}`;
-      apiFetch(url)
+      // The newest 30 only; "Load earlier messages" fetches the rest a page at a time.
+      apiFetch(`${threadUrl(conversation)}?limit=${THREAD_PAGE}`)
         .then((res) => res.json())
-        .then((data) => setThreads((prev) => ({ ...prev, [key]: { messages: data.messages ?? [], loading: false } })))
+        .then((data) => setThreads((prev) => ({ ...prev, [key]: { messages: data.messages ?? [], loading: false, hasMore: Boolean(data.has_more) } })))
         .catch(() => setThreads((prev) => ({ ...prev, [key]: { messages: [], loading: false } })));
     }
     setConversations((prev) => prev.map((c) => (keyOf(c) === key ? { ...c, unread_count: 0 } : c)));
+  }
+
+  function threadUrl(conversation) {
+    return conversation.type === "group" ? `/api/messages/groups/${conversation.id}` : `/api/messages/thread/${conversation.id}`;
+  }
+
+  // Prepends the page of messages before the oldest real one on screen.
+  async function loadEarlier(conversation) {
+    const key = keyOf(conversation);
+    const oldest = (threads[key]?.messages ?? []).find((m) => typeof m.id === "number");
+    if (!oldest || threads[key]?.loadingEarlier) return;
+    setThreads((prev) => ({ ...prev, [key]: { ...prev[key], loadingEarlier: true } }));
+    try {
+      const res = await apiFetch(`${threadUrl(conversation)}?limit=${THREAD_PAGE}&before_id=${oldest.id}`);
+      const data = await res.json();
+      setThreads((prev) => {
+        const have = new Set((prev[key]?.messages ?? []).map((m) => m.id));
+        const older = (data.messages ?? []).filter((m) => !have.has(m.id));
+        return { ...prev, [key]: { ...prev[key], messages: [...older, ...(prev[key]?.messages ?? [])], hasMore: Boolean(data.has_more), loadingEarlier: false } };
+      });
+    } catch {
+      setThreads((prev) => ({ ...prev, [key]: { ...prev[key], loadingEarlier: false } }));
+    }
   }
 
   function closeChat(key) {
@@ -1164,7 +1211,7 @@ export default function MessengerWidget({ currentUser }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+          className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 max-sm:h-11 max-sm:w-11"
           title="Messages"
           aria-label={unreadTotal > 0 ? `Messages, ${unreadTotal} unread` : "Messages"}
           aria-expanded={open}
@@ -1284,6 +1331,9 @@ export default function MessengerWidget({ currentUser }) {
                       conversation={c}
                       messages={threads[key]?.messages ?? []}
                       loading={threads[key]?.loading ?? false}
+                      hasMore={threads[key]?.hasMore ?? false}
+                      loadingEarlier={threads[key]?.loadingEarlier ?? false}
+                      onLoadEarlier={() => loadEarlier(c)}
                       isTyping={Boolean(typingFrom[key])}
                       typingName={typeof typingFrom[key] === "string" ? typingFrom[key] : null}
                       onSend={(text, replyToId) => sendMessage(c, text, replyToId)}

@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
+import { Upload } from "lucide-react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
-
-const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500";
+import { Banner, SkeletonList } from "@/components/ui";
+import { Btn, FormField, Input, Page, PageHeader, Section, Select } from "@/components/dash/page";
 
 /** Saves a file the server sent back (the filled-in PowerPoint, or the sample template). */
 async function saveDownload(res, fallbackName) {
@@ -29,22 +30,12 @@ async function errorMessage(res, fallback) {
   return data.message || fallback;
 }
 
-function Field({ label, hint, children }) {
-  return (
-    <label className="block min-w-0 text-sm">
-      <span className="mb-1.5 block font-semibold text-slate-700">{label}</span>
-      {children}
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
-    </label>
-  );
-}
-
 function StepHeading({ n, title, text }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-blue-600 text-sm font-semibold text-white">{n}</span>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--ui-accent-soft)] text-sm font-semibold text-[var(--ui-accent)]">{n}</span>
       <div className="min-w-0">
-        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
         <p className="mt-0.5 text-sm text-slate-600">{text}</p>
       </div>
     </div>
@@ -173,137 +164,140 @@ export default function Certificates() {
   const short = selected && selected.required_hours > 0 && selected.hours < selected.required_hours;
 
   return (
-    <div className="relative mx-auto max-w-4xl space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Certificates</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Upload your OJT certificate once as a PowerPoint. Then type or confirm an intern&apos;s name and get a finished certificate to print.
-        </p>
-      </div>
+    <Page className="max-w-4xl">
+      <PageHeader
+        title="Certificates"
+        sentence="Upload your OJT certificate once as a PowerPoint. Then type or confirm an intern's name and get a finished certificate to print."
+      />
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-      {notice && <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{notice}</p>}
+      {error && <Banner tone="red">{error}</Banner>}
+      {notice && <Banner tone="green">{notice}</Banner>}
 
       {loading ? (
-        <p className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">Loading…</p>
+        <SkeletonList rows={2} height="h-40" />
       ) : !data ? null : (
         <>
-          <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <StepHeading n="1" title="Your certificate template" text="A PowerPoint file (.pptx) of your certificate. Shared with every supervisor of your company." />
+          <Section>
+            <div className="space-y-4">
+              <StepHeading n="1" title="Your certificate template" text="A PowerPoint file (.pptx) of your certificate. Shared with every supervisor of your company." />
 
-            {template ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
-                  <p className="text-xs text-slate-600">
-                    Saved {template.uploaded_at}
-                    {template.uploaded_by ? ` by ${template.uploaded_by}` : ""} · uses {template.markers.length} marker{template.markers.length === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                    {uploading ? "Uploading…" : "Replace"}
-                  </button>
-                  <button type="button" onClick={() => setConfirmRemove(true)} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                className="flex w-full flex-col items-center gap-1 rounded-2xl border-2 border-dashed border-slate-300 px-4 py-8 text-center hover:border-blue-400 hover:bg-blue-50 disabled:opacity-60"
-              >
-                <span className="text-sm font-semibold text-slate-900">{uploading ? "Uploading…" : "Choose your PowerPoint template"}</span>
-                <span className="text-xs text-slate-500">.pptx, up to 10 MB</span>
-              </button>
-            )}
-            <input ref={fileRef} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="sr-only" onChange={(e) => upload(e.target.files?.[0])} />
-
-            <details className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <summary className="cursor-pointer font-semibold text-slate-900">How to prepare the template</summary>
-              <p className="mt-3">
-                Design the certificate in PowerPoint. Where something changes for each intern, type a marker such as <code className="rounded bg-white px-1.5 py-0.5 font-semibold text-blue-700">{"{{NAME}}"}</code>.
-                It is replaced with the real text and keeps the font, size and colour you gave it. <strong>{"{{NAME}}"}</strong> is required.
-              </p>
-              <ul className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
-                {data.placeholders.map((p) => (
-                  <li key={p.key} className="flex min-w-0 gap-2">
-                    <code className="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs font-semibold text-blue-700">{p.token}</code>
-                    <span className="min-w-0 text-slate-600">{p.description}</span>
-                  </li>
-                ))}
-              </ul>
-              <button type="button" onClick={downloadSample} className="mt-4 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Download a sample template
-              </button>
-            </details>
-          </section>
-
-          <section className={`space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 ${template ? "" : "opacity-60"}`}>
-            <StepHeading n="2" title="Make a certificate" text="Choose the intern and check the name. The PowerPoint downloads right away." />
-
-            {!template && <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">Upload a template in step 1 first.</p>}
-
-            <form onSubmit={generate} className="space-y-4">
-              <fieldset disabled={!template || generating} className="space-y-4 disabled:pointer-events-none">
-                <Field label="Intern">
-                  <select value={form.deployment_id} onChange={(e) => pickIntern(e.target.value)} className={inputClass}>
-                    <option value="">Choose an intern…</option>
-                    {data.interns.map((i) => (
-                      <option key={i.deployment_id} value={i.deployment_id}>
-                        {i.name} · {i.hours}/{i.required_hours} hours{i.status === "completed" ? " · completed" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                {short && (
-                  <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    {selected.name} has {selected.hours} of {selected.required_hours} required hours. You can still make the certificate.
-                  </p>
-                )}
-
-                <Field label="Name on the certificate" hint="Edit it if you want it written differently, for example with a middle initial.">
-                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={120} placeholder="Full name" className={inputClass} />
-                </Field>
-
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input type="checkbox" checked={form.uppercase} onChange={(e) => setForm((f) => ({ ...f, uppercase: e.target.checked }))} className="h-4 w-4 accent-blue-600" />
-                  Print the name in CAPITAL LETTERS
-                </label>
-
-                <details className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
-                  <summary className="cursor-pointer font-semibold text-slate-900">Other details (already filled in)</summary>
-                  <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Field label="Hours rendered">
-                      <input type="number" min="0" step="0.1" value={form.hours} onChange={(e) => setForm((f) => ({ ...f, hours: e.target.value }))} className={inputClass} />
-                    </Field>
-                    <Field label="Signed by">
-                      <input value={form.signatory} onChange={(e) => setForm((f) => ({ ...f, signatory: e.target.value }))} maxLength={120} className={inputClass} />
-                    </Field>
-                    <Field label="Training started">
-                      <input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className={inputClass} />
-                    </Field>
-                    <Field label="Training ended">
-                      <input type="date" value={form.end_date} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} className={inputClass} />
-                    </Field>
-                    <Field label="Date given">
-                      <input type="date" value={form.date_issued} onChange={(e) => setForm((f) => ({ ...f, date_issued: e.target.value }))} className={inputClass} />
-                    </Field>
+              {template ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--ui-ok-bg)] px-4 py-3 text-sm text-[var(--ui-ok)]">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold">{template.name}</p>
+                    <p className="text-xs">
+                      Saved {template.uploaded_at}
+                      {template.uploaded_by ? ` by ${template.uploaded_by}` : ""} · uses {template.markers.length} marker{template.markers.length === 1 ? "" : "s"}
+                    </p>
                   </div>
-                </details>
-              </fieldset>
-
-              <div className="flex justify-end">
-                <button type="submit" disabled={!template || generating} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-                  {generating ? "Making it…" : "Generate PowerPoint"}
+                  <div className="flex gap-2 max-sm:w-full">
+                    <Btn sm onClick={() => fileRef.current?.click()} disabled={uploading} className="max-sm:flex-1">
+                      {uploading ? "Uploading…" : "Replace"}
+                    </Btn>
+                    <Btn sm variant="danger-quiet" onClick={() => setConfirmRemove(true)} className="max-sm:flex-1">
+                      Remove
+                    </Btn>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                  className="flex w-full flex-col items-center gap-1 rounded-2xl border-2 border-dashed border-[var(--ui-border)] px-4 py-8 text-center hover:bg-[var(--ui-soft)] disabled:opacity-60 max-sm:min-h-[44px]"
+                >
+                  <Upload size={20} aria-hidden="true" className="text-slate-500" />
+                  <span className="text-sm font-semibold text-slate-900">{uploading ? "Uploading…" : "Choose your PowerPoint template"}</span>
+                  <span className="text-xs text-slate-500">.pptx, up to 10 MB</span>
                 </button>
-              </div>
-            </form>
-          </section>
+              )}
+              <input ref={fileRef} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" className="sr-only" onChange={(e) => upload(e.target.files?.[0])} />
+
+              <details className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                <summary className="cursor-pointer font-semibold text-slate-900 max-sm:flex max-sm:min-h-[44px] max-sm:items-center">How to prepare the template</summary>
+                <p className="mt-3">
+                  Design the certificate in PowerPoint. Where something changes for each intern, type a marker such as <code className="rounded bg-white px-1.5 py-0.5 font-semibold text-blue-700">{"{{NAME}}"}</code>.
+                  It is replaced with the real text and keeps the font, size and colour you gave it. <strong>{"{{NAME}}"}</strong> is required.
+                </p>
+                <ul className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                  {data.placeholders.map((p) => (
+                    <li key={p.key} className="flex min-w-0 flex-wrap gap-x-2 gap-y-1">
+                      <code className="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs font-semibold text-blue-700">{p.token}</code>
+                      <span className="min-w-0 text-slate-600">{p.description}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Btn sm onClick={downloadSample} className="mt-4 max-sm:w-full">
+                  Download a sample template
+                </Btn>
+              </details>
+            </div>
+          </Section>
+
+          <Section className={template ? "" : "opacity-70"}>
+            <div className="space-y-4">
+              <StepHeading n="2" title="Make a certificate" text="Choose the intern and check the name. The PowerPoint downloads right away." />
+
+              {!template && <p className="k-note is-warn">Upload a template in step 1 first.</p>}
+
+              <form onSubmit={generate} className="space-y-4">
+                <fieldset disabled={!template || generating} className="space-y-4 disabled:pointer-events-none">
+                  <FormField label="Intern">
+                    <Select value={form.deployment_id} onChange={(e) => pickIntern(e.target.value)}>
+                      <option value="">Choose an intern…</option>
+                      {data.interns.map((i) => (
+                        <option key={i.deployment_id} value={i.deployment_id}>
+                          {i.name} · {i.hours}/{i.required_hours} hours{i.status === "completed" ? " · completed" : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+
+                  {short && (
+                    <p className="k-note is-warn">
+                      {selected.name} has {selected.hours} of {selected.required_hours} required hours. You can still make the certificate.
+                    </p>
+                  )}
+
+                  <FormField label="Name on the certificate" hint="Edit it if you want it written differently, for example with a middle initial.">
+                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={120} placeholder="Full name" />
+                  </FormField>
+
+                  <label className="k-check">
+                    <input type="checkbox" checked={form.uppercase} onChange={(e) => setForm((f) => ({ ...f, uppercase: e.target.checked }))} className="accent-blue-600" />
+                    Print the name in CAPITAL LETTERS
+                  </label>
+
+                  <details className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
+                    <summary className="cursor-pointer font-semibold text-slate-900 max-sm:flex max-sm:min-h-[44px] max-sm:items-center">Other details (already filled in)</summary>
+                    <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <FormField label="Hours rendered">
+                        <Input type="number" min="0" step="0.1" value={form.hours} onChange={(e) => setForm((f) => ({ ...f, hours: e.target.value }))} />
+                      </FormField>
+                      <FormField label="Signed by">
+                        <Input value={form.signatory} onChange={(e) => setForm((f) => ({ ...f, signatory: e.target.value }))} maxLength={120} />
+                      </FormField>
+                      <FormField label="Training started">
+                        <Input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} />
+                      </FormField>
+                      <FormField label="Training ended">
+                        <Input type="date" value={form.end_date} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} />
+                      </FormField>
+                      <FormField label="Date given">
+                        <Input type="date" value={form.date_issued} onChange={(e) => setForm((f) => ({ ...f, date_issued: e.target.value }))} />
+                      </FormField>
+                    </div>
+                  </details>
+                </fieldset>
+
+                <div className="flex justify-end">
+                  <Btn variant="primary" type="submit" disabled={!template || generating} className="max-sm:w-full">
+                    {generating ? "Making it…" : "Generate PowerPoint"}
+                  </Btn>
+                </div>
+              </form>
+            </div>
+          </Section>
         </>
       )}
 
@@ -317,6 +311,6 @@ export default function Certificates() {
       >
         <p>Certificates you already downloaded are not affected. You can upload a template again any time.</p>
       </ConfirmDialog>
-    </div>
+    </Page>
   );
 }

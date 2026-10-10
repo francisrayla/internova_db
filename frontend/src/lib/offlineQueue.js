@@ -85,12 +85,34 @@ export async function getPendingAttendance() {
 
 let syncing = false;
 
+// The server saying "not now" rather than "no": the entry is fine, so it stays
+// queued. 429 is the API's rate limit (a long queue sent in one go can hit it),
+// 408/425 are a request that was not accepted in time.
+const RETRY_LATER_STATUSES = [408, 425, 429];
+
 /** Submits every pending entry for the signed-in user, oldest first (a
  * clock-in has to land before its clock-out). Stops at the first network
  * failure and leaves the rest for the next attempt. Returns the messages of
  * any entries the server rejected outright — those are dropped, since
- * retrying won't change the answer. */
+ * retrying won't change the answer.
+ *
+ * Only one tab/window syncs at a time (Web Locks): the queue lives in
+ * IndexedDB, shared by every open copy of the app, and two copies sending
+ * the same entry would each get a clock-in/out recorded or refused. */
 export async function syncPendingAttendance() {
+  if (typeof navigator !== "undefined" && navigator.locks?.request) {
+    return navigator.locks.request("internova-attendance-sync", { ifAvailable: true }, async (lock) => {
+      if (!lock) {
+        notifyChanged();
+        return { synced: 0, rejected: [] };
+      }
+      return runSync();
+    });
+  }
+  return runSync();
+}
+
+async function runSync() {
   if (syncing || typeof navigator === "undefined" || !navigator.onLine) return { synced: 0, rejected: [] };
   syncing = true;
   let synced = 0;
@@ -127,8 +149,13 @@ export async function syncPendingAttendance() {
       }
 
       if (res.status === 401 || res.status === 403) {
-        // Session expired — keep the entry; it'll go through once they sign
-        // back in (apiFetch is already sending them to /login).
+        // 401: session expired, 403: school suspended / not active (apiFetch already
+        // sends the user to /login or /school-access). Either way keep the entry;
+        // it goes through once they are back in.
+        break;
+      }
+      if (RETRY_LATER_STATUSES.includes(res.status)) {
+        // Rate limited / not accepted in time: keep this entry and the rest for the next attempt.
         break;
       }
       if (res.ok) {

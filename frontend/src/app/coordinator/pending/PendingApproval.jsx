@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Hourglass } from "lucide-react";
+import { KeyValueList, Page, Pill, Section } from "@/components/dash/page";
 
 export default function PendingApprovalPage() {
   const [user, setUser] = useState(null);
@@ -17,25 +19,29 @@ export default function PendingApprovalPage() {
   if (!user) return null;
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center">
-      <div className="w-full max-w-lg rounded-3xl bg-white p-10 shadow-xl text-center">
-        <div className="text-6xl">⏳</div>
-        <p className="mt-5 inline-flex items-center gap-2 rounded-full bg-amber-100 px-4 py-1.5 text-sm font-semibold text-amber-700">
-          Account Status: Pending Approval
-        </p>
-        <h1 className="mt-4 text-2xl font-bold text-slate-900">Your school registration is under review</h1>
-        <p className="mt-3 text-slate-600">
-          Thanks for registering, <strong>{user.name}</strong>! Our team is reviewing your school&apos;s registration.
-          You&apos;ll get access to your dashboard as soon as it&apos;s approved and your payment is confirmed.
-        </p>
-        <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-left text-sm text-slate-600">
-          <div className="flex justify-between py-1"><span className="text-slate-500">Email</span><span className="font-medium text-slate-900">{user.email}</span></div>
-          <div className="flex justify-between py-1"><span className="text-slate-500">Status</span><span className="font-medium text-amber-700">Pending Approval</span></div>
+    <Page size="narrow" className="py-4 sm:py-10">
+      <Section>
+        <div className="mx-auto max-w-lg text-center">
+          <span className="inline-flex text-slate-500"><Hourglass aria-hidden="true" size={36} strokeWidth={1.6} /></span>
+          <p className="mt-3"><Pill tone="amber">Account Status: Pending Approval</Pill></p>
+          <h1 className="mt-4 text-xl font-semibold text-slate-900 sm:text-2xl">Your school registration is under review</h1>
+          <p className="mt-3 text-sm text-slate-600 sm:text-base">
+            Thanks for registering, <strong className="text-slate-900">{user.name}</strong>! Our team is reviewing your school&apos;s registration.
+            You&apos;ll get access to your dashboard as soon as it&apos;s approved and your payment is confirmed.
+          </p>
+          <div className="mt-6 text-left">
+            <KeyValueList
+              items={[
+                { label: "Email", value: user.email },
+                { label: "Status", value: "Pending Approval" },
+              ]}
+            />
+          </div>
+          <p className="k-hint mt-4">
+            Try logging out and back in after a day or two to check for an update.
+          </p>
         </div>
-        <p className="mt-4 text-xs text-slate-400">
-          Try logging out and back in after a day or two to check for an update.
-        </p>
-      </div>
-    </div>
+      </Section>
+    </Page>
   );
 }

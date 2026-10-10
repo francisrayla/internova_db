@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Icon from "@/components/Icon";
+import "@/components/dash/page.css";
 
 const MENU_WIDTH = 224;
 const ENABLED_ITEM = '[role="menuitem"]:not([aria-disabled="true"])';
@@ -94,7 +95,7 @@ export default function ActionMenu({ items, label = "More actions", text, icon =
   if (count === 0) return null;
 
   const itemClass = (item) =>
-    `flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+    `flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500 max-sm:min-h-[44px] ${
       item.disabled
         ? "cursor-not-allowed text-slate-400"
         : item.danger
@@ -147,7 +148,7 @@ export default function ActionMenu({ items, label = "More actions", text, icon =
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={onButtonKeyDown}
-        className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 ${text ? "px-3.5 py-2" : "h-9 w-9 text-slate-500"} ${className}`}
+        className={`k-btn is-secondary shrink-0 ${text ? "" : "is-icon"} ${className}`}
       >
         <Icon name={icon} size={16} />
         {text && <span>{text}</span>}

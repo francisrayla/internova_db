@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import InternPortfolioView from "@/components/InternPortfolioView";
 import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
+import { ErrorNote, SkeletonList } from "@/components/ui";
+import { Btn, Page, PageHeader } from "@/components/dash/page";
 
 export default function CoordinatorInternPortfolio() {
   const { deploymentId } = useParams();
@@ -29,28 +30,23 @@ export default function CoordinatorInternPortfolio() {
   }, [deploymentId]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/coordinator/interns" className="text-sm font-semibold text-blue-600 hover:underline">
-          ← Back to Interns
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-900">{internName ? `${internName}'s Portfolio` : "Portfolio"}</h2>
-          <Link href={`/coordinator/interns/${deploymentId}/narrative-report`} className="rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            Open narrative report
-          </Link>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        back={{ href: "/coordinator/interns", label: "Back to Interns" }}
+        title={internName ? `${internName}'s Portfolio` : "Portfolio"}
+      >
+        <Btn variant="primary" href={`/coordinator/interns/${deploymentId}/narrative-report`}>Open narrative report</Btn>
+      </PageHeader>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {narrative && <NarrativeChecklist report={narrative} />}
 
       {loading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">Loading portfolio…</p>
+        <section className="dash-card"><SkeletonList rows={3} height="h-16" /></section>
       ) : (
         <InternPortfolioView internName={internName} portfolio={portfolio} />
       )}
-    </div>
+    </Page>
   );
 }

@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchApiData } from "@/lib/apiFetch";
 import { dayLabel, formatTime, timeAgo } from "@/lib/timeAgo";
-import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
 import { EmptyState, ErrorNote, MODULE_ICON, SkeletonList } from "@/components/dean/ui";
+import { DataList, DataRow, Section } from "@/components/dash/page";
+import { LoadMore } from "@/components/Pagination";
 
 const PER_PAGE = 20;
 
@@ -17,6 +19,7 @@ export default function ActivityTab({ coordinator }) {
   const [module, setModule] = useState("");
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
 
@@ -26,9 +29,15 @@ export default function ActivityTab({ coordinator }) {
       if (module) query.set("module", module);
       return fetchApiData("dean", `coordinator/activity?${query}`)
         .then((data) => {
-          setItems((prev) => (append && prev ? [...prev, ...data.items] : data.items));
+          // New activity can arrive between two clicks and push rows onto the next page: never list the same row twice.
+          setItems((prev) => {
+            if (!(append && prev)) return data.items;
+            const seen = new Set(prev.map((a) => a.id));
+            return [...prev, ...data.items.filter((a) => !seen.has(a.id))];
+          });
           setModules(data.modules);
           setHasMore(data.has_more);
+          setTotal(data.total ?? 0);
           setPage(nextPage);
           setError(false);
         })
@@ -58,12 +67,12 @@ export default function ActivityTab({ coordinator }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="text-sm text-slate-500">Everything {coordinator?.name?.split(" ")[0] ?? "your coordinator"} has done in Internova, newest first.</p>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 max-sm:flex-col max-sm:items-stretch">
+        <p className="min-w-0 text-sm text-slate-600">Everything {coordinator?.name?.split(" ")[0] ?? "your coordinator"} has done in Internova, newest first.</p>
         {modules.length > 1 && (
-          <label className="relative text-sm">
+          <label className="sm:w-56">
             <span className="sr-only">Filter by area</span>
-            <select value={module} onChange={(e) => { setItems(null); setModule(e.target.value); }} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+            <select value={module} onChange={(e) => { setItems(null); setModule(e.target.value); }} className="k-input">
               <option value="">All areas</option>
               {modules.map((m) => (
                 <option key={m} value={m}>{MODULE_LABEL[m] ?? m}</option>
@@ -85,34 +94,35 @@ export default function ActivityTab({ coordinator }) {
       )}
 
       {groups.map((g) => (
-        <section key={g.label}>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{g.label}</h3>
-          <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white">
+        <Section key={g.label} title={g.label} flush>
+          <DataList>
             {g.items.map((a) => (
-              <li key={a.id} className="flex items-start gap-3 px-4 py-3">
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700">
-                  <Icon name={MODULE_ICON[a.module] ?? "list"} size={16} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-900">{a.action}</p>
-                  {a.description && <p className="break-words text-sm text-slate-600">{a.description}</p>}
-                  <p className="mt-0.5 text-xs text-slate-400">{MODULE_LABEL[a.module] ?? a.module}</p>
-                </div>
-                <div className="shrink-0 text-right text-xs text-slate-400">
-                  <p>{timeAgo(a.created_at)}</p>
-                  <p>{formatTime(a.created_at)}</p>
-                </div>
-              </li>
+              <DataRow
+                key={a.id}
+                wrap
+                lead={<span className="shrink-0 self-start pt-0.5 text-slate-500"><NavIcon name={MODULE_ICON[a.module] ?? "list"} size={18} /></span>}
+                title={a.action}
+                sub={
+                  <>
+                    {a.description && <span className="block break-words">{a.description}</span>}
+                    <span className="block text-xs text-slate-500">{MODULE_LABEL[a.module] ?? a.module}</span>
+                  </>
+                }
+                side={
+                  <span className="block text-xs leading-snug text-slate-500">
+                    <span className="block">{timeAgo(a.created_at)}</span>
+                    <span className="block">{formatTime(a.created_at)}</span>
+                  </span>
+                }
+              />
             ))}
-          </ul>
-        </section>
+          </DataList>
+        </Section>
       ))}
 
       {hasMore && (
-        <div className="text-center">
-          <button type="button" onClick={loadMore} disabled={loadingMore} className="rounded-xl border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-            {loadingMore ? "Loading…" : "Load more"}
-          </button>
+        <div className="dash-card !p-0">
+          <LoadMore shown={items.length} total={total} hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
         </div>
       )}
     </div>

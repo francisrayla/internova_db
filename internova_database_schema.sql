@@ -358,7 +358,7 @@ CREATE TABLE `evaluations` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `deployment_id` bigint unsigned NOT NULL,
   `evaluator_id` bigint unsigned NOT NULL,
-  `evaluation_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `evaluation_type` varchar(255) COLLATE utf8mb4_unicode_ci NULL,
   `evaluation_date` date NOT NULL,
   `overall_score` decimal(5,2) NULL,
   `remarks` longtext COLLATE utf8mb4_unicode_ci NULL,

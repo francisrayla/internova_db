@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { CircleCheck, GraduationCap, ArrowLeft, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import AddressPicker from "@/components/AddressPicker";
 
@@ -180,7 +181,7 @@ export default function InquiryPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center p-6">
         <div className="w-full max-w-lg rounded-3xl bg-white p-10 shadow-xl text-center">
-          <div className="text-6xl">✅</div>
+          <CircleCheck className="mx-auto h-14 w-14 text-emerald-600" aria-hidden="true" />
           <h2 className="mt-5 text-2xl font-bold text-slate-900">Registration Submitted!</h2>
           <p className="mt-3 text-slate-600">
             Thank you, <strong>{form.contact_person}</strong>! We have received your registration for <strong>{form.school_name}</strong>.
@@ -223,13 +224,13 @@ export default function InquiryPage() {
       <div className="mx-auto max-w-2xl">
 
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700">
-          ← Back to Home
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to Home
         </Link>
 
         {/* Brand header */}
         <div className="text-center mb-8 mt-4">
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 mb-4">
-            🎓 Internova — Internship Management Platform
+            <GraduationCap className="h-4 w-4" aria-hidden="true" /> Internova — Internship Management Platform
           </div>
           <h1 className="text-3xl font-bold text-slate-900">School Registration</h1>
           <p className="mt-2 text-slate-600 max-w-lg mx-auto">
@@ -244,19 +245,19 @@ export default function InquiryPage() {
           <p className="text-sm font-semibold text-slate-700 mb-3">You can also reach us directly:</p>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="flex items-center gap-2 text-slate-600">
-              <span>✉️</span>
+              <Mail size={16} className="shrink-0" aria-hidden="true" />
               <a href="mailto:hello@internova.ai" className="hover:underline text-blue-700">hello@internova.ai</a>
             </div>
             <div className="flex items-center gap-2 text-slate-600">
-              <span>📱</span>
+              <Phone size={16} className="shrink-0" aria-hidden="true" />
               <a href="tel:+639171234567" className="hover:underline text-blue-700">+63 917 123 4567</a>
             </div>
             <div className="flex items-center gap-2 text-slate-600">
-              <span>💬</span>
+              <MessageCircle size={16} className="shrink-0" aria-hidden="true" />
               <span>Facebook: @internova.ai</span>
             </div>
             <div className="flex items-center gap-2 text-slate-600">
-              <span>🌐</span>
+              <Globe size={16} className="shrink-0" aria-hidden="true" />
               <span>internova.ai</span>
             </div>
           </div>

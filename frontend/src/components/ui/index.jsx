@@ -1,28 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
+import "../dash/dash.css";
+import "../dash/page.css";
+
+const cx = (...parts) => parts.filter(Boolean).join(" ");
 
 // Status chip colors shared by every Dean screen: green ok, amber needs attention, red overdue, blue info.
+// The look is a soft tint (see .k-pill in components/dash/page.css); tone names are unchanged.
 const TONES = {
-  green: "bg-emerald-100 text-emerald-700",
-  amber: "bg-amber-100 text-amber-700",
-  red: "bg-red-100 text-red-700",
-  blue: "bg-blue-100 text-blue-700",
-  slate: "bg-slate-100 text-slate-600",
+  green: "is-ok",
+  amber: "is-warn",
+  red: "is-risk",
+  blue: "is-info",
+  slate: "",
 };
 
 export function Pill({ tone = "slate", size = "md", children, className = "" }) {
-  const sizing = size === "sm" ? "px-2 py-0 text-[11px] leading-5" : "px-2.5 py-0.5 text-xs";
-  return <span className={`inline-flex items-center rounded-full font-semibold ${sizing} ${TONES[tone] ?? TONES.slate} ${className}`}>{children}</span>;
+  return <span className={cx("k-pill", size === "sm" && "is-sm", TONES[tone] ?? TONES.slate, className)}>{children}</span>;
 }
 
 export function ProgressBar({ pct = 0, tone, label }) {
   const value = Math.max(0, Math.min(100, Number(pct) || 0));
-  const color = tone === "amber" ? "bg-amber-500" : tone === "red" ? "bg-red-500" : value >= 100 ? "bg-emerald-500" : "bg-blue-600";
+  const color = tone === "amber" ? "is-warn" : tone === "red" ? "is-risk" : value >= 100 ? "is-ok" : "";
   return (
-    <div className="h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
-      <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
+    <div className="k-bar" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+      <span className={color} style={{ width: `${value}%` }} />
     </div>
   );
 }
@@ -31,18 +35,27 @@ export function initials(name = "") {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("") || "?";
 }
 
-export function Avatar({ name, url, size = 40 }) {
+// One of five calm tints, chosen from the name so a person keeps their colour.
+function tintOf(name) {
+  let sum = 0;
+  for (const ch of String(name ?? "")) sum += ch.charCodeAt(0);
+  return (sum % 5) + 1;
+}
+
+// `tone="self"` pins the first (blue) tint, so a person's own profile page matches their header avatar instead of the name-based colour.
+export function Avatar({ name, url, size = 40, tone }) {
+  const tint = tone === "self" ? 1 : tintOf(name);
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-blue-100 font-semibold text-blue-700"
+      className={cx("dash-av relative", tint > 1 && `t${tint}`)}
       style={{ width: size, height: size, fontSize: size * 0.36 }}
       aria-hidden
     >
-      {url ? (
+      {/* The initials sit under the photo, so a photo that is slow or broken still leaves a readable circle. */}
+      {initials(name)}
+      {url && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt="" className="h-full w-full object-cover" />
-      ) : (
-        initials(name)
+        <img src={url} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
       )}
     </span>
   );
@@ -50,10 +63,10 @@ export function Avatar({ name, url, size = 40 }) {
 
 export function SectionTitle({ title, help, action }) {
   return (
-    <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+    <div className="k-section-title">
       <div>
-        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-        {help && <p className="text-sm text-slate-500">{help}</p>}
+        <h2>{title}</h2>
+        {help && <p>{help}</p>}
       </div>
       {action}
     </div>
@@ -62,19 +75,19 @@ export function SectionTitle({ title, help, action }) {
 
 export function EmptyState({ icon = "check", title, text, action }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
-      <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-        <Icon name={icon} size={20} />
+    <div className="k-empty">
+      <span className="k-empty-icon">
+        <NavIcon name={icon} size={20} />
       </span>
-      <p className="mt-3 font-semibold text-slate-800">{title}</p>
-      {text && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{text}</p>}
-      {action && <div className="mt-4">{action}</div>}
+      <h3>{title}</h3>
+      {text && <p>{text}</p>}
+      {action && <div className="k-empty-action">{action}</div>}
     </div>
   );
 }
 
 export function Skeleton({ className = "" }) {
-  return <div className={`animate-pulse rounded-xl bg-slate-100 ${className}`} />;
+  return <div className={`k-skel ${className}`} />;
 }
 
 export function SkeletonList({ rows = 3, height = "h-20" }) {
@@ -89,10 +102,10 @@ export function SkeletonList({ rows = 3, height = "h-20" }) {
 
 export function ErrorNote({ children, onRetry }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
+    <div className="k-note is-risk" role="alert">
       <span>{children}</span>
       {onRetry && (
-        <button type="button" onClick={onRetry} className="font-semibold underline">
+        <button type="button" onClick={onRetry}>
           Try again
         </button>
       )}
@@ -102,33 +115,27 @@ export function ErrorNote({ children, onRetry }) {
 
 export function TabBar({ tabs, active, onChange }) {
   return (
-    <div className="-mx-1 overflow-x-auto px-1" role="tablist">
-      <div className="flex min-w-max gap-1 border-b border-slate-200">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={active === t.key}
-            onClick={() => onChange(t.key)}
-            className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-semibold transition ${
-              active === t.key ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {t.label}
-            {t.count > 0 && (
-              <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${t.alert ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{t.count}</span>
-            )}
-          </button>
-        ))}
-      </div>
+    <div className="k-tabs" role="tablist">
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          role="tab"
+          aria-selected={active === t.key}
+          onClick={() => onChange(t.key)}
+          className="k-tab"
+        >
+          {t.label}
+          {t.count > 0 && <span className={cx("k-tab-count", t.alert && "is-alert")}>{t.count}</span>}
+        </button>
+      ))}
     </div>
   );
 }
 
 export function BackLink({ href, children }) {
   return (
-    <Link href={href} className="text-sm font-semibold text-blue-600 hover:underline">
+    <Link href={href} className="dash-link">
       {children}
     </Link>
   );
@@ -137,16 +144,16 @@ export function BackLink({ href, children }) {
 /** Short status message (success / error / info) shown above a list. */
 export function Banner({ tone = "green", children, onDismiss }) {
   const styles = {
-    green: "bg-emerald-50 text-emerald-700",
-    red: "bg-red-50 text-red-700",
-    amber: "bg-amber-50 text-amber-700",
-    blue: "bg-blue-50 text-blue-700",
+    green: "is-ok",
+    red: "is-risk",
+    amber: "is-warn",
+    blue: "",
   };
   return (
-    <div role={tone === "red" ? "alert" : "status"} className={`flex items-start justify-between gap-3 rounded-2xl px-4 py-3 text-sm ${styles[tone] ?? styles.blue}`}>
+    <div role={tone === "red" ? "alert" : "status"} className={cx("k-note", styles[tone] ?? "")}>
       <span className="min-w-0">{children}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label="Dismiss message" className="shrink-0 font-semibold underline">
+        <button type="button" onClick={onDismiss} aria-label="Dismiss message" className="shrink-0">
           Dismiss
         </button>
       )}

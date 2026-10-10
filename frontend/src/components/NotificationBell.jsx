@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { getEcho } from "@/lib/echo";
 import Icon from "@/components/Icon";
 import { apiFetch } from "@/lib/apiFetch";
+import { useAttention } from "@/lib/useAttention";
+import AttentionQueue from "@/components/AttentionQueue";
 
 /**
  * Live notification bell — wires up per audience:
@@ -20,8 +22,13 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
   const [unreadCount, setUnreadCount] = useState(0);
   // The red number: only what arrived since the list was last opened (see markSeen on the server).
   const [newCount, setNewCount] = useState(0);
+  // "Needs your attention": a live to-do list worked out by the server for the signed-in person only.
+  const attention = useAttention({ enabled: Boolean(audienceRole) });
+  const reloadAttention = attention.reload;
   const rootRef = useRef(null);
   const openRef = useRef(false);
+  // Red number = notifications that arrived since the bell was last opened + things that still need an action.
+  const badge = newCount + attention.badge;
 
   function markSeen() {
     apiFetch("/api/notifications/seen", { method: "POST" }).catch(() => {});
@@ -63,8 +70,8 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
 
     const channelNames =
       audienceRole === "superadmin"
-        ? ["superadmin-notifications"]
-        : [`school.${schoolId}.${audienceRole}-notifications`, ...(userId ? [`user.${userId}-notifications`] : [])];
+        ? ["superadmin.notifications"]
+        : [`school.${schoolId}.${audienceRole}.notifications`, ...(userId ? [`user.${userId}.notifications`] : [])];
 
     function handlePush(payload) {
       // Non-important rows exist only to wake up live-refresh listeners
@@ -75,23 +82,26 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
       // Already looking at the list: nothing "new" to announce, but remember it was seen.
       if (openRef.current) markSeen();
       else setNewCount((prev) => prev + 1);
+      // Whatever just happened may have added to or cleared the to-do list.
+      reloadAttention();
     }
 
-    channelNames.forEach((name) => echo.channel(name).listen(".notification.created", handlePush));
+    channelNames.forEach((name) => echo.private(name).listen(".notification.created", handlePush));
 
     return () => {
       // Other screens (Schools/Billing/Plans) subscribe to this same public
       // channel for their own live-refresh — echo.leave() would tear the
       // whole channel down for them too. Removing only this listener keeps
       // the shared subscription alive for whoever else is still using it.
-      channelNames.forEach((name) => echo.channel(name).stopListening(".notification.created", handlePush));
+      channelNames.forEach((name) => echo.private(name).stopListening(".notification.created", handlePush));
     };
-  }, [audienceRole, schoolId, userId]);
+  }, [audienceRole, schoolId, userId, reloadAttention]);
 
   function toggleOpen() {
     const next = !open;
     openRef.current = next;
     setOpen(next);
+    if (next) reloadAttention();
     if (next && newCount > 0) {
       setNewCount(0);
       markSeen();
@@ -126,15 +136,15 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
       <button
         type="button"
         onClick={toggleOpen}
-        className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+        className="relative grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 max-sm:h-[44px] max-sm:w-[44px]"
         title="Notifications"
-        aria-label={newCount > 0 ? `Notifications, ${newCount} new` : "Notifications"}
+        aria-label={badge > 0 ? `Notifications, ${badge} to look at` : "Notifications"}
         aria-expanded={open}
       >
         <Icon name="bell" size={18} />
-        {newCount > 0 && (
-          <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-            {newCount > 9 ? "9+" : newCount}
+        {badge > 0 && (
+          <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
+            {badge > 9 ? "9+" : badge}
           </span>
         )}
       </button>
@@ -143,16 +153,18 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
         // Phones: pinned under the header, edge to edge with a margin — the
         // bell sits mid-row there, so a 320px panel anchored to it would run
         // off the left of the screen. From sm up it hangs off the bell again.
-        <div className="fixed inset-x-3 top-16 z-30 max-h-[75vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
+        <div className="fixed inset-x-3 top-16 z-30 flex max-h-[75vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <p className="text-sm font-semibold text-slate-900">Notifications</p>
+            <p className="text-sm font-semibold text-slate-900">Notifications &amp; to-do</p>
             {unreadCount > 0 && (
               <button onClick={handleMarkAllRead} className="text-xs font-semibold text-blue-600 hover:underline">
                 Mark all read
               </button>
             )}
           </div>
-          <div className="max-h-96 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <AttentionQueue compact items={attention.items} loading={attention.loading} onNavigate={() => { openRef.current = false; setOpen(false); }} />
+            <p className="px-4 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Notifications</p>
             {notifications.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-slate-400">No notifications yet</p>
             ) : (
@@ -167,7 +179,7 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
                     <div className="min-w-0">
                       <p className={`text-slate-900 ${!n.read ? "font-semibold" : "font-medium"}`}>{n.title}</p>
                       {n.body && <p className="mt-0.5 text-xs text-slate-500">{n.body}</p>}
-                      <p className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-slate-400">
+                      <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-slate-400">
                         <Icon name="calendar" size={11} className="shrink-0" />
                         {n.created_at}
                       </p>
@@ -184,7 +196,7 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
                 setOpen(false);
                 router.push(historyHref);
               }}
-              className="block w-full rounded-b-2xl border-t border-slate-100 px-4 py-2.5 text-center text-xs font-semibold text-blue-600 hover:bg-slate-50"
+              className="block w-full shrink-0 border-t border-slate-100 px-4 py-2.5 text-center text-xs font-semibold text-blue-600 hover:bg-slate-50"
             >
               View all notifications
             </button>

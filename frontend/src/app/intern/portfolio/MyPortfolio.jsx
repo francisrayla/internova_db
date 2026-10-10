@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import Icon from "@/components/Icon";
+import { ExternalLink, FileText, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Btn, EmptyState, FormField, Input, Page, PageHeader, Section, SkeletonList, Textarea } from "@/components/dash/page";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
@@ -24,6 +25,10 @@ export default function MyPortfolio() {
   const [itemImage, setItemImage] = useState(null);
   const [savingItem, setSavingItem] = useState(false);
   const [error, setError] = useState("");
+  const [detailsError, setDetailsError] = useState("");
+  const [deleting, setDeleting] = useState(null); // work sample waiting for "yes, remove it"
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   // Narrative report: texts the intern writes + what the report still lacks.
   const [texts, setTexts] = useState({ acknowledgement: "", personal_observation: "", suggestion: "" });
@@ -100,17 +105,19 @@ export default function MyPortfolio() {
   async function saveDetails(e) {
     e.preventDefault();
     setSavingDetails(true);
+    setDetailsError("");
     try {
       const res = await apiFetch("/api/intern/portfolio", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: details.title.trim() || undefined, bio: details.bio }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setPortfolio(data.portfolio);
-        setEditing(false);
-      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.message || "Could not save your details. Please try again.");
+      setPortfolio(data.portfolio);
+      setEditing(false);
+    } catch (err) {
+      setDetailsError(err.message || "Could not save your details. Please try again.");
     } finally {
       setSavingDetails(false);
     }
@@ -162,187 +169,185 @@ export default function MyPortfolio() {
     setItemImage(picked);
   }
 
-  async function handleDeleteItem(id) {
-    setPortfolio((prev) => (prev ? { ...prev, items: prev.items.filter((i) => i.id !== id) } : prev));
-    await apiFetch(`/api/intern/portfolio/items/${id}`, { method: "DELETE" }).catch(() => {});
+  // Removes the work sample only once the server confirmed it; a failure keeps it on screen and says so.
+  async function handleDeleteItem(item) {
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      const res = await apiFetch(`/api/intern/portfolio/items/${item.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Could not remove this work sample. Please try again.");
+      }
+      setPortfolio((prev) => (prev ? { ...prev, items: prev.items.filter((i) => i.id !== item.id) } : prev));
+      setDeleting(null);
+    } catch (err) {
+      setDeleteError(err.message || "Could not remove this work sample. Please try again.");
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   if (loading) {
-    return <p className="py-10 text-center text-sm text-slate-400">Loading…</p>;
+    return (
+      <Page size="narrow">
+        <SkeletonList rows={3} height="h-32" />
+      </Page>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Portfolio</p>
-            {editing ? (
-              <form onSubmit={saveDetails} className="mt-2 space-y-3">
-                <input {...inputProps("title")}
-                  value={details.title}
-                  onChange={(e) => setDetails((d) => ({ ...d, title: e.target.value }))}
-                  placeholder="Portfolio title"
-                  className="w-full max-w-md rounded-xl border border-slate-300 px-3 py-2 text-lg font-semibold outline-none focus:border-blue-500"
-                />
-                <textarea {...inputProps("longText")}
-                  value={details.bio}
-                  onChange={(e) => setDetails((d) => ({ ...d, bio: e.target.value }))}
-                  rows={3}
-                  placeholder="A short bio — who you are, what you're learning, what you're proud of."
-                  className="w-full max-w-lg rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                />
-                <div className="flex gap-2">
-                  <button type="submit" disabled={savingDetails} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                    {savingDetails ? "Saving…" : "Save"}
-                  </button>
-                  <button type="button" onClick={() => setEditing(false)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <h1 className="mt-1 text-2xl font-semibold text-slate-900">{portfolio?.title || "Your Portfolio"}</h1>
-                <p className="mt-1 text-sm text-slate-600">{portfolio?.bio || "Add a short bio to introduce your work."}</p>
-                <button type="button" onClick={() => setEditing(true)} className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:underline">
-                  <Icon name="gear" size={14} /> Edit details
-                </button>
-              </>
-            )}
-          </div>
+    <Page size="narrow">
+      <PageHeader
+        title={portfolio?.title || "Your Portfolio"}
+        sentence={portfolio?.bio || "Add a short bio to introduce your work."}
+        meta="Visible to your supervisor and coordinator."
+      >
+        {!editing && (
+          <Btn onClick={() => setEditing(true)}>
+            <Pencil size={15} aria-hidden="true" /> Edit details
+          </Btn>
+        )}
+        <Btn variant="primary" href="/intern/portfolio/report">
+          <FileText size={15} aria-hidden="true" /> Generate Portfolio
+        </Btn>
+      </PageHeader>
 
-          <Link
-            href="/intern/portfolio/report"
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            <Icon name="file" size={14} /> Generate Portfolio
-          </Link>
-        </div>
-        <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
-          <Icon name="user" size={12} /> Visible to your supervisor and coordinator.
-        </p>
-      </section>
+      {editing && (
+        <Section title="Edit details">
+          <form onSubmit={saveDetails} className="grid gap-4">
+            <FormField label="Portfolio title">
+              <Input {...inputProps("title")}
+                value={details.title}
+                onChange={(e) => setDetails((d) => ({ ...d, title: e.target.value }))}
+                placeholder="Portfolio title"
+              />
+            </FormField>
+            <FormField label="Short bio">
+              <Textarea {...inputProps("longText")}
+                value={details.bio}
+                onChange={(e) => setDetails((d) => ({ ...d, bio: e.target.value }))}
+                rows={3}
+                placeholder="A short bio: who you are, what you're learning, what you're proud of."
+              />
+            </FormField>
+            {detailsError && <p role="alert" className="k-note is-risk">{detailsError}</p>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Btn onClick={() => { setEditing(false); setDetailsError(""); }}>Cancel</Btn>
+              <button type="submit" disabled={savingDetails} className="k-btn is-primary">
+                {savingDetails ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </Section>
+      )}
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Narrative report</h2>
-            <p className="mt-1 text-sm text-slate-600">Your school&apos;s printable OJT narrative report. Write the parts only you can, then generate it.</p>
-          </div>
-          <Link href="/intern/portfolio/report" className="rounded-xl bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            Generate Portfolio
-          </Link>
-        </div>
-
+      <Section
+        title="Narrative report"
+        help="Your school's printable OJT narrative report. Write the parts only you can, then generate it."
+        action={<Btn sm href="/intern/portfolio/report">Generate Portfolio</Btn>}
+      >
         {narrative && (
-          <div className="mt-4">
+          <div className="mb-5">
             <NarrativeChecklist report={narrative} title="What your report needs" />
           </div>
         )}
 
-        <form onSubmit={saveTexts} className="mt-4 space-y-4">
+        <form onSubmit={saveTexts} className="grid gap-5">
           {[
             ["acknowledgement", "Acknowledgement"],
             ["personal_observation", "Personal observation"],
             ["suggestion", "Suggestion to improve the apprenticeship program"],
           ].map(([key, label]) => (
-            <label key={key} className="block text-sm">
-              <span className="mb-1.5 flex items-center justify-between font-semibold text-slate-700">
-                {label}
-                <button
-                  type="button"
-                  onClick={() => polishText(key)}
-                  disabled={polishing === key || !texts[key].trim()}
-                  className="text-xs font-semibold text-blue-600 hover:underline disabled:text-slate-300 disabled:no-underline"
-                >
-                  {polishing === key ? "Polishing…" : "Polish with AI"}
-                </button>
-              </span>
-              <textarea {...inputProps("longText")}
+            <div key={key} className="grid gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <label htmlFor={`report-${key}`} className="k-label min-w-0">{label}</label>
+                <Btn variant="ghost" sm onClick={() => polishText(key)} disabled={polishing === key || !texts[key].trim()}>
+                  <Sparkles size={14} aria-hidden="true" /> {polishing === key ? "Polishing…" : "Polish with AI"}
+                </Btn>
+              </div>
+              <Textarea {...inputProps("longText")}
+                id={`report-${key}`}
                 value={texts[key]}
                 onChange={(e) => setTexts((t) => ({ ...t, [key]: e.target.value }))}
                 rows={5}
                 maxLength={5000}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
-            </label>
+            </div>
           ))}
-          <div className="flex items-center gap-3">
-            <button type="submit" disabled={savingTexts} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={savingTexts} className="k-btn is-primary max-sm:w-full">
               {savingTexts ? "Saving…" : "Save texts"}
             </button>
-            {textsMsg && <span className="text-sm text-slate-600">{textsMsg}</span>}
+            {textsMsg && <span role="status" className="text-sm text-slate-600">{textsMsg}</span>}
           </div>
         </form>
-      </section>
+      </Section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Work samples</h2>
-          <button
-            type="button"
-            onClick={() => setShowItemForm((v) => !v)}
-            className="rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-          >
-            {showItemForm ? "Cancel" : "+ Add item"}
-          </button>
-        </div>
-
+      <Section
+        title="Work samples"
+        action={
+          <Btn variant={showItemForm ? "secondary" : "primary"} sm onClick={() => setShowItemForm((v) => !v)}>
+            {showItemForm ? "Cancel" : <><Plus size={14} aria-hidden="true" /> Add item</>}
+          </Btn>
+        }
+      >
         {showItemForm && (
-          <form onSubmit={handleAddItem} className="mb-5 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <input {...inputProps("title")}
-              value={itemForm.title}
-              onChange={(e) => setItemForm((f) => ({ ...f, title: e.target.value }))}
-              placeholder="Title, e.g. Company Attendance Module"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-              autoFocus
-            />
-            <textarea {...inputProps("longText")}
-              value={itemForm.description}
-              onChange={(e) => setItemForm((f) => ({ ...f, description: e.target.value }))}
-              rows={3}
-              placeholder="What did you build or contribute?"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-            <input {...inputProps("url")}
-              type="url"
-              value={itemForm.project_url}
-              onChange={(e) => setItemForm((f) => ({ ...f, project_url: clean("url", e.target.value) }))}
-              placeholder="Project link (optional)"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleItemImage}
-              className="w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700"
-            />
-            {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-            <button type="submit" disabled={savingItem} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-              {savingItem ? "Adding…" : "Add to portfolio"}
-            </button>
+          <form onSubmit={handleAddItem} className="mb-5 grid gap-3 rounded-xl bg-slate-50 p-4">
+            <FormField label="Title">
+              <Input {...inputProps("title")}
+                value={itemForm.title}
+                onChange={(e) => setItemForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Company Attendance Module"
+                autoFocus
+              />
+            </FormField>
+            <FormField label="Description">
+              <Textarea {...inputProps("longText")}
+                value={itemForm.description}
+                onChange={(e) => setItemForm((f) => ({ ...f, description: e.target.value }))}
+                rows={3}
+                placeholder="What did you build or contribute?"
+              />
+            </FormField>
+            <FormField label="Project link (optional)">
+              <Input {...inputProps("url")}
+                type="url"
+                value={itemForm.project_url}
+                onChange={(e) => setItemForm((f) => ({ ...f, project_url: clean("url", e.target.value) }))}
+                placeholder="https://"
+              />
+            </FormField>
+            <FormField label="Picture (optional)">
+              <input type="file" accept="image/*" onChange={handleItemImage} className="k-input" />
+            </FormField>
+            {error && <p role="alert" className="k-note is-risk">{error}</p>}
+            <div className="flex justify-end">
+              <button type="submit" disabled={savingItem} className="k-btn is-primary max-sm:w-full">
+                {savingItem ? "Adding…" : "Add to portfolio"}
+              </button>
+            </div>
           </form>
         )}
 
         {(portfolio?.items?.length ?? 0) === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No work samples yet — add your first one above.</p>
+          <EmptyState icon="portfolio" title="No work samples yet" text="Add your first one with the button above." />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             {portfolio.items.map((item) => (
-              <div key={item.id} className="overflow-hidden rounded-2xl border border-slate-200">
+              <div key={item.id} className="min-w-0 overflow-hidden rounded-xl border border-slate-200">
                 {item.image_url && <img src={item.image_url} alt="" className="h-36 w-full object-cover" />}
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                    <button type="button" onClick={() => handleDeleteItem(item.id)} className="shrink-0 text-slate-400 hover:text-red-600" aria-label={`Remove ${item.title}`}>
-                      <Icon name="trash" size={14} />
+                    <p className="min-w-0 break-words text-[0.9375rem] font-semibold text-slate-900">{item.title}</p>
+                    <button type="button" onClick={() => { setDeleteError(""); setDeleting(item); }} className="-mr-2 -mt-2 grid h-11 w-11 shrink-0 place-items-center max-sm:min-h-[44px] max-sm:min-w-[44px] rounded-full text-slate-500 hover:bg-slate-50 hover:text-red-700" aria-label={`Remove ${item.title}`}>
+                      <Trash2 size={16} aria-hidden="true" />
                     </button>
                   </div>
-                  {item.description && <p className="mt-1 text-xs text-slate-600">{item.description}</p>}
+                  {item.description && <p className="mt-1 break-words text-sm text-slate-600">{item.description}</p>}
                   {item.project_url && (
-                    <a href={item.project_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-blue-600 hover:underline">
-                      View project ↗
+                    <a href={item.project_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-blue-700 hover:underline sm:min-h-0">
+                      View project <ExternalLink size={13} aria-hidden="true" />
                     </a>
                   )}
                 </div>
@@ -350,7 +355,19 @@ export default function MyPortfolio() {
             ))}
           </div>
         )}
-      </section>
-    </div>
+      </Section>
+
+      <ConfirmDialog
+        open={!!deleting}
+        title="Remove this work sample?"
+        confirmLabel="Remove"
+        busy={deleteBusy}
+        error={deleteError}
+        onConfirm={() => handleDeleteItem(deleting)}
+        onCancel={() => setDeleting(null)}
+      >
+        <p>&ldquo;{deleting?.title}&rdquo; will be taken off your portfolio. You can add it again later.</p>
+      </ConfirmDialog>
+    </Page>
   );
 }

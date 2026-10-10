@@ -1,14 +1,32 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
+import { greeting } from "@/lib/timeAgo";
+import { plural } from "@/lib/format";
+import { Card, Cols, DashHeader, DashPage, Notice, PersonRow, Skel, StatStrip, TextLink } from "@/components/dash";
+
+/** What a supervisor can act on: finished, or hours waiting for review. */
+function internChip(i) {
+  if (i.display_status === "completed") return { tone: "ok", label: "Finished" };
+  if (i.pending_attendance > 0) return { tone: "warn", label: `${i.pending_attendance} to review` };
+  return null;
+}
 
 export default function SupervisorDashboard() {
   const [interns, setInterns] = useState([]);
-  const [pendingAttendance, setPendingAttendance] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [name, setName] = useState("Supervisor");
+  const [name, setName] = useState("");
+  const [error, setError] = useState(false);
+  const [reloads, setReloads] = useState(0);
+
+  // A failed load shows a message with "Try again" (never a row of zeros that looks like real numbers).
+  function retry() {
+    setError(false);
+    setLoading(true);
+    setReloads((n) => n + 1);
+  }
 
   useEffect(() => {
     try {
@@ -17,87 +35,93 @@ export default function SupervisorDashboard() {
     } catch {
       // ignore
     }
-
-    Promise.all([
-      fetchSupervisorData("interns"),
-      fetchSupervisorData("attendance?status=pending"),
-    ])
-      .then(([internsRes, attendanceRes]) => {
-        setInterns(internsRes.interns ?? []);
-        setPendingAttendance(attendanceRes.records ?? []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
   }, []);
 
-  const activeInterns = interns.filter((i) => i.status === "active");
-  const avgHoursProgress = activeInterns.length
-    ? Math.round(activeInterns.reduce((sum, i) => sum + i.hours_progress_pct, 0) / activeInterns.length)
-    : 0;
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      fetchSupervisorData("interns"),
+      // The figures come from the server so they use the same definitions as the Interns page.
+      fetchSupervisorData("dashboard"),
+    ])
+      .then(([internsRes, dashboardRes]) => {
+        if (!live) return;
+        setInterns(internsRes.interns ?? []);
+        setDashboard(dashboardRes);
+      })
+      .catch(() => live && setError(true))
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [reloads]);
 
-  const stats = [
-    { label: "Company Interns", value: interns.length, note: `${activeInterns.length} active`, href: "/supervisor/interns" },
-    { label: "Avg. Hours Progress", value: `${avgHoursProgress}%`, note: "Across active interns", href: "/supervisor/interns" },
-    { label: "Attendance To Review", value: pendingAttendance.length, note: pendingAttendance.length > 0 ? "Awaiting your review" : "All caught up", href: "/supervisor/attendance", urgent: pendingAttendance.length > 0 },
+  const summary = dashboard?.summary;
+  const redFlags = summary?.red_flags_unchecked ?? 0;
+  const company = interns[0]?.company_name ?? "your company";
+  const roster = interns.filter((i) => !["inactive", "invitation_pending"].includes(i.display_status));
+
+  const figures = [
+    { label: "Interns", value: summary?.on_list ?? 0, note: `${summary?.active ?? 0} active`, href: "/supervisor/interns" },
+    { label: "Completed", value: summary?.completed ?? 0, note: (summary?.completed ?? 0) > 0 ? "Finished their hours" : "None yet", href: "/supervisor/interns" },
+    { label: "Average hours", value: `${summary?.average_hours_pct ?? 0}%`, note: "Across your company", href: "/supervisor/interns" },
   ];
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-gradient-to-br from-blue-600 to-blue-800 p-6 text-white shadow-sm">
-        <h2 className="text-2xl font-bold">Good day, {name} 👋</h2>
-        <p className="mt-1 text-sm text-blue-100">A clear pulse on the interns at your company.</p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/supervisor/interns" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
-            View Interns
-          </Link>
-          <Link href="/supervisor/attendance" className="rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/30">
-            Attendance
-          </Link>
-        </div>
-      </section>
+    <DashPage>
+      <DashHeader title={`${greeting()}${name ? `, ${name}` : ""}`} sentence={`Here's how the interns at ${company} are doing today.`}>
+        <TextLink href="/supervisor/interns" arrow>View interns</TextLink>
+        <TextLink href="/supervisor/attendance" arrow>Attendance</TextLink>
+      </DashHeader>
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 [&>*:last-child:nth-child(odd)]:col-span-2 sm:[&>*:last-child:nth-child(odd)]:col-span-1">
-        {loading
-          ? Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />)
-          : stats.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition sm:p-5 hover:border-blue-300 hover:shadow-md"
-              >
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
-                <p className="mt-2 text-2xl font-bold text-slate-900 sm:mt-3 sm:text-3xl">{item.value}</p>
-                <p className={`mt-2 text-xs font-medium ${item.urgent ? "text-red-600" : "text-blue-600"}`}>{item.note}</p>
-              </Link>
-            ))}
-      </section>
+      {error && <Notice onRetry={retry}>We couldn&apos;t load your dashboard. Check your connection and try again.</Notice>}
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-slate-900">Intern Progress</h3>
-          <Link href="/supervisor/interns" className="text-xs font-semibold text-blue-600 hover:underline">View all</Link>
-        </div>
-        <div className="mt-4 space-y-3">
+      {!error && (loading ? <Skel height={104} /> : <StatStrip items={figures} />)}
+
+      {!error && <Cols layout="wide-left">
+        <Card title="Your interns" help="Hours rendered out of the hours required." action={<TextLink href="/supervisor/interns" arrow>View all</TextLink>}>
           {loading ? (
-            <p className="text-sm text-slate-500">Loading…</p>
-          ) : interns.length === 0 ? (
-            <p className="text-sm text-slate-500">No interns are deployed at your company yet.</p>
+            <p className="dash-empty">Loading…</p>
+          ) : roster.length === 0 ? (
+            <p className="dash-empty">No interns are deployed at your company yet.</p>
           ) : (
-            interns.slice(0, 5).map((i) => (
-              <div key={i.deployment_id} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-900">{i.intern_name}</p>
-                  <p className="text-xs text-slate-500">{i.company_name ?? "—"}</p>
-                </div>
-                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-200">
-                  <div className="h-full rounded-full bg-blue-600" style={{ width: `${i.hours_progress_pct}%` }} />
-                </div>
-                <span className="w-10 shrink-0 text-right text-xs font-semibold text-slate-600">{i.hours_progress_pct}%</span>
-              </div>
-            ))
+            <ul className="dash-list">
+              {roster.slice(0, 6).map((i) => (
+                <li key={i.deployment_id}>
+                  <PersonRow
+                    name={i.intern_name}
+                    sub={i.course ? `${i.course}${i.year_level ? ` · ${i.year_level}` : ""}` : (i.company_name ?? "")}
+                    pct={i.hours_progress_pct}
+                    tone={i.display_status === "completed" ? "ok" : undefined}
+                    chip={internChip(i)}
+                    href={`/supervisor/interns/${i.deployment_id}/portfolio`}
+                  />
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
-      </section>
-    </div>
+        </Card>
+
+        <Card title="Red flags to check" className="is-aside">
+          {loading ? (
+            <p className="dash-empty">Loading…</p>
+          ) : (
+            <>
+              <p className={`dash-big${redFlags > 0 ? " is-risk" : ""}`}>{redFlags}</p>
+              <p className="dash-note" style={{ marginTop: 10 }}>
+                {redFlags > 0
+                  ? `${plural(redFlags, "clock-in")} ${redFlags === 1 ? "looks" : "look"} unusual and ${redFlags === 1 ? "hasn't" : "haven't"} been checked yet.`
+                  : "Nothing to check. Every odd clock-in has been looked at."}
+              </p>
+              {redFlags > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <TextLink href="/supervisor/attendance?flag=unchecked" arrow>Check them</TextLink>
+                </div>
+              )}
+            </>
+          )}
+        </Card>
+      </Cols>}
+    </DashPage>
   );
 }

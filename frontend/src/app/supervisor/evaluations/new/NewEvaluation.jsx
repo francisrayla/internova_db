@@ -11,7 +11,9 @@ import { clampOnBlur } from "@/lib/clampNumber";
 import { cleanNumber, inputProps } from "@/lib/inputRules";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { todayLocalDate } from "@/lib/timeAgo";
-import { EmptyState, ErrorNote, Pill, ProgressBar, SectionTitle, SkeletonList } from "@/components/ui";
+import NavIcon from "@/components/NavIcon";
+import { EmptyState, ErrorNote, Pill, ProgressBar, SkeletonList } from "@/components/ui";
+import { Btn, Page, Section } from "@/components/dash/page";
 import { gradeBand, scoreTone } from "../evalHelpers";
 
 const LIST_HREF = "/supervisor/evaluations";
@@ -19,7 +21,8 @@ const CATEGORY_DESCRIPTIONS = {
   "B. Interpersonal Skills": "The measure of the trainee's ability to relate to one another and to operate within the division where they are assigned through social communication and interaction.",
 };
 
-const fieldClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
+const fieldClass = "k-input";
+const scoreClass = "k-input !px-2 text-center";
 const today = () => todayLocalDate();
 const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
@@ -35,8 +38,8 @@ function optionLabel(i) {
 
 function Field({ label, children }) {
   return (
-    <label className="block min-w-0 text-sm">
-      <span className="mb-1 block font-semibold text-slate-700">{label}</span>
+    <label className="k-field">
+      <span className="k-label">{label}</span>
       {children}
     </label>
   );
@@ -48,16 +51,12 @@ function CategoryCard({ cat, items, scores, autoFilled, suggestions, comment, sh
   const max = items.reduce((n, c) => n + Number(c.max_score), 0);
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold text-slate-900">{cat}</h3>
-          {CATEGORY_DESCRIPTIONS[cat] && <p className="mt-0.5 text-sm text-slate-500">{CATEGORY_DESCRIPTIONS[cat]}</p>}
-        </div>
-        <span className="shrink-0 text-sm font-semibold text-slate-700">{fmt(got)} / {fmt(max)}</span>
-      </div>
-
-      <div className="mt-3 divide-y divide-slate-100">
+    <Section
+      title={cat}
+      help={CATEGORY_DESCRIPTIONS[cat]}
+      action={<span className="shrink-0 text-sm font-semibold text-slate-700">{fmt(got)} / {fmt(max)}</span>}
+    >
+      <div className="divide-y divide-slate-100">
         {items.map((c) => {
           const missing = showErrors && (scores[c.id] === undefined || scores[c.id] === "");
           const auto = autoFilled[c.id] != null;
@@ -67,14 +66,14 @@ function CategoryCard({ cat, items, scores, autoFilled, suggestions, comment, sh
               <div className="min-w-0">
                 <p className="text-sm font-medium text-slate-800">{c.name}</p>
                 {c.description && <p className="text-xs text-slate-500">{c.description}</p>}
-                {auto && <p className="mt-0.5 text-xs text-purple-600">Auto-filled from task ratings (avg {autoFilled[c.id]}/10)</p>}
+                {auto && <p className="mt-0.5 text-xs text-[var(--ui-info)]">Auto-filled from task ratings (avg {autoFilled[c.id]}/10)</p>}
                 {suggested != null && (
-                  <p className="mt-0.5 text-xs text-purple-600">
+                  <p className="mt-0.5 text-xs text-[var(--ui-info)]">
                     Task ratings suggest {suggested}.{" "}
-                    <button type="button" onClick={() => onScore(c.id, String(suggested))} className="font-semibold underline">Use it</button>
+                    <button type="button" onClick={() => onScore(c.id, String(suggested))} className="font-semibold underline max-sm:min-h-[44px]">Use it</button>
                   </p>
                 )}
-                {missing && <p role="alert" className="mt-0.5 text-xs font-medium text-red-600">Enter a score from 0 to {Number(c.max_score)}.</p>}
+                {missing && <p role="alert" className="mt-0.5 text-xs font-medium text-[var(--ui-risk)]">Enter a score from 0 to {Number(c.max_score)}.</p>}
               </div>
               <div className="flex shrink-0 items-center gap-1.5 text-sm text-slate-500">
                 <input
@@ -86,7 +85,7 @@ function CategoryCard({ cat, items, scores, autoFilled, suggestions, comment, sh
                   value={scores[c.id] ?? ""}
                   onChange={(e) => onScore(c.id, cleanNumber(e.target.value, { max: Number(c.max_score), decimals: 2 }))}
                   onBlur={(e) => onBlurScore(c.id, clampOnBlur(e.target.value, 0, Number(c.max_score)))}
-                  className={`w-16 rounded-lg border px-2 py-2 text-center text-sm outline-none focus:border-blue-500 ${missing ? "border-red-400" : auto ? "border-purple-300 bg-purple-50" : "border-slate-300"}`}
+                  className={`${scoreClass} !w-[4.5rem] ${auto && !missing ? "!bg-[var(--ui-info-bg)]" : ""}`}
                 />
                 <span>/ {Number(c.max_score)}</span>
               </div>
@@ -103,22 +102,21 @@ function CategoryCard({ cat, items, scores, autoFilled, suggestions, comment, sh
           placeholder="Comments for this section (optional)"
           aria-label={`${cat} comments`}
           rows={2}
-          className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-500"
+          className="k-input mt-3"
         />
       ) : (
-        <button type="button" onClick={() => setCommentOpen(true)} className="mt-2 text-sm font-semibold text-blue-600 hover:underline">
+        <button type="button" onClick={() => setCommentOpen(true)} className="mt-2 inline-flex items-center text-sm font-semibold text-blue-600 hover:underline max-sm:min-h-[44px]">
           Add a comment
         </button>
       )}
-    </section>
+    </Section>
   );
 }
 
 function SummaryCard({ total, max, pct, groups, scores, unscored, formal }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <p className="text-sm font-semibold text-slate-700">Live summary</p>
-      <p className="mt-2 text-xl font-bold text-slate-900">{fmt(total)} <span className="text-sm font-medium text-slate-500">/ {fmt(max)}</span></p>
+    <Section title="Live summary">
+      <p className="text-xl font-semibold text-slate-900">{fmt(total)} <span className="text-sm font-medium text-slate-500">/ {fmt(max)}</span></p>
       <div className="mt-1 flex items-center gap-2">
         <Pill tone={scoreTone(pct)}>{pct.toFixed(0)}%</Pill>
         <span className="text-sm text-slate-600">{gradeBand(pct)}</span>
@@ -145,7 +143,7 @@ function SummaryCard({ total, max, pct, groups, scores, unscored, formal }) {
           </p>
         </>
       )}
-    </div>
+    </Section>
   );
 }
 
@@ -366,49 +364,54 @@ export default function NewEvaluation() {
   }
 
   const backLink = (
-    <Link href={LIST_HREF} onClick={(e) => { if (dirtyRef.current) { e.preventDefault(); setLeaveOpen(true); } }} className="text-sm font-semibold text-blue-600 hover:underline">
-      ← Evaluations
+    <Link href={LIST_HREF} onClick={(e) => { if (dirtyRef.current) { e.preventDefault(); setLeaveOpen(true); } }} className="k-back">
+      <NavIcon name="back" size={16} />
+      Evaluations
     </Link>
   );
 
-  if (loading) return <div className="space-y-4">{backLink}<SkeletonList rows={3} /></div>;
-  if (loadError) return <div className="space-y-4">{backLink}<ErrorNote>{loadError}</ErrorNote></div>;
-  if (interns.length === 0 && !editId) return <div className="space-y-4">{backLink}<EmptyState icon="check" title="No interns yet" text="No interns are deployed at your company yet." /></div>;
-  if (formal && criteria.length === 0 && !editId) return <div className="space-y-4">{backLink}<EmptyState icon="check" title="Evaluation criteria not set up" text="Your coordinator has not set up the evaluation criteria yet." /></div>;
+  if (loading) return <Page><div>{backLink}</div><SkeletonList rows={3} /></Page>;
+  if (loadError) return <Page><div>{backLink}</div><ErrorNote>{loadError}</ErrorNote></Page>;
+  if (interns.length === 0 && !editId) return <Page><div>{backLink}</div><EmptyState icon="users" title="No interns yet" text="No interns are deployed at your company yet." /></Page>;
+  if (formal && criteria.length === 0 && !editId) return <Page><div>{backLink}</div><EmptyState icon="evaluations" title="Evaluation criteria not set up" text="Your coordinator has not set up the evaluation criteria yet." /></Page>;
   if (noOneReady) {
     return (
-      <div className="space-y-4">
-        {backLink}
-        <h1 className="text-2xl font-bold text-slate-900">New evaluation</h1>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <p className="text-sm font-semibold text-slate-900">No intern can be evaluated yet</p>
-          <p className="mt-1 text-sm text-slate-600">An intern can be evaluated once the required hours are completed, and each intern is evaluated once (you can edit it later).</p>
+      <Page>
+        <header className="k-head">
+          <div className="k-head-text">
+            {backLink}
+            <h1>New evaluation</h1>
+          </div>
+        </header>
+        <Section title="No intern can be evaluated yet" help="An intern can be evaluated once the required hours are completed, and each intern is evaluated once (you can edit it later).">
           <UnavailableInterns interns={unavailable} />
-        </div>
-      </div>
+        </Section>
+      </Page>
     );
   }
 
   return (
-    <form onSubmit={requestSubmit} noValidate className="space-y-5 pb-24 lg:pb-0">
-      <div>
-        {backLink}
-        <h1 className="mt-1 text-2xl font-bold text-slate-900">{editId ? "Edit evaluation" : "New evaluation"}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {editId
-            ? `Change the scores or remarks for ${internName}. The total is recalculated and ${internName.split(" ")[0] || "the intern"} is told it was updated.`
-            : formal ? "Score each criterion. Totals update as you go." : "Give an overall score and remarks. The school's rubric below is a guide for what the score should reflect."}
-        </p>
-      </div>
+    <form onSubmit={requestSubmit} noValidate>
+    <Page className="pb-24 lg:pb-0">
+      <header className="k-head">
+        <div className="k-head-text">
+          {backLink}
+          <h1>{editId ? "Edit evaluation" : "New evaluation"}</h1>
+          <p>
+            {editId
+              ? `Change the scores or remarks for ${internName}. The total is recalculated and ${internName.split(" ")[0] || "the intern"} is told it was updated.`
+              : formal ? "Score each criterion. Totals update as you go." : "Give an overall score and remarks. The school's rubric below is a guide for what the score should reflect."}
+          </p>
+        </div>
+      </header>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
         <div className="min-w-0 space-y-4">
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-            <SectionTitle title="Who and when" />
+          <Section title="Who and when">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Intern">
                 {editId ? (
-                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{internName}</p>
+                  <p className="k-input !bg-[var(--ui-soft)]">{internName}</p>
                 ) : (
                   <select value={deploymentId} onChange={(e) => { markDirty(); setDeploymentId(e.target.value); }} className={fieldClass}>
                     {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id} disabled={!i.can_evaluate}>{optionLabel(i)}</option>)}
@@ -427,7 +430,7 @@ export default function NewEvaluation() {
               </p>
             )}
             {!editId && <UnavailableInterns interns={unavailable} />}
-          </section>
+          </Section>
 
           {formal ? (
             groups.map(([cat, items]) => (
@@ -447,34 +450,33 @@ export default function NewEvaluation() {
             ))
           ) : (
             <>
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                <SectionTitle title="Overall score" help="Out of 100." />
+              <Section title="Overall score" help="Out of 100.">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <input
                     type="text"
                     inputMode="decimal"
                     autoComplete="off"
                     aria-label="Overall score"
+                    aria-invalid={(showErrors && overall === "") || undefined}
                     value={overall}
                     onChange={(e) => { markDirty(); setOverall(cleanNumber(e.target.value, { max: 100, decimals: 2 })); }}
                     onBlur={(e) => setOverall(clampOnBlur(e.target.value, 0, 100))}
-                    className={`w-20 rounded-lg border px-2 py-2 text-center text-sm outline-none focus:border-blue-500 ${showErrors && overall === "" ? "border-red-400" : "border-slate-300"}`}
+                    className={`${scoreClass} !w-24`}
                   />
                   <span>/ 100</span>
                 </div>
-                {showErrors && overall === "" && <p role="alert" className="mt-1 text-xs font-medium text-red-600">Enter a score from 0 to 100.</p>}
-              </section>
+                {showErrors && overall === "" && <p role="alert" className="mt-1 text-xs font-medium text-[var(--ui-risk)]">Enter a score from 0 to 100.</p>}
+              </Section>
               {groups.length > 0 && (
-                <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                  <SectionTitle title="School rubric (guide)" help="Read-only. Your overall score should reflect these." />
-                  <div className="space-y-3">
+                <Section title="School rubric (guide)" help="Read-only. Your overall score should reflect these.">
+                  <div className="space-y-4">
                     {groups.map(([cat, items]) => (
                       <div key={cat}>
                         <p className="text-sm font-semibold text-slate-800">{cat}</p>
-                        <ul className="mt-1 space-y-0.5 text-sm text-slate-600">
+                        <ul className="mt-1 divide-y divide-slate-100 text-sm text-slate-600">
                           {items.map((c) => (
-                            <li key={c.id} className="flex justify-between gap-3">
-                              <span className="min-w-0">{c.name}</span>
+                            <li key={c.id} className="flex justify-between gap-3 py-1.5">
+                              <span className="min-w-0 break-words">{c.name}</span>
                               <span className="shrink-0 text-slate-500">{Number(c.max_score)} pts</span>
                             </li>
                           ))}
@@ -482,12 +484,12 @@ export default function NewEvaluation() {
                       </div>
                     ))}
                   </div>
-                </section>
+                </Section>
               )}
             </>
           )}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <Section>
             <Field label={formal ? "In what areas do you recommend this student focus for development?" : "Remarks"}>
               <textarea
                 {...inputProps(formal ? "comment" : "longText")}
@@ -498,12 +500,12 @@ export default function NewEvaluation() {
                 className={fieldClass}
               />
             </Field>
-          </section>
+          </Section>
 
           {submitError && <ErrorNote>{submitError}</ErrorNote>}
           <div className="hidden justify-end gap-2 lg:flex">
-            <button type="button" onClick={leave} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{editId ? "Save changes" : "Submit evaluation"}</button>
+            <Btn onClick={leave}>Cancel</Btn>
+            <Btn variant="primary" type="submit" disabled={saving}>{editId ? "Save changes" : "Submit evaluation"}</Btn>
           </div>
         </div>
 
@@ -512,12 +514,12 @@ export default function NewEvaluation() {
         </aside>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:hidden">
         <div className="min-w-0">
-          <p className="text-base font-bold text-slate-900">{fmt(total)} / {fmt(max)} <span className="text-sm font-medium text-slate-500">({pct.toFixed(0)}%)</span></p>
+          <p className="text-base font-semibold text-slate-900">{fmt(total)} / {fmt(max)} <span className="text-sm font-medium text-slate-500">({pct.toFixed(0)}%)</span></p>
           {formal && <p className="truncate text-xs text-slate-500">{unscored ? `${unscored} unscored` : "All scored"}</p>}
         </div>
-        <button type="submit" disabled={saving} className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{editId ? "Save" : "Submit"}</button>
+        <Btn variant="primary" type="submit" disabled={saving} className="shrink-0">{editId ? "Save" : "Submit"}</Btn>
       </div>
 
       <ConfirmDialog
@@ -544,6 +546,7 @@ export default function NewEvaluation() {
       >
         <p>{editId ? "Your changes have not been saved and will be lost." : "Your scores and comments have not been submitted and will be lost."}</p>
       </ConfirmDialog>
+    </Page>
     </form>
   );
 }

@@ -5,6 +5,7 @@ import { apiFetch, fetchApiData } from "@/lib/apiFetch";
 import { FEEDBACK_READ_EVENT } from "@/components/FeedbackUnreadWatcher";
 import FeedbackThread from "@/components/dean/FeedbackThread";
 import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
+import { Btn, FormField, GroupTitle, Textarea } from "@/components/dash/page";
 
 const MAX = 2000;
 
@@ -65,38 +66,43 @@ export default function FeedbackTab({ coordinator, onSent }) {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={send} className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h3 className="font-semibold text-slate-900">Send feedback to your coordinator</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;Dean Feedback&quot;. They can acknowledge it and reply, and you can mark a conversation resolved when it is dealt with.
-        </p>
+      <form onSubmit={send} className="dash-card">
+        <div className="dash-card-head">
+          <div className="min-w-0">
+            <h2>Send feedback to your coordinator</h2>
+            <p>
+              Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;Dean Feedback&quot;. They can acknowledge it and reply, and you can mark a conversation resolved when it is dealt with.
+            </p>
+          </div>
+        </div>
         {!canSend ? (
-          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="k-note is-warn">
             {coordinator ? "Your coordinator needs to accept their invitation before they can read feedback." : "You need a coordinator before you can send feedback."}
           </p>
         ) : (
-          <>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value.slice(0, MAX))}
-              rows={4}
-              placeholder="Example: Please review the pending documents this week, thank you."
-              className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
-            />
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-slate-400">{message.length} / {MAX}</span>
-              <button type="submit" disabled={busy || !message.trim()} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+          <div className="space-y-3">
+            <FormField label="Your message" className="[&>.k-label]:sr-only">
+              <Textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value.slice(0, MAX))}
+                rows={4}
+                placeholder="Example: Please review the pending documents this week, thank you."
+              />
+            </FormField>
+            <div className="flex flex-wrap items-center justify-between gap-2 max-sm:flex-col-reverse max-sm:items-stretch">
+              <span className="text-xs text-slate-500 max-sm:text-right">{message.length} / {MAX}</span>
+              <Btn type="submit" variant="primary" disabled={busy || !message.trim()}>
                 {busy ? "Sending…" : "Send feedback"}
-              </button>
+              </Btn>
             </div>
-          </>
+          </div>
         )}
-        {error && <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        {notice && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{notice}</p>}
+        {error && <p className="k-note is-risk mt-3" role="alert">{error}</p>}
+        {notice && <p className="k-note is-ok mt-3" role="status">{notice}</p>}
       </form>
 
       <section>
-        <h3 className="mb-3 text-base font-semibold text-slate-900">Conversations</h3>
+        <GroupTitle title="Conversations" />
         {loadError && <ErrorNote onRetry={load}>We couldn&apos;t load your feedback.</ErrorNote>}
         {!items && !loadError && <SkeletonList rows={2} height="h-20" />}
         {items?.length === 0 && <EmptyState icon="message" title="No feedback sent yet" text="Messages you send will be listed here, with your coordinator's replies and whether it is open, acknowledged or resolved." />}

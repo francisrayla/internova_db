@@ -211,6 +211,9 @@ class CourseRequirementService
     {
         DB::transaction(function () use ($course, $types) {
             CourseRequirementSet::firstOrCreate(['school_id' => $this->school->id, 'course' => $course]);
+            // Serialises two coordinators saving the same course at once (otherwise the second
+            // insert hits the unique key and fails with a 500 half way through).
+            CourseRequirementSet::where('school_id', $this->school->id)->where('course', $course)->lockForUpdate()->first();
             CourseRequirement::where('school_id', $this->school->id)->where('course', $course)->delete();
             foreach (array_values($types) as $i => $type) {
                 CourseRequirement::create(['school_id' => $this->school->id, 'course' => $course, 'document_type' => $type, 'sort_order' => $i]);

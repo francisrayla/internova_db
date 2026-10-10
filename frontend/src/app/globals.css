@@ -6,22 +6,95 @@
    the OS says. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* =====================================================================
+   ONE PALETTE (light + dark), read by everything
+   ---------------------------------------------------------------------
+   Layer 1  --ui-* tokens below. Components written with plain CSS (the
+            dashboard kit, components/dash/*, the shared ui components) read
+            these directly.
+   Layer 2  @theme below redefines Tailwind's colour scales (slate, blue,
+            emerald, amber, red, ...) and radius/shadow tokens, so every
+            existing `text-slate-500`, `bg-blue-50`, `rounded-2xl` ... in all
+            screens already renders in the calm light palette.
+   Layer 3  the `.dark` overrides further down repaint those same utility
+            classes from the --ui-* dark tokens (a soft, blue-tinted family:
+            surfaces are told apart by steps + hairlines, not by glow).
+   To retune the look, change values here; do not hand-edit screens.
+   ===================================================================== */
 :root {
   --background: #f5f7f2;
   --foreground: #182031;
-  --ink-muted: #70817d;
-  --line: #dbdfe5;
+  --ink-muted: #5d6d6a;
+  --line: #e1e5e0;
   --leaf: #254377;
   --coral: #e67d63;
+
+  /* surfaces */
+  --ui-ground: #f5f7f2;     /* page behind the cards */
+  --ui-surface: #ffffff;    /* cards, modals, inputs */
+  --ui-soft: #f0f3ee;       /* wells, hovers, table heads */
+  --ui-chrome: #fbfcf9;     /* sidebar */
+  --ui-line: #e1e5e0;       /* hairlines */
+  --ui-track: #e6eae4;      /* empty part of bars */
+  /* text */
+  --ui-ink: #182031;
+  --ui-muted: #5d6d6a;
+  --ui-faint: #5f6e6b;      /* placeholders, icons (5.2:1 on white, 4.7:1 on slate-100) */
+  /* brand */
+  --ui-accent: #1a5fd6;
+  --ui-accent-soft: #e1eaf7;
+  /* status: text colour, soft background, bar fill */
+  --ui-ok: #2b7352;   --ui-ok-bg: #e5f2ea;   --ui-ok-bar: #5a9f7e;
+  --ui-warn: #8c6018; --ui-warn-bg: #f7ecd3; --ui-warn-bar: #d3a04c;
+  --ui-risk: #a84a3a; --ui-risk-bg: #f8e4df; --ui-risk-bar: #c9705c;
+  --ui-info: #3d5f93; --ui-info-bg: #e4ebf5; --ui-info-bar: #6f93c9;
+  --ui-mute-bar: #a3aeab;
+  --ui-shadow: 0 1px 2px rgba(24, 32, 49, 0.04);
+  --ui-shadow-pop: 0 12px 32px -8px rgba(24, 32, 49, 0.18), 0 2px 6px rgba(24, 32, 49, 0.06);
+  --ui-scrim: rgba(24, 32, 49, 0.45);
+  /* calm tints for initials avatars, picked by name */
+  --ui-av1: #e4ebf5; --ui-av1-ink: #3d5f93;
+  --ui-av2: #e5f2ea; --ui-av2-ink: #2f6d50;
+  --ui-av3: #f4ece0; --ui-av3-ink: #8a5f22;
+  --ui-av4: #f3e6e2; --ui-av4-ink: #9a4f3e;
+  --ui-av5: #ebe8f1; --ui-av5-ink: #5b5380;
 }
 
+/* Blue-tinted dark (not charcoal): ground < surface < raised, hairlines
+   between. Text off-white (#e6ebf5, 14:1 on surface), secondary #9aa8c0
+   (7:1), action blue #6a9bf0 (6:1). Status colours are desaturated tints. */
 .dark {
-  --background: #0b0f1a;
-  --foreground: #eef2f8;
-  --ink-muted: #8a96ab;
-  --line: #263043;
-  --leaf: #6ea1f2;
-  --coral: #f0906f;
+  --background: #0d1424;
+  --foreground: #e6ebf5;
+  --ink-muted: #9aa8c0;
+  --line: #26324a;
+  --leaf: #6a9bf0;
+  --coral: #ec9478;
+
+  --ui-ground: #0d1424;
+  --ui-surface: #141c2e;
+  --ui-soft: #1a2438;
+  --ui-chrome: #101829;
+  --ui-line: #26324a;
+  --ui-track: #26324a;
+  --ui-ink: #e6ebf5;
+  --ui-muted: #9aa8c0;
+  --ui-faint: #8493ae;
+  --ui-accent: #6a9bf0;
+  --ui-accent-soft: #1d2d4d;
+  --ui-ok: #86c9a8;   --ui-ok-bg: #1d363d;   --ui-ok-bar: #5e9f83;
+  --ui-warn: #dcbb7c; --ui-warn-bg: #33312d; --ui-warn-bar: #c9a55f;
+  --ui-risk: #e8a496; --ui-risk-bg: #342837; --ui-risk-bar: #c98172;
+  --ui-info: #8fb4f4; --ui-info-bg: #202e49; --ui-info-bar: #7a9cd0;
+  --ui-mute-bar: #4f5d78;
+  --ui-shadow: none;
+  --ui-shadow-pop: 0 18px 40px -12px rgba(0, 0, 0, 0.6);
+  --ui-scrim: rgba(5, 9, 18, 0.62);
+  --ui-av1: #202e49; --ui-av1-ink: #8fb4f4;
+  --ui-av2: #1d363d; --ui-av2-ink: #86c9a8;
+  --ui-av3: #33312d; --ui-av3-ink: #dcbb7c;
+  --ui-av4: #342837; --ui-av4-ink: #e8a496;
+  --ui-av5: #2a2840; --ui-av5-ink: #b5accf;
 }
 
 @theme inline {
@@ -31,10 +104,174 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Tailwind colour scales, retuned. Same class names everywhere, calmer values.
+   Text steps keep >= 4.5:1 on white and on the soft tints (slate-400 5.2, slate-500 6.6). */
+@theme {
+  --color-slate-50: #f6f8f4;
+  --color-slate-100: #eef1ec;
+  --color-slate-200: #e1e5e0;
+  --color-slate-300: #c3cbc5;
+  --color-slate-400: #5f6e6b;
+  --color-slate-500: #4f5e5b;
+  --color-slate-600: #434f55;
+  --color-slate-700: #313c4f;
+  --color-slate-800: #232d40;
+  --color-slate-900: #182031;
+  --color-slate-950: #0f1624;
+
+  --color-blue-50: #eef3fb;
+  --color-blue-100: #e1eaf7;
+  --color-blue-200: #c3d4ef;
+  --color-blue-300: #9bb7e4;
+  --color-blue-400: #6b95d9;
+  --color-blue-500: #3d79d9;
+  --color-blue-600: #1a5fd6;
+  --color-blue-700: #164fb0;
+  --color-blue-800: #1b4390;
+  --color-blue-900: #1b3870;
+  --color-blue-950: #12254d;
+
+  --color-emerald-50: #eff7f2;
+  --color-emerald-100: #e5f2ea;
+  --color-emerald-200: #c4dfd0;
+  --color-emerald-300: #9bc7ae;
+  --color-emerald-400: #74b090;
+  --color-emerald-500: #5a9f7e;
+  --color-emerald-600: #2d7655;
+  --color-emerald-700: #266548;
+  --color-emerald-800: #1f5139;
+  --color-emerald-900: #193f2e;
+
+  --color-amber-50: #fbf5e6;
+  --color-amber-100: #f7ecd3;
+  --color-amber-200: #ecd6a4;
+  --color-amber-300: #e0bd78;
+  --color-amber-400: #d3a04c;
+  --color-amber-500: #c18a2e;
+  --color-amber-600: #9a6a1a;
+  --color-amber-700: #8c6018;
+  --color-amber-800: #6f4a10;
+  --color-amber-900: #563a0e;
+  --color-amber-950: #3a2708;
+
+  --color-red-50: #fbefec;
+  --color-red-100: #f8e4df;
+  --color-red-200: #efc7be;
+  --color-red-300: #e3a698;
+  --color-red-400: #d4806f;
+  --color-red-500: #b85543;
+  --color-red-600: #a84a3a;
+  --color-red-700: #8f3d2f;
+  --color-red-800: #732f24;
+  --color-red-900: #5a251c;
+
+  --color-purple-50: #f4f1f8;
+  --color-purple-100: #ebe6f3;
+  --color-purple-200: #d9d0e8;
+  --color-purple-300: #bcaed6;
+  --color-purple-400: #9b88bf;
+  --color-purple-500: #7d6aa6;
+  --color-purple-600: #67539a;
+  --color-purple-700: #5b4a82;
+  --color-purple-800: #483b69;
+  --color-purple-900: #372d52;
+
+  --color-orange-50: #fbf2e9;
+  --color-orange-100: #f6e4d3;
+  --color-orange-200: #edc9aa;
+  --color-orange-300: #e6b388;
+  --color-orange-400: #df9c65;
+  --color-orange-500: #d98a4a;
+  --color-orange-600: #ba7236;
+  --color-orange-700: #8c4f1c;
+  --color-orange-800: #7b481b;
+  --color-orange-900: #5c3614;
+  --color-cyan-50: #eef6f7;
+  --color-cyan-100: #dcecee;
+  --color-cyan-200: #b2d3d8;
+  --color-cyan-300: #8ebfc5;
+  --color-cyan-400: #6baab2;
+  --color-cyan-500: #4f9aa3;
+  --color-cyan-600: #3e838b;
+  --color-cyan-700: #2d6b73;
+  --color-cyan-800: #24565c;
+  --color-cyan-900: #1b4045;
+  --color-rose-50: #fbf0f1;
+  --color-rose-100: #f6e0e3;
+  --color-rose-200: #eabdc3;
+  --color-rose-300: #e1a0a9;
+  --color-rose-400: #d7828f;
+  --color-rose-500: #cf6b7a;
+  --color-rose-600: #b65564;
+  --color-rose-700: #9c3f4d;
+  --color-rose-800: #7d323e;
+  --color-rose-900: #5e262e;
+  --color-yellow-50: #fbf7e0;
+  --color-yellow-100: #f6eec0;
+  --color-yellow-200: #e9d792;
+  --color-yellow-300: #ddc46c;
+  --color-yellow-400: #d2b146;
+  --color-yellow-500: #c9a227;
+  --color-yellow-600: #a3831c;
+  --color-yellow-700: #7d6310;
+  --color-yellow-800: #644f0d;
+  --color-yellow-900: #4b3b0a;
+  --color-sky-50: #f0f7fb;
+  --color-sky-100: #e0eef7;
+  --color-sky-200: #b9d8eb;
+  --color-sky-300: #99c5e1;
+  --color-sky-400: #78b2d7;
+  --color-sky-500: #5ea3cf;
+  --color-sky-600: #4584aa;
+  --color-sky-700: #2c6485;
+  --color-sky-800: #23506a;
+  --color-sky-900: #1a3c50;
+  --color-green-50: #f1f8f2;
+  --color-green-100: #e2f1e5;
+  --color-green-200: #b9d9c1;
+  --color-green-300: #97c4a2;
+  --color-green-400: #75b084;
+  --color-green-500: #5aa06c;
+  --color-green-600: #458655;
+  --color-green-700: #2f6b3d;
+  --color-green-800: #265631;
+  --color-green-900: #1c4025;
+  --color-violet-50: #f5f3f9;
+  --color-violet-100: #ebe6f3;
+  --color-violet-200: #cac1dc;
+  --color-violet-300: #afa2c9;
+  --color-violet-400: #9383b5;
+  --color-violet-500: #7d6aa6;
+  --color-violet-600: #6c5a94;
+  --color-violet-700: #5b4a82;
+  --color-violet-800: #493b68;
+  --color-violet-900: #372c4e;
+
+  /* softer corners and shadows for every card, input and sheet */
+  --radius-xl: 0.75rem;
+  --radius-2xl: 0.875rem;
+  --radius-3xl: 1rem;
+  --shadow-sm: 0 1px 2px 0 rgb(24 32 49 / 0.05);
+  --shadow-md: 0 4px 12px -2px rgb(24 32 49 / 0.08), 0 2px 4px -2px rgb(24 32 49 / 0.05);
+  --shadow-lg: 0 10px 28px -8px rgb(24 32 49 / 0.14), 0 2px 6px -2px rgb(24 32 49 / 0.06);
+  --shadow-xl: 0 18px 44px -12px rgb(24 32 49 / 0.2), 0 4px 10px -4px rgb(24 32 49 / 0.06);
+  --shadow-2xl: 0 28px 60px -16px rgb(24 32 49 / 0.28);
+}
+
+/* Dark: depth comes from surface steps and hairlines, so small shadows go
+   away and only popovers/modals keep a soft one. (Tailwind inlines shadow
+   values into the utility, so this overrides the utilities themselves.) */
+.dark .shadow-sm, .dark .shadow, .dark .shadow-md { --tw-shadow: 0 0 #0000; }
+.dark .shadow-lg { --tw-shadow: 0 14px 34px -12px rgb(0 0 0 / 0.55); }
+.dark .shadow-xl { --tw-shadow: 0 18px 44px -14px rgb(0 0 0 / 0.65); }
+.dark .shadow-2xl { --tw-shadow: 0 28px 60px -16px rgb(0 0 0 / 0.7); }
+.dark .hover\:shadow:hover, .dark .hover\:shadow-md:hover { --tw-shadow: 0 0 #0000; }
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), "Trebuchet MS", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* In the base layer, not unlayered: an unlayered `font: inherit` outranks
@@ -44,6 +281,20 @@ body {
   * { box-sizing: border-box; }
   button, input, textarea, select { font: inherit; }
   button { cursor: pointer; }
+  ::placeholder { color: var(--ui-faint); opacity: 1; }
+  input[type="checkbox"], input[type="radio"], input[type="range"], progress { accent-color: var(--ui-accent); }
+  /* Fields: a soft ring next to the border colour change each screen already
+     does on focus. Utilities (ring-*, shadow-*) still win over this. */
+  input:not([type="checkbox"]):not([type="radio"]):focus,
+  select:focus,
+  textarea:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 18%, transparent);
+  }
+  /* Keyboard focus for links/buttons that bring no ring of their own. */
+  :where(a, button, summary, [role="button"], [role="tab"], [role="menuitem"]):focus-visible {
+    outline: 2px solid var(--ui-accent);
+    outline-offset: 2px;
+  }
 }
 
 /* Phone density: the same layouts, just a notch tighter — spacing and the
@@ -62,8 +313,8 @@ body {
   }
   input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
 }
-::selection { background: #bdcfe7; color: #182031; }
-.dark ::selection { background: #2c4a78; color: #eef2f8; }
+::selection { background: #c3d4ef; color: #182031; }
+.dark ::selection { background: #2c4a78; color: #e6ebf5; }
 
 /* =====================================================================
    Dark mode retrofit
@@ -75,122 +326,124 @@ body {
    own shades, overriding those exact utility classes under a `.dark`
    ancestor reaches every screen at once instead of hand-editing class
    names in 80+ files one by one. Buttons/badges that use white text on a
-   saturated background (blue-600, red-600, etc.) already have enough
-   contrast in both themes and are intentionally left alone.
+   saturated background (blue-600, red-600, etc.) keep a calmer solid and
+   white text (>= 5.5:1).
+
+   Status pills: a low-alpha wash of their own hue over the surface, text in
+   a desaturated light tone. Never a glowing border.
    ===================================================================== */
 
 /* ---- Neutral surfaces ---- */
 /* Public marketing/auth pages (landing hero, inquiry form, accept-invite)
    use this light decorative gradient as their page background — gradient
-   stop utilities (the "from" and "to" classes) aren't part of the covered
-   bg- vocabulary above, so it stayed a light gradient under a `.dark`
-   ancestor while headings on top of it correctly turned near-white, making
-   them invisible. Scoped to this exact from/to pair so it doesn't touch
-   the dashboard banners, which use a different (already dark-safe)
-   gradient. */
+   stop utilities aren't part of the covered bg- vocabulary, so it stayed a
+   light gradient under a `.dark` ancestor. Scoped to this exact pair. */
 .dark .bg-gradient-to-br.from-blue-50.to-white {
   background-image: none;
-  background-color: #0b0f1a;
+  background-color: var(--ui-ground);
 }
 
-.dark .bg-white { background-color: #141a2c; }
-.dark .bg-slate-50 { background-color: #0b0f1a; }
-.dark .bg-slate-100 { background-color: #212a40; }
-.dark .bg-slate-200 { background-color: #2b3550; }
-.dark .bg-slate-300 { background-color: #3a4560; }
-.dark .bg-\[\#f5f7f2\] { background-color: #0b0f1a; }
-.dark .bg-\[\#fbfcf9\] { background-color: #101524; }
-.dark .bg-white\/95 { background-color: rgba(20, 26, 44, 0.95); }
-.dark .bg-white\/90 { background-color: rgba(20, 26, 44, 0.9); }
-.dark .bg-white\/80 { background-color: rgba(20, 26, 44, 0.8); }
-.dark .hover\:bg-white:hover { background-color: #212a40; }
-.dark .hover\:bg-slate-50:hover { background-color: #212a40; }
-.dark .hover\:bg-slate-100:hover { background-color: #2b3550; }
+.dark .bg-white { background-color: var(--ui-surface); }
+.dark .bg-slate-50 { background-color: var(--ui-ground); }
+.dark .bg-slate-100 { background-color: var(--ui-soft); }
+.dark .bg-slate-200 { background-color: #222e47; }
+.dark .bg-slate-300 { background-color: #2f3c58; }
+.dark .bg-\[\#f5f7f2\] { background-color: var(--ui-ground); }
+.dark .bg-\[\#fbfcf9\] { background-color: var(--ui-chrome); }
+.dark .bg-white\/95 { background-color: rgba(20, 28, 46, 0.95); }
+.dark .bg-white\/90 { background-color: rgba(20, 28, 46, 0.9); }
+.dark .bg-white\/80 { background-color: rgba(20, 28, 46, 0.8); }
+.dark .hover\:bg-white:hover { background-color: var(--ui-soft); }
+.dark .hover\:bg-slate-50:hover { background-color: var(--ui-soft); }
+.dark .hover\:bg-slate-100:hover { background-color: #222e47; }
 
 /* ---- Text ---- */
-.dark .text-slate-900 { color: #f5f8fc; }
-.dark .text-slate-800 { color: #e4e9f2; }
-.dark .text-slate-700 { color: #ccd4e2; }
-.dark .text-slate-600 { color: #a9b4c8; }
-.dark .text-slate-500 { color: #8994ab; }
-.dark .text-slate-400 { color: #66718a; }
-.dark .hover\:text-slate-800:hover { color: #e4e9f2; }
+.dark .text-slate-900 { color: #e6ebf5; }
+.dark .text-slate-800 { color: #dbe2ef; }
+.dark .text-slate-700 { color: #c3cde0; }
+.dark .text-slate-600 { color: #aab6cc; }
+.dark .text-slate-500 { color: #9aa8c0; }
+.dark .text-slate-400 { color: #8493ae; }
+.dark .hover\:text-slate-800:hover { color: #dbe2ef; }
 
 /* ---- Borders ---- */
-.dark .border-slate-50 { border-color: #1a2236; }
-.dark .border-slate-100 { border-color: #212a40; }
-.dark .border-slate-200 { border-color: #283251; }
-.dark .border-slate-300 { border-color: #3a4560; }
+.dark .border-slate-50 { border-color: #19233a; }
+.dark .border-slate-100 { border-color: #1f2a42; }
+.dark .border-slate-200 { border-color: var(--ui-line); }
+.dark .border-slate-300 { border-color: #34425f; }
 /* Tailwind v4 draws divide-* as a bottom border on every child but the
    last (v3 used a top border on every child but the first), so both shapes
    are covered — otherwise the first row's line stays light-mode white. */
 .dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
-.dark .divide-slate-100 > :not(:last-child) { border-color: #212a40; }
+.dark .divide-slate-100 > :not(:last-child) { border-color: #1f2a42; }
 .dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
-.dark .divide-slate-200 > :not(:last-child) { border-color: #283251; }
+.dark .divide-slate-200 > :not(:last-child) { border-color: var(--ui-line); }
 
-/* ---- Blue brand: subtle tints get a dark treatment; solid blue-600/700
-   buttons already read fine on a dark ground and are left untouched. ---- */
-.dark .bg-blue-50 { background-color: #172a44; }
-.dark .bg-blue-50\/40 { background-color: rgba(23, 42, 68, 0.6); }
-.dark .bg-blue-100 { background-color: #1c3253; }
-.dark .text-blue-700 { color: #8ec0fb; }
-.dark .text-blue-800 { color: #bcdbff; }
-.dark .text-blue-600 { color: #6fa8f5; }
-.dark .border-blue-200 { border-color: rgba(96, 165, 250, 0.35); }
-.dark .hover\:bg-blue-50:hover { background-color: #1c3253; }
-.dark .hover\:bg-blue-100:hover { background-color: #234066; }
+/* ---- Blue brand: subtle tints get a dark treatment; solid blue buttons
+   become a calmer mid blue that still carries white text (5.6:1). ---- */
+.dark .bg-blue-50 { background-color: rgba(106, 155, 240, 0.1); }
+.dark .bg-blue-50\/40 { background-color: rgba(106, 155, 240, 0.06); }
+.dark .bg-blue-100 { background-color: rgba(106, 155, 240, 0.17); }
+.dark .text-blue-700 { color: #8fb4f4; }
+.dark .text-blue-800 { color: #b3cdf8; }
+.dark .text-blue-600 { color: #7fa8f2; }
+.dark .border-blue-200 { border-color: rgba(106, 155, 240, 0.3); }
+.dark .hover\:bg-blue-50:hover { background-color: rgba(106, 155, 240, 0.17); }
+.dark .hover\:bg-blue-100:hover { background-color: rgba(106, 155, 240, 0.24); }
+.dark .bg-blue-600 { background-color: #2c64c8; }
+.dark .bg-blue-700,
+.dark .hover\:bg-blue-700:hover { background-color: #2455b0; }
 
-/* ---- Status pill colors (light bg + saturated text, used for badges,
-   banners, and inline alerts) — translucent dark bg + lightened text. ---- */
-.dark .bg-emerald-50 { background-color: rgba(52, 211, 153, 0.08); }
-.dark .bg-emerald-100 { background-color: rgba(52, 211, 153, 0.16); }
-.dark .text-emerald-700 { color: #6ee7b7; }
-.dark .text-emerald-600 { color: #4ade80; }
-.dark .border-emerald-200 { border-color: rgba(52, 211, 153, 0.35); }
-.dark .hover\:bg-emerald-50:hover { background-color: rgba(52, 211, 153, 0.12); }
+/* ---- Status pill colors (light bg + muted text, used for badges,
+   banners, and inline alerts) — translucent dark bg + softened text. ---- */
+.dark .bg-emerald-50 { background-color: rgba(82, 211, 154, 0.08); }
+.dark .bg-emerald-100 { background-color: rgba(82, 211, 154, 0.14); }
+.dark .text-emerald-700 { color: #86c9a8; }
+.dark .text-emerald-600 { color: #7cc4a0; }
+.dark .border-emerald-200 { border-color: rgba(82, 211, 154, 0.26); }
+.dark .hover\:bg-emerald-50:hover { background-color: rgba(82, 211, 154, 0.12); }
 
-.dark .bg-amber-50 { background-color: rgba(251, 191, 36, 0.08); }
-.dark .bg-amber-100 { background-color: rgba(251, 191, 36, 0.16); }
-.dark .text-amber-700 { color: #fcd34d; }
-.dark .text-amber-600 { color: #fbbf24; }
-.dark .text-amber-800 { color: #fde68a; }
-.dark .border-amber-200 { border-color: rgba(251, 191, 36, 0.35); }
-.dark .border-amber-300 { border-color: rgba(251, 191, 36, 0.45); }
-.dark .hover\:bg-amber-50:hover { background-color: rgba(251, 191, 36, 0.12); }
+.dark .bg-amber-50 { background-color: rgba(240, 180, 41, 0.08); }
+.dark .bg-amber-100 { background-color: rgba(240, 180, 41, 0.14); }
+.dark .text-amber-700 { color: #dcbb7c; }
+.dark .text-amber-600 { color: #d4b06a; }
+.dark .text-amber-800 { color: #e6cb97; }
+.dark .border-amber-200 { border-color: rgba(240, 180, 41, 0.26); }
+.dark .border-amber-300 { border-color: rgba(240, 180, 41, 0.36); }
+.dark .hover\:bg-amber-50:hover { background-color: rgba(240, 180, 41, 0.12); }
 
 .dark .bg-red-50 { background-color: rgba(248, 113, 113, 0.08); }
-.dark .bg-red-100 { background-color: rgba(248, 113, 113, 0.16); }
-.dark .text-red-700 { color: #fca5a5; }
-.dark .text-red-600 { color: #f87171; }
-.dark .text-red-500 { color: #f87171; }
-.dark .text-red-800 { color: #fecaca; }
-.dark .border-red-200 { border-color: rgba(248, 113, 113, 0.35); }
+.dark .bg-red-100 { background-color: rgba(248, 113, 113, 0.14); }
+.dark .text-red-700 { color: #e8a496; }
+.dark .text-red-600 { color: #e8a496; }
+.dark .text-red-500 { color: #e39a8b; }
+.dark .text-red-800 { color: #f0bdb2; }
+.dark .border-red-200 { border-color: rgba(248, 113, 113, 0.26); }
 .dark .hover\:bg-red-50:hover { background-color: rgba(248, 113, 113, 0.12); }
 
-.dark .bg-purple-50 { background-color: rgba(192, 132, 252, 0.08); }
-.dark .bg-purple-100 { background-color: rgba(192, 132, 252, 0.16); }
-.dark .text-purple-700 { color: #d8b4fe; }
-.dark .text-purple-900 { color: #f3e8ff; }
-.dark .border-purple-200 { border-color: rgba(192, 132, 252, 0.35); }
+.dark .bg-purple-50 { background-color: rgba(176, 148, 240, 0.08); }
+.dark .bg-purple-100 { background-color: rgba(176, 148, 240, 0.14); }
+.dark .text-purple-700 { color: #c4b2ec; }
+.dark .text-purple-900 { color: #e5dcf7; }
+.dark .border-purple-200 { border-color: rgba(176, 148, 240, 0.28); }
 
-.dark .bg-cyan-100 { background-color: rgba(34, 211, 238, 0.16); }
-.dark .text-cyan-700 { color: #67e8f9; }
+.dark .bg-cyan-100 { background-color: rgba(34, 211, 238, 0.13); }
+.dark .text-cyan-700 { color: #7fd0dc; }
 
 .dark .bg-orange-50 { background-color: rgba(251, 146, 60, 0.08); }
-.dark .bg-orange-100 { background-color: rgba(251, 146, 60, 0.16); }
-.dark .text-orange-700 { color: #fdba74; }
+.dark .bg-orange-100 { background-color: rgba(251, 146, 60, 0.14); }
+.dark .text-orange-700 { color: #e8b48a; }
 
-.dark .bg-rose-100 { background-color: rgba(251, 113, 133, 0.16); }
-.dark .text-rose-700 { color: #fda4af; }
+.dark .bg-rose-100 { background-color: rgba(251, 113, 133, 0.14); }
+.dark .text-rose-700 { color: #eca4b0; }
 
 .dark .bg-yellow-50 { background-color: rgba(250, 204, 21, 0.08); }
-.dark .bg-yellow-100 { background-color: rgba(250, 204, 21, 0.16); }
-.dark .border-yellow-200 { border-color: rgba(250, 204, 21, 0.35); }
-.dark .text-yellow-700 { color: #fde047; }
+.dark .bg-yellow-100 { background-color: rgba(250, 204, 21, 0.14); }
+.dark .border-yellow-200 { border-color: rgba(250, 204, 21, 0.26); }
+.dark .text-yellow-700 { color: #e6d27e; }
 
-.dark .bg-green-700 { background-color: #15803d; }
-.dark .text-green-700 { color: #86efac; }
+.dark .bg-green-700 { background-color: #2c6e45; }
+.dark .text-green-700 { color: #8fd0a6; }
 
 /* ---- Form controls: browsers default an unstyled input/select/textarea
    to a light native background, which stays white even under `.dark` on an
@@ -199,13 +452,13 @@ body {
 .dark input:not([type="checkbox"]):not([type="radio"]),
 .dark select,
 .dark textarea {
-  background-color: #141a2c;
-  color: #eef2f8;
+  background-color: var(--ui-surface);
+  color: var(--ui-ink);
   color-scheme: dark;
 }
 .dark input::placeholder,
 .dark textarea::placeholder {
-  color: #5b6784;
+  color: #6f7e9a;
 }
 
 /* ---- Gap fill: tints, inks and hover states that screens started using
@@ -213,52 +466,54 @@ body {
    tints become a low-alpha wash of their own hue on the dark card, dark
    inks become the matching light ink — so nothing renders as a pale
    light-mode panel with white text on top of it. ---- */
-.dark .bg-slate-50\/70 { background-color: #182037; }
-.dark .bg-blue-50\/50 { background-color: rgba(23, 42, 68, 0.55); }
-.dark .bg-blue-50\/60 { background-color: rgba(23, 42, 68, 0.65); }
+.dark .bg-slate-50\/70 { background-color: var(--ui-soft); }
+.dark .bg-slate-50\/60 { background-color: var(--ui-soft); }
+.dark .bg-blue-50\/50 { background-color: rgba(106, 155, 240, 0.08); }
+.dark .bg-blue-50\/60 { background-color: rgba(106, 155, 240, 0.09); }
 .dark .bg-cyan-50 { background-color: rgba(34, 211, 238, 0.08); }
-.dark .bg-emerald-50\/60 { background-color: rgba(52, 211, 153, 0.07); }
-.dark .bg-green-100 { background-color: rgba(74, 222, 128, 0.16); }
-.dark .bg-purple-50\/60 { background-color: rgba(192, 132, 252, 0.07); }
+.dark .bg-emerald-50\/60 { background-color: rgba(82, 211, 154, 0.07); }
+.dark .bg-green-100 { background-color: rgba(74, 222, 128, 0.14); }
+.dark .bg-purple-50\/60 { background-color: rgba(176, 148, 240, 0.07); }
 .dark .bg-rose-50 { background-color: rgba(251, 113, 133, 0.08); }
 .dark .bg-red-50\/40 { background-color: rgba(248, 113, 113, 0.05); }
-.dark .focus\:bg-white:focus { background-color: #141a2c; }
-.dark .focus\:bg-slate-200:focus { background-color: #2b3550; }
-.dark .hover\:bg-slate-200:hover { background-color: #343f5e; }
-.dark .hover\:bg-amber-100:hover { background-color: rgba(251, 191, 36, 0.2); }
-.dark .hover\:bg-purple-100:hover { background-color: rgba(192, 132, 252, 0.2); }
+.dark .focus\:bg-white:focus { background-color: var(--ui-surface); }
+.dark .focus\:bg-slate-200:focus { background-color: #222e47; }
+.dark .hover\:bg-slate-200:hover { background-color: #2a3752; }
+.dark .hover\:bg-amber-100:hover { background-color: rgba(240, 180, 41, 0.2); }
+.dark .hover\:bg-purple-100:hover { background-color: rgba(176, 148, 240, 0.2); }
 .dark .hover\:bg-red-100:hover { background-color: rgba(248, 113, 113, 0.2); }
 
-.dark .text-blue-900 { color: #d6e7ff; }
-.dark .text-amber-900 { color: #fef3c7; }
-.dark .text-emerald-800 { color: #a7f3d0; }
-.dark .text-emerald-900 { color: #d1fae5; }
-.dark .text-cyan-800 { color: #a5f3fc; }
-.dark .text-purple-600 { color: #c084fc; }
-.dark .text-purple-800 { color: #e9d5ff; }
-.dark .text-rose-800 { color: #fecdd3; }
-.dark .hover\:text-blue-600:hover { color: #6fa8f5; }
+.dark .text-blue-900 { color: #cfe0fb; }
+.dark .text-amber-900 { color: #f1deb4; }
+.dark .text-emerald-800 { color: #a9dcc2; }
+.dark .text-emerald-900 { color: #cdebdb; }
+.dark .text-cyan-800 { color: #a8dde6; }
+.dark .text-purple-600 { color: #b9a4ea; }
+.dark .text-purple-800 { color: #d9ccf3; }
+.dark .text-rose-800 { color: #f3c2cb; }
+.dark .hover\:text-blue-600:hover { color: #7fa8f2; }
 .dark .hover\:text-blue-700:hover,
-.dark .group:hover .group-hover\:text-blue-700 { color: #8ec0fb; }
-.dark .hover\:text-blue-800:hover { color: #bcdbff; }
-.dark .hover\:text-red-600:hover { color: #f87171; }
-.dark .hover\:text-slate-600:hover { color: #a9b4c8; }
-.dark .hover\:text-slate-700:hover { color: #ccd4e2; }
+.dark .group:hover .group-hover\:text-blue-700 { color: #8fb4f4; }
+.dark .hover\:text-blue-800:hover { color: #b3cdf8; }
+.dark .hover\:text-red-600:hover { color: #e8a496; }
+.dark .hover\:text-slate-600:hover { color: #aab6cc; }
+.dark .hover\:text-slate-700:hover { color: #c3cde0; }
 
-.dark .border-blue-100 { border-color: rgba(96, 165, 250, 0.22); }
-.dark .border-blue-300 { border-color: rgba(96, 165, 250, 0.45); }
-.dark .border-cyan-200 { border-color: rgba(34, 211, 238, 0.35); }
-.dark .border-purple-300 { border-color: rgba(192, 132, 252, 0.45); }
-.dark .border-red-100 { border-color: rgba(248, 113, 113, 0.22); }
-.dark .border-rose-200 { border-color: rgba(251, 113, 133, 0.35); }
-.dark .hover\:border-blue-200:hover { border-color: rgba(96, 165, 250, 0.35); }
-.dark .hover\:border-blue-300:hover { border-color: rgba(96, 165, 250, 0.45); }
-.dark .hover\:border-slate-300:hover { border-color: #3a4560; }
-.dark .ring-blue-50 { --tw-ring-color: rgba(96, 165, 250, 0.15); }
-.dark .ring-blue-300 { --tw-ring-color: rgba(96, 165, 250, 0.45); }
-.dark .ring-slate-100 { --tw-ring-color: #212a40; }
-.dark .focus\:ring-blue-200:focus { --tw-ring-color: rgba(96, 165, 250, 0.3); }
+.dark .border-blue-100 { border-color: rgba(106, 155, 240, 0.2); }
+.dark .border-blue-300 { border-color: rgba(106, 155, 240, 0.4); }
+.dark .border-cyan-200 { border-color: rgba(34, 211, 238, 0.26); }
+.dark .border-purple-300 { border-color: rgba(176, 148, 240, 0.38); }
+.dark .border-red-100 { border-color: rgba(248, 113, 113, 0.2); }
+.dark .border-rose-200 { border-color: rgba(251, 113, 133, 0.26); }
+.dark .hover\:border-blue-200:hover { border-color: rgba(106, 155, 240, 0.3); }
+.dark .hover\:border-blue-300:hover { border-color: rgba(106, 155, 240, 0.4); }
+.dark .hover\:border-slate-300:hover { border-color: #34425f; }
+.dark .ring-blue-50 { --tw-ring-color: rgba(106, 155, 240, 0.14); }
+.dark .ring-blue-300 { --tw-ring-color: rgba(106, 155, 240, 0.4); }
+.dark .ring-slate-100 { --tw-ring-color: #1f2a42; }
+.dark .focus\:ring-blue-200:focus { --tw-ring-color: rgba(106, 155, 240, 0.28); }
 .dark .focus\:ring-red-100:focus { --tw-ring-color: rgba(248, 113, 113, 0.22); }
+.dark .focus\:border-blue-500:focus { border-color: var(--ui-accent); }
 
 /* ---- Scrollbars: the native light scrollbar on a dark page reads as a
    bug, not a stylistic choice. ---- */
@@ -274,13 +529,18 @@ body {
 /* The "Choose File" button is native browser chrome, not a Tailwind
    utility, so it doesn't pick up `color-scheme: dark` the way the rest of
    the input does — style it to match explicitly. */
-.dark input[type="file"]::file-selector-button {
-  background-color: #212a40;
-  color: #ccd4e2;
-  border: 1px solid #3a4560;
+input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--ui-line);
+  border-radius: 0.625rem;
+  background-color: var(--ui-soft);
+  color: var(--ui-ink);
+  font-weight: 600;
+  cursor: pointer;
 }
-.dark input[type="file"]::file-selector-button:hover {
-  background-color: #2b3550;
+input[type="file"]::file-selector-button:hover {
+  background-color: var(--ui-track);
 }
 
 .sidebar { width: 246px; flex: 0 0 246px; padding: 27px 16px 20px; display: flex; flex-direction: column; border-right: 1px solid #e1e5e9; background: #fbfcf9; }
@@ -408,3 +668,6 @@ body {
 .sheet-overlay { top: var(--vv-top, 0px); bottom: var(--kb, 0px); }
 .sheet-panel { max-height: min(92dvh, calc(100% - 0.5rem)); overflow-y: auto; overscroll-behavior: contain; }
 .kb-lift { bottom: var(--kb, 0px); }
+
+/* Paper is white: no tinted page ground when a report is printed or saved as PDF. */
+@media print { html, body { background: #fff !important; } }

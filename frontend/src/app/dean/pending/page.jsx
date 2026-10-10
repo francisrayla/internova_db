@@ -1,4 +1,4 @@
-import PendingApproval from "@/app/coordinator/pending/PendingApproval";
+import PendingApproval from "@/components/dean/PendingApproval";
 
 export default function Page() {
   return <PendingApproval />;

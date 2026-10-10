@@ -37,8 +37,11 @@ class SchoolSubscription extends Model
 
     public function isOfferExpired(): bool
     {
+        // Once a bank-transfer proof is submitted the Dean has done their part: the offer
+        // must not lapse (and lock them out) while the Super Admin is still reviewing it.
         return $this->offer_expires_at
             && $this->offer_expires_at->isPast()
+            && $this->payment_status !== 'pending_verification'
             && in_array($this->status, self::OFFER_PENDING_STATUSES, true);
     }
 
@@ -77,6 +80,13 @@ class SchoolSubscription extends Model
     public function activate(): void
     {
         $end = $this->billing_period === 'monthly' ? now()->addMonth() : now()->addYear();
+
+        // A row whose window already ended (an expired term being renewed) must not
+        // come back "active" with the old, past dates - it starts a fresh term today.
+        if ($this->end_date && $this->end_date->isPast()) {
+            $this->start_date = null;
+            $this->end_date = null;
+        }
 
         $this->update([
             'status'         => 'active',

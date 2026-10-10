@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import NavIcon from "@/components/NavIcon";
+import { Btn, Page } from "@/components/dash/page";
 import { useParams } from "next/navigation";
 import { fetchApiData } from "@/lib/apiFetch";
 import NarrativeReport from "@/components/narrative-report/NarrativeReport";
@@ -21,21 +22,23 @@ export default function DeanNarrativeReport() {
   }, [deploymentId]);
 
   if (loading) {
-    return <p className="py-10 text-center text-sm text-slate-400">Preparing report…</p>;
+    return <p className="py-10 text-center text-sm text-slate-500" role="status">Preparing report…</p>;
   }
 
   if (error || !data) {
     return (
-      <div className="space-y-4">
-        <Link href="/dean/interns" className="text-sm font-semibold text-blue-600 hover:underline">← Back to Interns</Link>
-        <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error || "Report not found."}</p>
-      </div>
+      <Page size="narrow">
+        <div>
+          <Btn href="/dean/interns" variant="ghost" sm><NavIcon name="back" size={16} /> Back to Interns</Btn>
+        </div>
+        <p className="k-note is-risk" role="alert">{error || "Report not found."}</p>
+      </Page>
     );
   }
 
   return (
     <div>
-      <ReportToolbar backHref={`/dean/interns/${deploymentId}?tab=narrative`} backLabel="← Back to intern" docxUrl={`/api/dean/interns/${deploymentId}/narrative-report/docx`} />
+      <ReportToolbar backHref={`/dean/interns/${deploymentId}?tab=narrative`} backLabel="Back to intern" docxUrl={`/api/dean/interns/${deploymentId}/narrative-report/docx`} />
       <NarrativeReport data={data} />
     </div>
   );

@@ -121,7 +121,11 @@ function pageCacheKey(url, isRsc) {
 // Response to answer now, or nothing to keep waiting on the network.
 async function networkFirst(event, cacheName, cacheKey, { store = true, timeoutMs, onTimeoutMiss, fallback }) {
   const { request } = event;
-  const cache = await caches.open(cacheName);
+  // Cache storage can refuse to open (device storage full, private browsing,
+  // a browser-side error). That must never stop the app from loading: without
+  // a cache this is just a plain network request.
+  const cache = await caches.open(cacheName).catch(() => null);
+  if (!cache) return fetch(request).catch(() => (fallback ? Promise.resolve(fallback()).catch(() => Response.error()) : Response.error()));
   const network = fetch(request, { signal: AbortSignal.timeout(GIVE_UP_MS) }).then((response) => {
     stalledUntil = 0;
     if (store && response.ok) cache.put(cacheKey, response.clone()).catch(() => {});
@@ -151,7 +155,8 @@ async function networkFirst(event, cacheName, cacheKey, { store = true, timeoutM
 }
 
 async function cacheFirst(request, cacheName) {
-  const cache = await caches.open(cacheName);
+  const cache = await caches.open(cacheName).catch(() => null);
+  if (!cache) return fetch(request);
   const cached = await cache.match(request);
   if (cached) return cached;
   const response = await fetch(request);
@@ -162,7 +167,8 @@ async function cacheFirst(request, cacheName) {
 // Like cacheFirst, but keeps only the most recent MEDIA_LIMIT photos so the
 // cache can't grow without bound on a device used all internship long.
 async function cacheMedia(request) {
-  const cache = await caches.open(MEDIA_CACHE);
+  const cache = await caches.open(MEDIA_CACHE).catch(() => null);
+  if (!cache) return fetch(request);
   const cached = await cache.match(request);
   if (cached) return cached;
   const response = await fetch(request);

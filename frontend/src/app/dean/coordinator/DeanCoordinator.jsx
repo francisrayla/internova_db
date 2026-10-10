@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import NavIcon from "@/components/NavIcon";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fetchApiData } from "@/lib/apiFetch";
 import { useUrlTab } from "@/lib/useUrlTab";
 import { formatDate, timeAgo } from "@/lib/timeAgo";
-import Icon from "@/components/Icon";
 import { Avatar, EmptyState, ErrorNote, Pill, Skeleton, TabBar } from "@/components/dean/ui";
+import { Btn, Page, PageHeader } from "@/components/dash/page";
 import ActivityTab from "./ActivityTab";
 import PendingTab from "./PendingTab";
 import InternsTab from "./InternsTab";
@@ -58,13 +58,17 @@ export default function DeanCoordinator() {
   if (legacyManage) return null;
 
   return (
-    <div className="space-y-6 sm:p-2 lg:p-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Coordinator</h1>
-        <p className="mt-1 text-slate-600">
-          See what your coordinator has been doing, what is still waiting on them, and send them feedback.
-        </p>
-      </div>
+    <Page>
+      <PageHeader
+        title="Coordinator"
+        sentence="See what your coordinator has been doing, what is still waiting on them, and send them feedback."
+      >
+        {c && (
+          <Btn href={MANAGE_HREF} variant="secondary">
+            <NavIcon name="settings" size={16} /> Manage coordinator
+          </Btn>
+        )}
+      </PageHeader>
 
       {error && <ErrorNote onRetry={load}>We couldn&apos;t load your coordinator.</ErrorNote>}
       {profile === undefined && !error && <Skeleton className="h-24" />}
@@ -74,34 +78,28 @@ export default function DeanCoordinator() {
           icon="user"
           title="No coordinator yet"
           text="Invite a coordinator so someone can add partner companies, supervisors and interns. Their work will show up here."
-          action={<Link href={MANAGE_HREF} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Invite a coordinator</Link>}
+          action={<Btn href={MANAGE_HREF} variant="primary">Invite a coordinator</Btn>}
         />
       )}
 
       {c && (
         <>
-          <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 flex-1 items-center gap-4">
+          <section className="dash-card">
+            <div className="flex min-w-0 items-center gap-4">
               <Avatar name={c.name} url={c.avatar_url} size={48} />
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate text-base font-semibold text-slate-900">{c.name}</p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="min-w-0 truncate text-base font-semibold text-slate-900">{c.name}</p>
                   <Pill tone={STATUS[c.status]?.tone}>{STATUS[c.status]?.label}</Pill>
                 </div>
-                <p className="truncate text-sm text-slate-500">{c.email}</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="truncate text-sm text-slate-600">{c.email}</p>
+                <p className="mt-1 text-xs text-slate-600">
                   {c.status === "active" && <>Last active {c.last_active_at ? timeAgo(c.last_active_at) : "never"} · </>}
                   Member since {formatDate(c.member_since)}
                 </p>
               </div>
             </div>
-            <Link
-              href={MANAGE_HREF}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Icon name="gear" size={16} /> Manage coordinator
-            </Link>
-          </div>
+          </section>
 
           <TabBar tabs={tabs} active={tab} onChange={setTab} />
           <div>
@@ -113,6 +111,6 @@ export default function DeanCoordinator() {
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }

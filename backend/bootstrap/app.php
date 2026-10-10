@@ -13,14 +13,21 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // Private channels only: the browser authorizes each one at POST /api/broadcasting/auth with its
+    // Sanctum bearer token (routes/channels.php decides who may listen).
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',
+        ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => EnsureRole::class,
+            'school.active' => \App\Http\Middleware\EnsureSchoolAccess::class,
             'dean.school' => \App\Http\Middleware\EnsureDeanOfSchool::class,
         ]);
+
+        // Generous ceiling for the whole API; the strict per-route limits (login, reset, ...) live in App\Support\RateLimits.
+        $middleware->throttleApi();
 
         $middleware->appendToGroup('api', \App\Http\Middleware\AutoCloseStaleAttendance::class);
         $middleware->appendToGroup('api', \App\Http\Middleware\EnforceMaintenanceMode::class);

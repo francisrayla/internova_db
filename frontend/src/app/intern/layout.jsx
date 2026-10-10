@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
+import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
 const navItems = [
   { label: "Dashboard", href: "/intern/dashboard", icon: "dashboard" },
@@ -20,10 +21,10 @@ const navItems = [
 // above all — still shows its last data offline (see AppShell warm-up).
 const WARM_API = [
   "/api/intern/profile-summary",
-  "/api/intern/tasks",
+  "/api/intern/tasks?view=active",
   "/api/intern/attendance/today",
   "/api/intern/attendance",
-  "/api/intern/activities",
+  "/api/intern/activities?page=1",
   "/api/intern/activities/suggestions",
   "/api/intern/evaluations",
   "/api/intern/documents",
@@ -32,7 +33,7 @@ const WARM_API = [
 
 const PROFILE_LINKS = [
   { href: "/intern/profile", icon: "user", label: "My Profile" },
-  { href: "/intern/settings", icon: "gear", label: "Settings" },
+  { href: "/intern/settings", icon: "settings", label: "Settings" },
 ];
 
 export default function InternLayout({ children }) {
@@ -86,7 +87,7 @@ export default function InternLayout({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (checking || !user) return null;
+  if (checking || !user) return <ShellSkeleton />;
 
   return (
     <AppShell

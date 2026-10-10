@@ -1,7 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Camera, Upload } from "lucide-react";
 import { shrinkImage } from "@/lib/imageCompress";
+import { Btn, SheetFrame } from "@/components/dash/page";
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const ACCEPTED_EXT = ["jpg", "jpeg", "png", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"];
@@ -24,20 +26,20 @@ function extOf(name) {
 
 function FilePreview({ item, onRemove }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+    <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-2">
       {item.previewUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={item.previewUrl} alt={item.file.name} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
       ) : (
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-[10px] font-bold text-slate-500">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-bold text-slate-600">
           {EXT_BADGES[extOf(item.file.name)] ?? "FILE"}
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium text-slate-700">{item.file.name}</p>
-        <p className="text-[11px] text-slate-400">{(item.file.size / 1024).toFixed(0)} KB</p>
+        <p className="truncate text-sm font-medium text-slate-800">{item.file.name}</p>
+        <p className="text-xs text-slate-500">{(item.file.size / 1024).toFixed(0)} KB</p>
       </div>
-      <button type="button" onClick={onRemove} className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-red-500 hover:bg-red-50">
+      <button type="button" onClick={onRemove} className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 max-sm:min-h-[44px]">
         Remove
       </button>
     </div>
@@ -106,76 +108,60 @@ export default function ProofUploadModal({ title, onConfirm, onCancel }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-[60] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Mark as done</h3>
-        <p className="mt-1 text-sm text-slate-600">
-          Attach a photo or file as proof that <span className="font-medium text-slate-800">&quot;{title}&quot;</span> is finished.
-        </p>
-
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={() => cameraInputRef.current?.click()}
-            className="flex-1 rounded-xl border border-dashed border-blue-300 bg-blue-50 px-3 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-          >
-            📷 Take a photo
-          </button>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex-1 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            Upload files
-          </button>
-        </div>
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            addFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={FILE_INPUT_ACCEPT}
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            addFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-
-        {items.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {items.map((item, i) => (
-              <FilePreview key={i} item={item} onRemove={() => removeItem(i)} />
-            ))}
-          </div>
-        )}
-
-        {error && <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={saving || items.length === 0}
-            className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-          >
+    <SheetFrame
+      title="Mark as done"
+      description={<>Attach a photo or file as proof that <span className="font-medium text-slate-800">&quot;{title}&quot;</span> is finished.</>}
+      onClose={onCancel}
+      zIndex={60}
+      footer={
+        <>
+          <Btn onClick={onCancel} disabled={saving}>Cancel</Btn>
+          <Btn variant="primary" onClick={handleConfirm} disabled={saving || items.length === 0}>
             {saving ? "Uploading…" : "Confirm & mark done"}
-          </button>
-        </div>
+          </Btn>
+        </>
+      }
+    >
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <Btn onClick={() => cameraInputRef.current?.click()} className="max-sm:min-h-[52px]">
+          <Camera size={16} aria-hidden="true" /> Take a photo
+        </Btn>
+        <Btn onClick={() => fileInputRef.current?.click()} className="max-sm:min-h-[52px]">
+          <Upload size={16} aria-hidden="true" /> Upload files
+        </Btn>
       </div>
-    </div>
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          addFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={FILE_INPUT_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          addFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      {items.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {items.map((item, i) => (
+            <FilePreview key={i} item={item} onRemove={() => removeItem(i)} />
+          ))}
+        </div>
+      )}
+
+      {error && <p role="alert" className="k-note is-risk mt-3">{error}</p>}
+    </SheetFrame>
   );
 }

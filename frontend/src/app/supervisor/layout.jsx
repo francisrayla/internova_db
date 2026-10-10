@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
+import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/supervisor/dashboard", icon: "dashboard" },
@@ -14,12 +15,12 @@ const NAV_ITEMS = [
   { label: "Tasks", href: "/supervisor/tasks", icon: "tasks" },
   { label: "Evaluations", href: "/supervisor/evaluations", icon: "evaluations" },
   { label: "Certificates", href: "/supervisor/certificates", icon: "certificates" },
-  { label: "Files", href: "/supervisor/files", icon: "files" },
+  // "Files" (/supervisor/files) is a placeholder page for now; add it back here when it is built.
 ];
 
 const PROFILE_LINKS = [
   { href: "/supervisor/profile", icon: "user", label: "My Profile" },
-  { href: "/supervisor/settings", icon: "gear", label: "Settings" },
+  { href: "/supervisor/settings", icon: "settings", label: "Settings" },
 ];
 
 export default function SupervisorLayout({ children }) {
@@ -73,7 +74,7 @@ export default function SupervisorLayout({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (checking || !user) return null;
+  if (checking || !user) return <ShellSkeleton />;
 
 
   return (

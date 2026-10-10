@@ -31,6 +31,7 @@ Route::get('/health', function () {
 });
 
 Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
+    Route::get('/dashboard', [SuperadminFullController::class, 'dashboard']);
 
     Route::get('/schools', [SuperadminFullController::class, 'schools']);
     Route::get('/plan-inquiries', [SuperadminFullController::class, 'planInquiries']);
@@ -61,26 +62,27 @@ Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->g
 });
 
 // Public endpoint — no auth required; school submits inquiry from the public form
-Route::post('/inquiries', [SuperadminFullController::class, 'storeInquiry']);
+Route::post('/inquiries', [SuperadminFullController::class, 'storeInquiry'])->middleware('throttle:inquiry');
 
 // Public login — email + password against the users table
-Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
 
 // Public — no auth required; proving control of the email IS the auth here
-Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgotPassword']);
-// Throttled — a 6-digit code has only a million possibilities, so the
+Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgotPassword'])->middleware('throttle:auth-mail');
+// Throttled (RateLimits.php) — a 6-digit code has only a million possibilities, so the
 // verify/submit steps need a real rate limit, not just an expiry.
-Route::post('/auth/verify-reset-code', [PasswordResetController::class, 'verifyResetCode'])->middleware('throttle:10,1');
-Route::post('/auth/reset-password', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:10,1');
+Route::post('/auth/verify-reset-code', [PasswordResetController::class, 'verifyResetCode'])->middleware('throttle:auth-code');
+Route::post('/auth/reset-password', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:auth-code');
 
 // Public — gates login for self-registered (Inquiry form) accounts until
 // the code emailed at signup is entered. See AuthController::login().
-Route::post('/auth/verify-email', [EmailVerificationController::class, 'verify'])->middleware('throttle:10,1');
-Route::post('/auth/resend-verification', [EmailVerificationController::class, 'resend']);
+Route::post('/auth/verify-email', [EmailVerificationController::class, 'verify'])->middleware('throttle:auth-code');
+Route::post('/auth/resend-verification', [EmailVerificationController::class, 'resend'])->middleware('throttle:auth-mail');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-    Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+    // Throttled per user: a stolen token must not be able to guess the current password.
+    Route::post('/auth/change-password', [AuthController::class, 'changePassword'])->middleware('throttle:6,1');
     Route::patch('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::post('/auth/avatar', [AuthController::class, 'uploadAvatar']);
     Route::delete('/auth/avatar', [AuthController::class, 'deleteAvatar']);
@@ -95,29 +97,35 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
     Route::post('/notifications/seen', [NotificationController::class, 'markSeen']);
+    // Live to-do list of the signed-in user (role/school/id come from the token, never from the request).
+    Route::get('/notifications/attention', [NotificationController::class, 'attention']);
 
-    // Direct messages — coordinator/supervisor/intern only, scoped server-side
-    // per role by MessageController::eligibleContacts (never trust a
-    // client-submitted receiver_id).
-    Route::get('/messages/contacts', [MessageController::class, 'contacts']);
-    Route::get('/messages/thread/{userId}', [MessageController::class, 'thread']);
-    Route::post('/messages', [MessageController::class, 'store']);
-    Route::post('/messages/forward', [MessageController::class, 'forwardMessage']);
-    Route::post('/messages/typing', [MessageController::class, 'typing']);
-    Route::patch('/messages/settings', [MessageController::class, 'updateThreadSetting']);
+    // Chat belongs to a school, so it is closed with it (suspended / expired) like the role groups below.
+    Route::middleware('school.active')->group(function () {
+        // Direct messages — coordinator/supervisor/intern only, scoped server-side
+        // per role by MessageController::eligibleContacts (never trust a
+        // client-submitted receiver_id).
+        Route::get('/messages/contacts', [MessageController::class, 'contacts']);
+        Route::get('/messages/thread/{userId}', [MessageController::class, 'thread']);
+        Route::post('/messages', [MessageController::class, 'store']);
+        Route::post('/messages/forward', [MessageController::class, 'forwardMessage']);
+        Route::post('/messages/typing', [MessageController::class, 'typing']);
+        Route::patch('/messages/settings', [MessageController::class, 'updateThreadSetting']);
 
-    // Group chats — coordinator/supervisor create them, but any member
-    // (interns included) can read and post once added (see MessageController).
-    Route::get('/messages/groups', [MessageController::class, 'groups']);
-    Route::post('/messages/groups', [MessageController::class, 'createGroup']);
-    Route::get('/messages/groups/{id}', [MessageController::class, 'groupThread']);
-    Route::post('/messages/groups/{id}/messages', [MessageController::class, 'storeGroupMessage']);
-    Route::post('/messages/groups/{id}/typing', [MessageController::class, 'groupTyping']);
+        // Group chats — coordinator/supervisor create them, but any member
+        // (interns included) can read and post once added (see MessageController).
+        Route::get('/messages/groups', [MessageController::class, 'groups']);
+        Route::post('/messages/groups', [MessageController::class, 'createGroup']);
+        Route::get('/messages/groups/{id}', [MessageController::class, 'groupThread']);
+        Route::post('/messages/groups/{id}/messages', [MessageController::class, 'storeGroupMessage']);
+        Route::post('/messages/groups/{id}/typing', [MessageController::class, 'groupTyping']);
+    });
 });
 
-Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->group(function () {
+Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator', 'school.active'])->group(function () {
     // Day-to-day internship monitoring — always scoped server-side to the
     // authenticated coordinator's own school (see CoordinatorMonitoringController).
+    Route::get('/dashboard', [CoordinatorMonitoringController::class, 'dashboard']);
     Route::get('/interns', [CoordinatorMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}/portfolio', [CoordinatorMonitoringController::class, 'internPortfolio']);
     Route::get('/interns/{deploymentId}/report', [CoordinatorMonitoringController::class, 'internReport']);
@@ -186,15 +194,17 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
     // the day-to-day work" split as tasks and attendance.
     Route::get('/evaluation-criteria', [CoordinatorMonitoringController::class, 'evaluationCriteria']);
     Route::post('/evaluation-criteria', [CoordinatorMonitoringController::class, 'storeEvaluationCriterion']);
+    Route::patch('/evaluation-criteria/{id}', [CoordinatorMonitoringController::class, 'updateEvaluationCriterion']);
+    Route::delete('/evaluation-criteria/{id}', [CoordinatorMonitoringController::class, 'destroyEvaluationCriterion']);
     Route::get('/evaluations', [CoordinatorMonitoringController::class, 'evaluations']);
 
     // A coordinator's direct line to the platform owner (billing, account,
     // bug reports) — deliberately separate from the peer messaging system
     // above; Super Admin is never a contact there (see MessageController).
-    Route::get('/support-tickets', [CoordinatorSupportController::class, 'index']);
-    Route::post('/support-tickets', [CoordinatorSupportController::class, 'store']);
-    Route::get('/support-tickets/{id}', [CoordinatorSupportController::class, 'show']);
-    Route::post('/support-tickets/{id}/reply', [CoordinatorSupportController::class, 'reply']);
+    Route::get('/support-tickets', [CoordinatorSupportController::class, 'index'])->withoutMiddleware('school.active');
+    Route::post('/support-tickets', [CoordinatorSupportController::class, 'store'])->withoutMiddleware('school.active');
+    Route::get('/support-tickets/{id}', [CoordinatorSupportController::class, 'show'])->withoutMiddleware('school.active');
+    Route::post('/support-tickets/{id}/reply', [CoordinatorSupportController::class, 'reply'])->withoutMiddleware('school.active');
 
     // Feedback the Dean sends (read-only for the coordinator).
     Route::get('/feedback', [CoordinatorFeedbackController::class, 'index']);
@@ -208,11 +218,14 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator'])->
 // The school's Dean / Principal: billing owner, school settings, and the
 // school's single coordinator. Billing routes also require that the school id
 // in the URL is the dean's own school (dean.school).
-Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean'])->group(function () {
-    Route::middleware('dean.school')->group(function () {
+Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean', 'school.active'])->group(function () {
+    // Billing stays reachable when the school is suspended / expired: it is how the Dean renews and pays.
+    Route::middleware('dean.school')->withoutMiddleware('school.active')->group(function () {
         Route::post('/schools/{id}/accept-offer', [DeanSubscriptionController::class, 'acceptOffer']);
         Route::post('/schools/{id}/checkout', [DeanSubscriptionController::class, 'checkout']);
         Route::post('/schools/{id}/verify-checkout', [DeanSubscriptionController::class, 'verifyCheckout']);
+        Route::post('/schools/{id}/renew', [DeanSubscriptionController::class, 'renew']);
+        Route::post('/schools/{id}/request-new-offer', [DeanSubscriptionController::class, 'requestNewOffer']);
         Route::post('/schools/{id}/upload-proof', [DeanSubscriptionController::class, 'uploadProof']);
         Route::post('/schools/{id}/switch-plan', [DeanSubscriptionController::class, 'switchPlan']);
         Route::post('/schools/{id}/cancel-scheduled-switch', [DeanSubscriptionController::class, 'cancelScheduledSwitch']);
@@ -255,15 +268,16 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean'])->group(function
     Route::patch('/school-settings', [DeanController::class, 'updateSchoolSettings']);
 
     // Same direct line to the platform owner coordinators have.
-    Route::get('/support-tickets', [CoordinatorSupportController::class, 'index']);
-    Route::post('/support-tickets', [CoordinatorSupportController::class, 'store']);
-    Route::get('/support-tickets/{id}', [CoordinatorSupportController::class, 'show']);
-    Route::post('/support-tickets/{id}/reply', [CoordinatorSupportController::class, 'reply']);
+    Route::get('/support-tickets', [CoordinatorSupportController::class, 'index'])->withoutMiddleware('school.active');
+    Route::post('/support-tickets', [CoordinatorSupportController::class, 'store'])->withoutMiddleware('school.active');
+    Route::get('/support-tickets/{id}', [CoordinatorSupportController::class, 'show'])->withoutMiddleware('school.active');
+    Route::post('/support-tickets/{id}/reply', [CoordinatorSupportController::class, 'reply'])->withoutMiddleware('school.active');
 });
 
-Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->group(function () {
+Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor', 'school.active'])->group(function () {
     // Always scoped server-side to deployments at the supervisor's company (InternshipDeployment::visibleToSupervisor) — never their
     // whole school's roster; both supervisors of a company share their interns.
+    Route::get('/dashboard', [SupervisorMonitoringController::class, 'dashboard']);
     Route::get('/interns', [SupervisorMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}/portfolio', [SupervisorMonitoringController::class, 'internPortfolio']);
 
@@ -274,6 +288,7 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::post('/attendance', [SupervisorMonitoringController::class, 'storeAttendance']);
     Route::patch('/attendance/{id}', [SupervisorMonitoringController::class, 'reviewAttendance']);
     Route::patch('/attendance/{id}/times', [SupervisorMonitoringController::class, 'updateAttendanceTimes']);
+    Route::delete('/attendance/{id}', [SupervisorMonitoringController::class, 'destroyAttendance']);
     Route::patch('/attendance/{id}/red-flag', [SupervisorMonitoringController::class, 'checkRedFlag']);
 
     // OJT certificate of completion: one PowerPoint template per company, filled in per intern.
@@ -311,11 +326,12 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor'])->gr
     Route::patch('/evaluations/{id}', [SupervisorMonitoringController::class, 'updateEvaluation']);
 });
 
-Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(function () {
+Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern', 'school.active'])->group(function () {
     // Always scoped server-side to the logged-in intern's own record — never
     // another intern's. Attendance is self-reported via selfie + GPS and
     // lands "approved" immediately — the stamp is the verification (see
     // InternMonitoringController).
+    Route::get('/dashboard', [InternMonitoringController::class, 'dashboard']);
     Route::get('/tasks', [InternMonitoringController::class, 'tasks']);
     Route::get('/tasks/{id}', [InternMonitoringController::class, 'taskShow']);
     Route::patch('/tasks/{id}', [InternMonitoringController::class, 'updateTask']);
@@ -351,6 +367,8 @@ Route::prefix('intern')->middleware(['auth:sanctum', 'role:intern'])->group(func
 // using the one-time token itself as the credential, before any login exists.
 // Delivery events (bounces) from the mail provider — verified by signature.
 Route::post('/webhooks/resend', [\App\Http\Controllers\Api\ResendWebhookController::class, 'handle'])->middleware('throttle:120,1');
-Route::get('/invitations/{token}', [InvitationController::class, 'show']);
-Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept']);
+// PayMongo payment events - no login or CSRF, the Paymongo-Signature header is the credential.
+Route::post('/webhooks/paymongo', [\App\Http\Controllers\Api\PayMongoWebhookController::class, 'handle'])->middleware('throttle:120,1');
+Route::get('/invitations/{token}', [InvitationController::class, 'show'])->middleware('throttle:invitation');
+Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept'])->middleware('throttle:invitation');
 

@@ -1,9 +1,12 @@
 # Auth (login, signup verification, password reset, invitations)
-last_commit: 05a9835 + uncommitted
-updated: 2026-10-08
+last_commit: 8c21eaf + uncommitted
+updated: 2026-10-10
 
 ## Map (where the code lives)
-- backend/routes/api.php (L57-87, L256-261) — public: auth/login, forgot-password, verify-reset-code, reset-password (throttle 10/min), verify-email (throttle), resend-verification, webhooks/resend (throttle 120), invitations/{token} show+accept; auth:sanctum group: logout, change-password, profile, avatar, session/{id}.
+- backend/routes/api.php — public POSTs all carry `throttle:<name>` (S1 2026-10-10): auth/login=auth-login, forgot-password+resend-verification=auth-mail, verify-email+verify-reset-code+reset-password=auth-code, invitations show/accept=invitation, /inquiries=inquiry; webhooks (throttle 120). auth:sanctum group: logout, change-password, profile, avatar, session/{id}, notifications, messages (wrapped in `school.active`). Role groups coordinator/dean/supervisor/intern carry `school.active`; exempt via ->withoutMiddleware: support-tickets, dean billing (dean.school group).
+- backend/app/Support/RateLimits.php (NEW) — RateLimiter::for definitions (registered in AppServiceProvider::boot): each keyed by email+IP (gentle), email only (hard cap, holds when IP spoofed), IP only (generous); friendly 429 JSON {code:'too_many_requests', message, retry_after}. clientIp() prefers X-Client-IP (set by Next proxy lib/serverProxy.js clientIpHeader). `api` limiter = 1500/min per user, 600/min per IP, applied by bootstrap/app.php `$middleware->throttleApi()`.
+- backend/config/sanctum.php `expiration` = 7 days (env SANCTUM_TOKEN_EXPIRATION_MINUTES); routes/console.php schedules sanctum:prune-expired daily. Expired token -> 401 'Unauthenticated.'.
+- backend/app/Http/Middleware/EnsureSchoolAccess.php (NEW, alias school.active) — 403 {code: school_suspended|subscription_expired|subscription_unpaid, message} for school users; super_admin, users without school, and schools without any subscription row pass. See also superadmin.md.
 - backend/app/Http/Controllers/Api/AuthController.php — login (L15-65), logout, changePassword, updateProfile, avatar, session (L153), buildUserPayload (L174).
 - .../EmailVerificationController.php — sendCode (static, L24), sentRecently (static, L41: RESEND_COOLDOWN_SECONDS=60, used by both controllers), verify (L63), resend (L91); 15 min expiry.
 - .../PasswordResetController.php — forgotPassword (L24), verifyResetCode (L73), resetPassword (L87); 15 min expiry.
@@ -17,8 +20,9 @@ updated: 2026-10-08
 - frontend/src/lib/emailCheck.js + components/EmailField.jsx (NEW, uncommitted): emailProblem()/normalizeEmail()/serverFieldError(); EmailField shows the message after blur or failed submit, then live, plus the server's 422 text under the field. Used in SupervisorModals, FixEmailModal, AddInternModal, PartnerCompanies add, CompanyDetail edit.
 - frontend/src/lib/useResendCooldown.js — 60s resend countdown (useSyncExternalStore over localStorage `internova_resend:{verify|reset}:{email}`), markCodeSent (inquiry/page.jsx calls it after signup), formatCountdown.
 - frontend/src/app/login/Login.jsx (142 lines); app/verify-email/VerifyEmail.jsx (150; Spam/Promotions hint ~L94, resend handler L49, notice ~L136); app/forgot-password/ForgotPassword.jsx (246, multi-step); app/accept-invite/[token]/.
+- frontend/src/app/school-access/ (SchoolAccess.jsx: re-reads session, returns to dashboard when open), app/error.jsx + global-error.jsx (Next 16 prop is `retry`) + not-found.jsx, components/StatusScreen.jsx (shared full-page message). Dean layout resolveGate: school_suspended -> /school-access.
 - frontend/src/app/api/auth/{login,logout,session,profile,avatar,change-password,forgot-password,verify-reset-code,reset-password,verify-email,resend-verification}/route.js and api/invitations/[token]/{route.js,accept} — thin proxies to Laravel.
-- frontend/src/lib: apiFetch.js (Bearer from localStorage `internova_token`, clears on 401), serverProxy.js (forwardHeaders, createApiProxy), UserContext.js, roleDashboard.js (role -> dashboard), backendUrl.js.
+- frontend/src/lib: apiFetch.js (Bearer from localStorage `internova_token`; ONLY 401 clears the session -> /login?reason=expired (Login.jsx shows the notice); 403 never logs out; 403 with a school code -> sendToSchoolGate: coordinator /coordinator/subscription-status, dean /dean/billing (or /school-access when suspended), others /school-access; 503 maintenance -> /maintenance), serverProxy.js (forwardHeaders, createApiProxy), UserContext.js, roleDashboard.js (role -> dashboard), backendUrl.js.
 - DB: users (email_verified_at, password, invitation_token sha256, invitation_expires_at, email_bounced_at, role_id), email_verification_tokens, password_reset_tokens, personal_access_tokens (Sanctum).
 
 ## How it works
@@ -31,12 +35,12 @@ updated: 2026-10-08
 
 ## How to test
 - tests/Feature/SupervisorInvitationTest.php (15): invitation flow, login before/after accept, CompleteEmail cases, typo message, lowercase save, unchanged-email edits, supervisors:default-password dry run/--invite/idempotent/super admin untouched. Use gmail.com addresses in tests (no DNS).
-- Existing tests: none for auth in backend/tests/Feature (ExampleTest, InternovaApiTest, InternovaSeederTest, SuperadminApiTest contain no login/verify/notification cases per grep). Run `php artisan test` from backend/.
+- tests/Feature/AuthHardeningTest.php (throttles, token expiry, maintenance) and SchoolAccessTest.php (school lockout). Older note: none for auth in backend/tests/Feature (ExampleTest, InternovaApiTest, InternovaSeederTest, SuperadminApiTest contain no login/verify/notification cases per grep). Run `php artisan test` from backend/.
 - Manual: login with unverified account (expect 403 needsVerification); submit inquiry, check mail (log/queue worker needed for queued mail), verify code, login; forgot-password flow; coordinator invites intern, open /accept-invite/<token>; click Resend code on /verify-email and see confirmation + Spam hint.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-10 8c21eaf + uncommitted — Security package S1: rate limiters on public POSTs, 7-day Sanctum expiry, 403 no longer logs out, server-side school lockout, error pages — result: AuthHardeningTest 12 + SchoolAccessTest 8 pass, full suite on private DB :3311 (see report), lint+build ok
+- 2026-10-10 8c21eaf + uncommitted — S2: AuthController::buildUserPayload returns billing money details (amount, payment_*, breakdown, pending/approved change, scheduled switch) only to dean + super_admin; User hides invitation_token; MessageController uses role names not ids — result: SensitiveFieldExposureTest 3/3, CrossTenantAccessTest (126 probes) pass
 - 2026-10-08 05a9835 + uncommitted — CompleteEmail rule + shared emailCheck/EmailField; supervisors invited like interns; supervisors:default-password command — result: 239/239 tests (throwaway DB 3308), lint+build ok, headless 390px flow 25/25 (log mailer only, no real mail)
 - 2026-10-07 uncommitted — forgot-password now warns instead of pretending when the email has no account (PasswordResetController::forgotPassword, ForgotPassword.jsx text); ForgotPasswordTest 5/5
 - 2026-10-06 661ce49 + uncommitted — 60s resend countdown on verify-email and forgot-password + backend cooldown; tests/Feature/ResendCooldownTest.php — result: 109/109 tests, lint ok, headless 390px check ok
-- 2026-10-05 1b9390d + uncommitted — AuthController::login stores users.last_login_at (migration 2026_10_07_000000) for the Dean's "last active" — result: tests pass
-- 2026-10-05 1b9390d + uncommitted — added dean role, inactive-login block, dean_position in payload, shared AccountInvitationService; see dean.md — result: tests 23/23 pass (see dean.md)

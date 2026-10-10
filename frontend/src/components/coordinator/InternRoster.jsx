@@ -34,7 +34,7 @@ const SHORT_LABEL = {
 function MovedFrom({ intern, className = "" }) {
   if (!intern.moved_from) return null;
   return (
-    <p className={`truncate text-[11px] text-slate-500 ${className}`} title={`Moved from ${intern.moved_from}`}>
+    <p className={`truncate text-xs text-slate-500 ${className}`} title={`Moved from ${intern.moved_from}`}>
       Moved from {intern.moved_from}
     </p>
   );
@@ -62,8 +62,8 @@ function AttentionChips({ intern, compact = false, className = "" }) {
 function HoursBar({ intern }) {
   return (
     <div>
-      <div className="mb-0.5 flex justify-between gap-2 text-[11px] text-slate-500">
-        <span>Hours</span>
+      <div className="mb-0.5 flex justify-between gap-2 text-xs text-slate-500">
+        <span className="md:hidden">Hours</span>
         <span>
           <span className="font-semibold text-slate-800">{intern.hours_completed}</span> of {intern.required_hours}
         </span>
@@ -76,8 +76,8 @@ function HoursBar({ intern }) {
 function TasksBar({ intern }) {
   return (
     <div>
-      <div className="mb-0.5 flex justify-between gap-2 text-[11px] text-slate-500">
-        <span>Tasks</span>
+      <div className="mb-0.5 flex justify-between gap-2 text-xs text-slate-500">
+        <span className="md:hidden">Tasks</span>
         <span>
           <span className="font-semibold text-slate-800">{intern.tasks_completed}</span> of {intern.tasks_total}
         </span>
@@ -99,19 +99,19 @@ function subline(i) {
 export default function InternRoster({ interns, menuFor, showCompany = true }) {
   return (
     <>
-      <ul className="divide-y divide-slate-100 md:hidden">
+      <ul className="k-list md:hidden">
         {interns.map((i) => {
           const status = internStatus(i);
           const meta = [showCompany ? i.company_name ?? "No company" : null, i.supervisor_name ?? "no supervisor yet"].filter(Boolean).join(" · ");
           return (
-            <li key={i.deployment_id} className="p-3">
+            <li key={i.deployment_id} className="px-4 py-3.5 sm:px-5">
               <div className="flex items-center gap-2.5">
                 <Avatar name={i.intern_name} size={36} />
                 <div className="min-w-0 flex-1">
                   <Link href={`/coordinator/interns/${i.deployment_id}/report`} className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline">
                     {i.intern_name}
                   </Link>
-                  <p className="truncate text-xs text-slate-500" title={meta}>{meta}</p>
+                  <p className="line-clamp-2 text-xs text-slate-500" title={meta}>{meta}</p>
                 </div>
                 <Pill tone={status.tone} size="sm" className="shrink-0">{status.label}</Pill>
                 <ActionMenu label={`Actions for ${i.intern_name}`} items={menuFor(i)} />
@@ -128,27 +128,27 @@ export default function InternRoster({ interns, menuFor, showCompany = true }) {
       </ul>
 
       <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[720px] text-left text-sm xl:min-w-[860px]">
-          <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <table className="k-table min-w-[720px] xl:min-w-[860px]">
+          <thead>
             <tr>
-              <th className="px-4 py-3">Intern</th>
-              <th className="px-4 py-3">{showCompany ? "Company and supervisor" : "Supervisor"}</th>
-              <th className="px-4 py-3">Hours</th>
-              <th className="px-4 py-3">Tasks</th>
-              <th className="hidden px-4 py-3 xl:table-cell">Evaluation</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="sticky right-0 bg-slate-50 px-3 py-3"><span className="sr-only">Actions</span></th>
+              <th>Intern</th>
+              <th>{showCompany ? "Company and supervisor" : "Supervisor"}</th>
+              <th>Hours</th>
+              <th>Tasks</th>
+              <th className="hidden xl:table-cell">Evaluation</th>
+              <th>Status</th>
+              <th className="sticky right-0"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {interns.map((i) => {
               const status = internStatus(i);
               return (
                 <tr key={i.deployment_id} className="align-middle">
-                  <td className="px-4 py-3">
+                  <td>
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={i.intern_name} size={36} />
-                      <div className="min-w-0 max-w-[11rem] xl:max-w-[14rem]">
+                      <div className="min-w-0 max-w-[11rem] xl:max-w-[12rem]">
                         <Link href={`/coordinator/interns/${i.deployment_id}/report`} className="block truncate font-semibold text-slate-900 hover:text-blue-600 hover:underline" title={i.intern_name}>
                           {i.intern_name}
                         </Link>
@@ -156,8 +156,8 @@ export default function InternRoster({ interns, menuFor, showCompany = true }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="max-w-[13rem] space-y-0.5">
+                  <td>
+                    <div className="max-w-[11rem] space-y-0.5 xl:max-w-[12rem]">
                       {showCompany && <p className="truncate text-slate-800" title={i.company_name ?? ""}>{i.company_name ?? "No company"}</p>}
                       <MovedFrom intern={i} />
                       <p className="truncate text-xs text-slate-500" title={i.supervisor_name ?? ""}>
@@ -165,18 +165,18 @@ export default function InternRoster({ interns, menuFor, showCompany = true }) {
                       </p>
                     </div>
                   </td>
-                  <td className="px-3 py-3 xl:px-4"><div className="w-28 xl:w-32"><HoursBar intern={i} /></div></td>
-                  <td className="px-3 py-3 xl:px-4"><div className="w-24 xl:w-28"><TasksBar intern={i} /></div></td>
-                  <td className="hidden px-4 py-3 text-slate-700 xl:table-cell">
-                    {i.latest_evaluation_score != null ? `${i.latest_evaluation_score}%` : <span className="text-slate-400">None yet</span>}
+                  <td><div className="w-28 xl:w-32"><HoursBar intern={i} /></div></td>
+                  <td><div className="w-24 xl:w-28"><TasksBar intern={i} /></div></td>
+                  <td className="hidden text-slate-700 xl:table-cell">
+                    {i.latest_evaluation_score != null ? `${Number(i.latest_evaluation_score)}%` : <span className="text-slate-400">None yet</span>}
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <div className="flex max-w-[12rem] flex-col items-start gap-1.5">
                       <Pill tone={status.tone}>{status.label}</Pill>
                       <AttentionChips intern={i} compact />
                     </div>
                   </td>
-                  <td className="sticky right-0 bg-white px-3 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.25)]">
+                  <td className="sticky right-0 bg-white text-right shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.25)]">
                     <ActionMenu label={`Actions for ${i.intern_name}`} items={menuFor(i)} />
                   </td>
                 </tr>

@@ -101,6 +101,23 @@ class Task extends Model
         return $ratingsEnabled && $this->status === 'completed' && !$this->evaluation;
     }
 
+    /** History = finished and no longer waiting for a grade (the same rule as awaitingRating(), as SQL). */
+    public function scopeInHistory($query, bool $ratingsEnabled)
+    {
+        return $query->where('status', 'completed')->when($ratingsEnabled, fn ($q) => $q->whereHas('evaluation'));
+    }
+
+    /** Everything that is not in History: still open, or done and waiting for a grade. */
+    public function scopeNotInHistory($query, bool $ratingsEnabled)
+    {
+        return $query->where(function ($w) use ($ratingsEnabled) {
+            $w->where('status', '!=', 'completed');
+            if ($ratingsEnabled) {
+                $w->orWhere(fn ($x) => $x->where('status', 'completed')->whereDoesntHave('evaluation'));
+            }
+        });
+    }
+
     /**
      * Who a new subtask goes to. A subtask always has an owner: a solo task gives it to its one
      * intern, a group task needs at least one chosen member, every member must be on the task and

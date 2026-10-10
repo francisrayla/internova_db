@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { DndContext, DragOverlay, pointerWithin, useDraggable, useDroppable } from "@dnd-kit/core";
 import { DRAG_ROW_CLASS, blockTouchContextMenu, useDragSensors } from "@/lib/useDragSensors";
+import { Paperclip } from "lucide-react";
 import DueDateBadge from "@/components/DueDateBadge";
+import { Pill } from "@/components/ui";
 
 const STATUSES = [
   { key: "pending", label: "Pending" },
@@ -12,10 +14,15 @@ const STATUSES = [
 ];
 
 const STATUS_STYLES = {
-  pending: "bg-slate-100 text-slate-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  completed: "bg-emerald-100 text-emerald-700",
+  pending: "bg-[var(--ui-soft)] text-[var(--ui-ink)]",
+  in_progress: "bg-[var(--ui-info-bg)] text-[var(--ui-info)]",
+  completed: "bg-[var(--ui-ok-bg)] text-[var(--ui-ok)]",
 };
+const STATUS_TONES = { pending: "slate", in_progress: "blue", completed: "green" };
+
+// One look for a subtask row: a hairline box on the surface colour, accent border when it is the open one.
+const ROW_BOX = "rounded-[14px] border bg-[var(--ui-surface)] p-3";
+const rowBorder = (selected) => (selected ? "border-[var(--ui-accent)] ring-1 ring-[var(--ui-accent)]" : "border-[var(--ui-line)] hover:border-[var(--ui-border)]");
 
 const STATUS_LABELS = { pending: "Pending", in_progress: "Ongoing", completed: "Done" };
 
@@ -28,15 +35,15 @@ const COLUMN_STYLES = {
 function CardBody({ subtask }) {
   return (
     <>
-      <p className="font-medium text-slate-900">{subtask.title}</p>
-      <p className="mt-1 text-xs text-slate-500">{subtask.assignees?.length > 0 ? subtask.assignees.map((a) => a.name).join(", ") : "Unassigned"}</p>
+      <p className="break-words font-medium text-slate-900">{subtask.title}</p>
+      <p className="mt-1 text-xs text-slate-600">{subtask.assignees?.length > 0 ? subtask.assignees.map((a) => a.name).join(", ") : "Unassigned"}</p>
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         <DueDateBadge dueDateRaw={subtask.due_date_raw} status={subtask.status} />
-        <span className="text-[11px] text-slate-400">{subtask.comments.length} comment{subtask.comments.length === 1 ? "" : "s"}</span>
+        <span className="text-xs text-slate-600">{subtask.comments.length} comment{subtask.comments.length === 1 ? "" : "s"}</span>
         {subtask.proofs?.length > 0 && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-            📎 {subtask.proofs.length} proof{subtask.proofs.length === 1 ? "" : "s"}
-          </span>
+          <Pill tone="green" size="sm" className="gap-1">
+            <Paperclip className="h-3 w-3" aria-hidden="true" /> {subtask.proofs.length} proof{subtask.proofs.length === 1 ? "" : "s"}
+          </Pill>
         )}
       </div>
     </>
@@ -47,12 +54,12 @@ function Row({ subtask, onSelect, selected }) {
   return (
     <button
       onClick={() => onSelect(subtask.id)}
-      className={`flex w-full items-start justify-between gap-3 rounded-2xl border bg-white p-3 text-left shadow-sm transition hover:border-blue-300 hover:shadow ${selected ? "border-blue-400 ring-1 ring-blue-300" : "border-slate-200"}`}
+      className={`flex w-full items-start justify-between gap-3 text-left transition max-sm:min-h-[44px] ${ROW_BOX} ${rowBorder(selected)}`}
     >
       <div className="flex-1 space-y-1">
         <CardBody subtask={subtask} />
       </div>
-      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[subtask.status]}`}>{STATUS_LABELS[subtask.status]}</span>
+      <Pill tone={STATUS_TONES[subtask.status] ?? "slate"} className="shrink-0">{STATUS_LABELS[subtask.status]}</Pill>
     </button>
   );
 }
@@ -75,7 +82,7 @@ function StatusDropdown({ subtask, taskCompleted, onPick }) {
         disabled={fullyLocked}
         title={fullyLocked ? "This task is already done, so its subtasks stay done." : "Change status"}
         onChange={(e) => onPick(subtask.id, e.target.value)}
-        className={`h-10 rounded-full border-0 py-1.5 pl-3 pr-7 text-base font-semibold outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-70 sm:text-xs ${STATUS_STYLES[subtask.status]}`}
+        className={`h-10 rounded-full border-0 py-1.5 pl-3 pr-7 text-base font-semibold outline-none focus:ring-2 focus:ring-[var(--ui-accent)] disabled:cursor-not-allowed disabled:opacity-70 max-sm:h-11 sm:text-sm ${STATUS_STYLES[subtask.status]}`}
       >
         {STATUSES.map((s) => (
           <option key={s.key} value={s.key} disabled={lockedOpen && s.key !== "completed"}>{s.label}</option>
@@ -92,7 +99,7 @@ function HoldableRow({ subtask, onSelect, selected, isBeingDragged, taskComplete
 
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} onContextMenu={blockTouchContextMenu} className={`${DRAG_ROW_CLASS} ${isBeingDragged ? "opacity-30" : ""}`}>
-      <div className={`flex w-full cursor-grab items-start justify-between gap-3 rounded-2xl border bg-white p-3 text-left shadow-sm transition hover:border-blue-300 hover:shadow active:cursor-grabbing ${selected ? "border-blue-400 ring-1 ring-blue-300" : "border-slate-200"}`}>
+      <div className={`flex w-full cursor-grab items-start justify-between gap-3 text-left transition active:cursor-grabbing ${ROW_BOX} ${rowBorder(selected)}`}>
         <button draggable={false} onClick={() => onSelect(subtask.id)} className="min-w-0 flex-1 space-y-1 text-left">
           <CardBody subtask={subtask} />
         </button>
@@ -104,7 +111,7 @@ function HoldableRow({ subtask, onSelect, selected, isBeingDragged, taskComplete
 
 function OverlayCard({ subtask }) {
   return (
-    <div className="w-72 space-y-1 rounded-2xl border border-blue-300 bg-white p-3 shadow-xl">
+    <div className={`w-72 space-y-1 border-[var(--ui-accent)] shadow-xl ${ROW_BOX}`}>
       <CardBody subtask={subtask} />
     </div>
   );
@@ -114,9 +121,9 @@ function DropColumn({ status, label }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
-    <div ref={setNodeRef} className={`flex h-24 flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed p-3 transition ${COLUMN_STYLES[status]} ${isOver ? "ring-2 ring-blue-400" : ""}`}>
-      <span className="text-xs font-semibold text-slate-700">{label}</span>
-      <span className="text-[11px] text-slate-400">Drop here</span>
+    <div ref={setNodeRef} className={`flex h-24 flex-col items-center justify-center gap-1 rounded-[14px] border-2 border-dashed p-3 transition ${COLUMN_STYLES[status]} ${isOver ? "ring-2 ring-[var(--ui-accent)]" : ""}`}>
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      <span className="text-xs text-slate-600">Drop here</span>
     </div>
   );
 }
@@ -172,7 +179,7 @@ export default function SubtaskBoard({ subtasks, onStatusChange, onRequestComple
       onDragEnd={handleDragEnd}
     >
       {activeId && (
-        <div className="fixed inset-x-4 bottom-4 z-40 grid grid-cols-1 gap-2 rounded-3xl bg-white/95 p-3 shadow-2xl backdrop-blur md:grid-cols-3 lg:inset-x-auto lg:right-6 lg:w-[32rem]">
+        <div className="fixed inset-x-4 bottom-4 z-40 grid grid-cols-1 gap-2 rounded-[14px] border border-[var(--ui-line)] bg-white/95 p-3 shadow-2xl backdrop-blur md:grid-cols-3 lg:inset-x-auto lg:right-6 lg:w-[32rem]">
           {STATUSES.map((s) => <DropColumn key={s.key} status={s.key} label={s.label} />)}
         </div>
       )}

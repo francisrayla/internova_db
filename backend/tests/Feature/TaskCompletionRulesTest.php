@@ -211,27 +211,28 @@ class TaskCompletionRulesTest extends TestCase
 
     public function test_supervisor_edits_a_task_and_the_interns_are_told(): void
     {
-        $task = $this->newTask(['description' => 'old', 'due_date' => '2026-10-20']);
+        $from = \App\Support\LocalTime::now()->addDays(10)->toDateString();
+        $to = \App\Support\LocalTime::now()->addDays(15)->toDateString(); // the due date can only move forward
+        $task = $this->newTask(['description' => 'old', 'due_date' => $from]);
         Sanctum::actingAs($this->sup);
 
-        $this->patchJson("/api/supervisor/tasks/{$task->id}", ['title' => 'Timpla ng kape', 'description' => 'new', 'priority' => 'high', 'due_date' => '2026-10-09'])
+        $this->patchJson("/api/supervisor/tasks/{$task->id}", ['title' => 'Timpla ng kape', 'description' => 'new', 'priority' => 'high', 'due_date' => $to])
             ->assertOk()->assertJsonPath('changed', ['title', 'description', 'priority', 'due_date']);
 
         $fresh = $task->fresh();
         $this->assertSame('Timpla ng kape', $fresh->title);
         $this->assertSame('high', $fresh->priority);
-        $this->assertSame('2026-10-09', $fresh->due_date->format('Y-m-d'));
+        $this->assertSame($to, $fresh->due_date->format('Y-m-d'));
         $this->assertSame(1, Notification::where('user_id', $this->intern->id)->where('type', 'task_updated')->count());
         $this->assertDatabaseHas('activity_logs', ['module' => 'Tasks', 'action' => 'Edited task']);
 
         // Nothing changed means nothing is sent.
-        $this->patchJson("/api/supervisor/tasks/{$task->id}", ['title' => 'Timpla ng kape', 'description' => 'new', 'priority' => 'high', 'due_date' => '2026-10-09'])
+        $this->patchJson("/api/supervisor/tasks/{$task->id}", ['title' => 'Timpla ng kape', 'description' => 'new', 'priority' => 'high', 'due_date' => $to])
             ->assertOk()->assertJsonPath('changed', []);
         $this->assertSame(1, Notification::where('user_id', $this->intern->id)->where('type', 'task_updated')->count());
 
-        // The due date and description can be cleared.
-        $this->patchJson("/api/supervisor/tasks/{$task->id}", ['title' => 'Timpla ng kape', 'description' => '', 'priority' => 'high', 'due_date' => null])->assertOk();
-        $this->assertNull($task->fresh()->due_date);
+        // The description can be cleared; a due date that is set cannot be (see TaskDueDateRulesTest).
+        $this->patchJson("/api/supervisor/tasks/{$task->id}", ['title' => 'Timpla ng kape', 'description' => '', 'priority' => 'high', 'due_date' => $to])->assertOk();
         $this->assertNull($task->fresh()->description);
     }
 

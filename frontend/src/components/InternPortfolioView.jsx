@@ -1,41 +1,45 @@
 "use client";
 
+import NavIcon from "@/components/NavIcon";
+import { EmptyState } from "@/components/ui";
+import { Section } from "@/components/dash/page";
+
 /** Read-only rendering of an intern's portfolio, shared by the supervisor
  * and coordinator "view intern" screens — same shape as what the intern
  * sees while editing (MyPortfolio.jsx), just without the edit controls. */
 export default function InternPortfolioView({ internName, portfolio }) {
   if (!portfolio) {
     return (
-      <div className="rounded-3xl border border-slate-200 bg-white px-6 py-12 text-center">
-        <p className="text-sm font-medium text-slate-600">{internName ? `${internName} hasn't` : "This intern hasn't"} set up a portfolio yet.</p>
-        <p className="mt-1 text-sm text-slate-400">Nothing to show here until they add a bio or their first work sample.</p>
-      </div>
+      <EmptyState
+        icon="portfolio"
+        title={`${internName ? `${internName} hasn't` : "This intern hasn't"} set up a portfolio yet.`}
+        text="Nothing to show here until they add a bio or their first work sample."
+      />
     );
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-700">Portfolio</p>
-        <h1 className="mt-1 text-2xl font-semibold text-slate-900">{portfolio.title || `${internName ?? "Intern"}'s Portfolio`}</h1>
-        <p className="mt-1 text-sm text-slate-600">{portfolio.bio || "No bio written yet."}</p>
-      </section>
+    <div className="space-y-5">
+      <Section>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">Portfolio</p>
+        <h2 className="mt-1 break-words text-xl font-semibold text-slate-900">{portfolio.title || `${internName ?? "Intern"}'s Portfolio`}</h2>
+        <p className="mt-1 whitespace-pre-line break-words text-sm text-slate-600">{portfolio.bio || "No bio written yet."}</p>
+      </Section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Work samples</h2>
+      <Section title="Work samples">
         {(portfolio.items?.length ?? 0) === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No work samples added yet.</p>
+          <p className="py-6 text-center text-sm text-slate-500">No work samples added yet.</p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {portfolio.items.map((item) => (
               <div key={item.id} className="overflow-hidden rounded-2xl border border-slate-200">
                 {item.image_url && <img src={item.image_url} alt="" className="h-36 w-full object-cover" />}
                 <div className="p-4">
-                  <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                  {item.description && <p className="mt-1 text-xs text-slate-600">{item.description}</p>}
+                  <p className="break-words text-sm font-semibold text-slate-900">{item.title}</p>
+                  {item.description && <p className="mt-1 break-words text-xs text-slate-600">{item.description}</p>}
                   {item.project_url && (
-                    <a href={item.project_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-blue-600 hover:underline">
-                      View project ↗
+                    <a href={item.project_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline max-sm:min-h-[44px]">
+                      View project <NavIcon name="arrow" size={13} />
                     </a>
                   )}
                 </div>
@@ -43,7 +47,7 @@ export default function InternPortfolioView({ internName, portfolio }) {
             ))}
           </div>
         )}
-      </section>
+      </Section>
     </div>
   );
 }

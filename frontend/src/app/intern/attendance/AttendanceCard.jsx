@@ -1,15 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import NavIcon from "@/components/NavIcon";
 import PhotoViewer from "@/components/PhotoViewer";
 import OfflineEntryBadge from "@/components/OfflineEntryBadge";
 import OfflineImage from "@/components/OfflineImage";
+import { Pill } from "@/components/ui";
 
-export const STATUS_STYLES = {
-  approved: "bg-emerald-100 text-emerald-700",
-  pending: "bg-amber-100 text-amber-700",
-  rejected: "bg-red-100 text-red-700",
-};
+// Status word to the calm chip tone used everywhere else.
+export const STATUS_TONES = { approved: "green", pending: "amber", rejected: "red" };
 
 /** The date, time, and GPS coordinates are already baked into each selfie's
  * pixels (see CameraCapture in Attendance.jsx) — the card shows the two
@@ -18,9 +17,9 @@ export const STATUS_STYLES = {
 function PhotoSlot({ label, time, url, emptyText, onOpen }) {
   return (
     <div className="min-w-0">
-      <p className="mb-1.5 flex items-baseline justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <p className="mb-1.5 flex items-baseline justify-between gap-2 text-xs font-medium text-slate-500">
         <span>{label}</span>
-        <span className="font-medium normal-case tracking-normal text-slate-700">{time ?? "—"}</span>
+        <span className="font-semibold text-slate-900">{time ?? "—"}</span>
       </p>
       {url ? (
         <button
@@ -32,7 +31,8 @@ function PhotoSlot({ label, time, url, emptyText, onOpen }) {
           <OfflineImage src={url} alt={`${label} selfie`} className="h-full w-full object-cover" />
         </button>
       ) : (
-        <div className="grid aspect-[4/3] w-full place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-2 text-center text-xs text-slate-400">
+        <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-2 text-center text-xs text-slate-500">
+          <NavIcon name="user" size={16} />
           {emptyText}
         </div>
       )}
@@ -50,34 +50,29 @@ export default function AttendanceCard({ record }) {
   ].filter(Boolean);
   const outIndex = hasIn ? 1 : 0;
 
-  const outEmpty = record.auto_clocked_out ? "Auto time-out — no photo" : record.clock_in ? "Not timed out yet" : "No photo";
+  const outEmpty = record.auto_clocked_out ? "Auto time-out, no photo" : record.clock_in ? "Not timed out yet" : "No photo";
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">
+    <div className="dash-card h-full p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+        <p className="min-w-0 text-sm font-semibold text-slate-900">
           {record.attendance_date}
-          {record.session_label && <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{record.session_label}</span>}
+          {record.session_label && <span className="ml-2 align-middle"><Pill tone="blue" size="sm">{record.session_label}</Pill></span>}
         </p>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <OfflineEntryBadge record={record} />
           {record.edited && (
-            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700" title="Your supervisor corrected the time because you did not time out">
-              Time corrected
+            <span title="Your supervisor corrected the time because you did not time out">
+              <Pill tone="blue" size="sm">Time corrected</Pill>
             </span>
           )}
           {record.auto_clocked_out && (
-            <span
-              className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700"
-              title="Forgot to time out — closed automatically after 8 hours, no photo or location"
-            >
-              Auto time-out
+            <span title="Forgot to time out — closed automatically after 8 hours, no photo or location">
+              <Pill tone="amber" size="sm">Auto time-out</Pill>
             </span>
           )}
           {record.status !== "approved" && (
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[record.status] ?? "bg-slate-100 text-slate-700"}`}>
-              {record.status}
-            </span>
+            <Pill tone={STATUS_TONES[record.status] ?? "slate"} className="capitalize">{record.status}</Pill>
           )}
         </div>
       </div>
@@ -102,7 +97,7 @@ export default function AttendanceCard({ record }) {
       <p className="mt-3 text-xs font-medium text-slate-500">
         {record.hours != null ? (
           <>
-            <span className="text-sm font-semibold text-slate-800">{record.hours}h</span> rendered
+            <span className="text-sm font-semibold text-slate-900">{record.hours}h</span> rendered
           </>
         ) : (
           "In progress"

@@ -24,8 +24,8 @@ export default function OfflineImage({ src, alt, className, placeholderClassName
 
   if (failed) {
     return (
-      <span className={`grid h-full w-full place-items-center bg-slate-50 px-2 text-center text-[11px] text-slate-400 ${placeholderClassName}`}>
-        Photo shows when you&apos;re online
+      <span className={`grid h-full w-full place-items-center bg-slate-50 px-2 text-center text-xs text-slate-500 ${placeholderClassName}`}>
+        {typeof navigator !== "undefined" && navigator.onLine === false ? "Photo shows when you’re online" : "No photo"}
       </span>
     );
   }

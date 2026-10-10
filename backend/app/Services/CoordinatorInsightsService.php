@@ -123,7 +123,7 @@ class CoordinatorInsightsService
         ];
 
         // 3. Active interns with a supervisor
-        $active = $rows->where('status', 'active');
+        $active = $rows->where('status', 'active')->where('is_finished', false);
         $withSup = $active->filter(fn ($r) => !empty($r['supervisor_name']))->count();
         $supPct = self::pct($withSup, $active->count());
         $supervisor = [
@@ -136,7 +136,7 @@ class CoordinatorInsightsService
         ];
 
         // 4. Evaluated (of those due or ended)
-        $due = $rows->filter(fn ($r) => $r['status'] !== 'inactive' && ($r['status'] === 'completed'
+        $due = $rows->filter(fn ($r) => $r['status'] !== 'inactive' && ($r['is_finished']
             || ($r['end_date'] && Carbon::parse($r['end_date'])->lte(\App\Support\LocalTime::todayDate()->addDays(InternMonitoringService::EVALUATION_WINDOW_DAYS)))));
         $done = $due->where('has_evaluation', true)->count();
         $evalPct = self::pct($done, $due->count());
@@ -186,7 +186,7 @@ class CoordinatorInsightsService
         $supervisors = User::where('school_id', $school->id)->where('role_id', $supRole)->where('status', '!=', 'inactive')->get(['id', 'password']);
         $supActive = $supervisors->filter(fn ($u) => $u->password !== null)->count();
         $deployed = $rows->where('status', '!=', 'inactive')->count();
-        $active = $rows->where('status', 'active');
+        $active = $rows->where('status', 'active')->where('is_finished', false);
         $noSup = $active->filter(fn ($r) => empty($r['supervisor_name']))->count();
         $criteria = EvaluationCriterion::where('school_id', $school->id)->where('status', 'active')->count();
         $tpl = NarrativeTemplate::where('school_id', $school->id)->first();

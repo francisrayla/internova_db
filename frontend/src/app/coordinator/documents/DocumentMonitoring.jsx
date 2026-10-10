@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import FileLink from "@/components/FileViewer";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { shrinkImage } from "@/lib/imageCompress";
 import DocumentTypeField from "@/components/DocumentTypeField";
+import { EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
+import { Btn, DataList, DataRow, FilterBar, FormField, Input, Page, PageHeader, Section, Select, SheetFrame, Textarea } from "@/components/dash/page";
+import NavIcon from "@/components/NavIcon";
+import Pagination from "@/components/Pagination";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
-const STATUS_STYLES = {
-  approved: "bg-emerald-100 text-emerald-700",
-  pending: "bg-amber-100 text-amber-700",
-  rejected: "bg-red-100 text-red-700",
-};
-
+const STATUS_TONES = { approved: "green", pending: "amber", rejected: "red" };
 
 function UploadModal({ interns, onClose, onSaved }) {
   const [form, setForm] = useState({ deployment_id: interns[0]?.deployment_id ?? "", document_type: "" });
@@ -68,32 +68,58 @@ function UploadModal({ interns, onClose, onSaved }) {
   }
 
   return (
-    <div className="sheet-overlay fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-md rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Upload a document</h3>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Intern</span>
-            <select value={form.deployment_id} onChange={(e) => setForm((f) => ({ ...f, deployment_id: e.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500">
-              {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id}>{i.name}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">Document type</span>
-            <DocumentTypeField key={typesKey} options={types ?? undefined} value={form.document_type} onChange={(v) => setForm((f) => ({ ...f, document_type: v }))} />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-semibold text-slate-700">File</span>
-            <input type="file" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500" />
-          </label>
-          {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Uploading…" : "Upload"}</button>
-          </div>
-        </form>
+    <SheetFrame
+      onClose={onClose}
+      title="Upload a document"
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" type="submit" disabled={saving}>{saving ? "Uploading…" : "Upload"}</Btn>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <FormField label="Intern">
+          <Select value={form.deployment_id} onChange={(e) => setForm((f) => ({ ...f, deployment_id: e.target.value }))}>
+            {interns.map((i) => <option key={i.deployment_id} value={i.deployment_id}>{i.name}</option>)}
+          </Select>
+        </FormField>
+        <FormField label="Document type">
+          <DocumentTypeField key={typesKey} options={types ?? undefined} value={form.document_type} onChange={(v) => setForm((f) => ({ ...f, document_type: v }))} />
+        </FormField>
+        <FormField label="File">
+          <Input type="file" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        </FormField>
+        {error && <p className="k-note is-risk" role="alert">{error}</p>}
       </div>
-    </div>
+    </SheetFrame>
+  );
+}
+
+// Reason for rejecting a document (optional). Cancel does nothing; "Reject document" sends the same PATCH as before.
+function RejectSheet({ doc, busy, onCancel, onReject }) {
+  const [reason, setReason] = useState("");
+  return (
+    <SheetFrame
+      title="Reject this document?"
+      description={`${doc.document_type} · ${doc.intern_name}`}
+      onClose={busy ? undefined : onCancel}
+      onSubmit={(e) => {
+        e.preventDefault();
+        onReject(reason.trim());
+      }}
+      footer={
+        <>
+          <Btn onClick={onCancel} disabled={busy}>Cancel</Btn>
+          <Btn variant="danger" type="submit" disabled={busy}>{busy ? "Rejecting…" : "Reject document"}</Btn>
+        </>
+      }
+    >
+      <FormField label="Reason (optional)" hint="The intern sees this so they know what to fix.">
+        <Textarea rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} autoFocus />
+      </FormField>
+    </SheetFrame>
   );
 }
 
@@ -101,27 +127,58 @@ export default function DocumentMonitoring() {
   const [documents, setDocuments] = useState([]);
   const [interns, setInterns] = useState([]);
   const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [rejecting, setRejecting] = useState(null); // document waiting for a rejection reason
+  const [approving, setApproving] = useState(null); // document waiting for approval confirmation
+  const requestRef = useRef(0);
 
-  function load() {
-    setLoading(true);
-    const params = statusFilter ? `?status=${statusFilter}` : "";
-    fetchCoordinatorData(`documents${params}`)
+  // The server pages the list; the filter is applied to the whole set before paging.
+  function load(nextPage = page) {
+    const params = new URLSearchParams({ page: String(nextPage) });
+    if (statusFilter) params.set("status", statusFilter);
+    const request = ++requestRef.current; // a slower, older answer must not replace a newer one
+    fetchCoordinatorData(`documents?${params}`)
       .then((r) => {
+        if (request !== requestRef.current) return;
+        // A page that no longer exists (the last row was reviewed away) falls back to the last one.
+        if (nextPage > 1 && (r.documents ?? []).length === 0 && (r.last_page ?? 1) < nextPage) {
+          setPage(r.last_page ?? 1);
+          return;
+        }
         setDocuments(r.documents ?? []);
         setInterns(r.interns ?? []);
+        setMeta({ total: r.total ?? 0, last_page: r.last_page ?? 1 });
+        setError("");
+        setLoading(false);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (request !== requestRef.current) return;
+        setError(e.message);
+        setLoading(false);
+      });
   }
 
-  useEffect(load, [statusFilter]);
+  useEffect(() => {
+    load(page);
+  }, [statusFilter, page]);
 
-  async function review(id, status) {
-    const remarks = status === "rejected" ? window.prompt("Reason for rejecting this document (optional):") ?? "" : "";
+  function changeFilter(value) {
+    setLoading(true);
+    setStatusFilter(value);
+    setPage(1);
+  }
+
+  function goToPage(next) {
+    setLoading(true);
+    setPage(next);
+  }
+
+  async function review(id, status, remarks = "") {
     setBusyId(id);
     try {
       const res = await apiFetch(`/api/coordinator/documents/${id}`, {
@@ -131,68 +188,92 @@ export default function DocumentMonitoring() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message);
+      setRejecting(null);
+      setApproving(null);
       load();
     } catch (err) {
       setError(err.message);
+      setRejecting(null);
+      setApproving(null);
     } finally {
       setBusyId(null);
     }
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Documents</h2>
-          <p className="mt-1 text-sm text-slate-600">Compliance paperwork for each internship — upload, then review for approval.</p>
-        </div>
-        <button onClick={() => setShowModal(true)} disabled={interns.length === 0} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40">
-          Upload document
-        </button>
-      </div>
+    <Page>
+      <PageHeader title="Documents" sentence="Compliance paperwork for each internship — upload, then review for approval.">
+        <Btn variant="primary" onClick={() => setShowModal(true)} disabled={interns.length === 0}>
+          <NavIcon name="documents" size={15} /> Upload document
+        </Btn>
+      </PageHeader>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500">
+      <FilterBar>
+        <Select value={statusFilter} onChange={(e) => changeFilter(e.target.value)} aria-label="Filter by status" className="sm:w-auto">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
-        </select>
-      </section>
+        </Select>
+      </FilterBar>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote onRetry={() => load()}>{error}</ErrorNote>}
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        {loading ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-500">Loading documents…</p>
+      <Section flush>
+        {loading && documents.length === 0 ? (
+          <div className="k-pad"><SkeletonList rows={3} height="h-16" /></div>
         ) : documents.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">No documents uploaded yet.</p>
+          <div className="k-pad">
+            <EmptyState icon="documents" title="No documents uploaded yet." text="Upload a document for an intern, or wait for interns to upload their own." />
+          </div>
         ) : (
-          documents.map((d) => (
-            <div key={d.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 last:border-b-0">
-              <div className="min-w-0">
-                <p className="font-medium text-slate-900">{d.document_type}</p>
-                <FileLink url={d.file_url} name={d.file_name} subtitle={`${d.document_type} · ${d.intern_name}`} className="block max-w-full truncate text-left text-xs text-blue-600 hover:underline">{d.file_name}</FileLink>
-                <p className="mt-1 text-xs text-slate-400">{d.intern_name} · Uploaded {d.uploaded_at}</p>
-                {d.remarks && <p className="mt-1 text-xs text-slate-500">Remarks: {d.remarks}</p>}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[d.status]}`}>{d.status}</span>
-                {d.status === "pending" && (
+          <DataList>
+            {documents.map((d) => (
+              <DataRow
+                key={d.id}
+                wrap
+                title={d.document_type}
+                sub={
                   <>
-                    <button onClick={() => review(d.id, "approved")} disabled={busyId === d.id} className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">Approve</button>
-                    <button onClick={() => review(d.id, "rejected")} disabled={busyId === d.id} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Reject</button>
+                    <FileLink url={d.file_url} name={d.file_name} subtitle={`${d.document_type} · ${d.intern_name}`} className="block max-w-full truncate text-left text-xs font-medium text-blue-600 hover:underline max-sm:min-h-[44px] max-sm:py-2">{d.file_name}</FileLink>
+                    <span className="block">{d.intern_name} · Uploaded {d.uploaded_at}</span>
+                    {d.remarks && <span className="block">Remarks: {d.remarks}</span>}
                   </>
-                )}
-              </div>
-            </div>
-          ))
+                }
+                side={<Pill tone={STATUS_TONES[d.status] ?? "slate"} className="capitalize">{d.status}</Pill>}
+                actions={
+                  d.status === "pending" && (
+                    <>
+                      <Btn sm onClick={() => setApproving(d)} disabled={busyId === d.id}>Approve</Btn>
+                      <Btn sm variant="danger-quiet" onClick={() => setRejecting(d)} disabled={busyId === d.id}>Reject</Btn>
+                    </>
+                  )
+                }
+              />
+            ))}
+          </DataList>
         )}
-      </section>
+        <Pagination page={page} totalPages={meta.last_page} total={meta.total} loading={loading} onPageChange={goToPage} />
+      </Section>
+
+      {rejecting && (
+        <RejectSheet doc={rejecting} busy={busyId === rejecting.id} onCancel={() => setRejecting(null)} onReject={(reason) => review(rejecting.id, "rejected", reason)} />
+      )}
+      <ConfirmDialog
+        open={!!approving}
+        tone="primary"
+        title="Approve this document?"
+        confirmLabel="Approve"
+        busy={!!approving && busyId === approving.id}
+        onConfirm={() => review(approving.id, "approved")}
+        onCancel={() => setApproving(null)}
+      >
+        <p>{approving?.document_type} from {approving?.intern_name} will be marked as approved.</p>
+      </ConfirmDialog>
 
       {showModal && (
         <UploadModal interns={interns} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); load(); }} />
       )}
-    </div>
+    </Page>
   );
 }

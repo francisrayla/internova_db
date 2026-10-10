@@ -310,19 +310,25 @@ class InternMonitoringService
                     $elapsed = (int) max(0, min(100, round($passed / $totalWd * 100)));
                 }
             }
+            $hoursMet = $required > 0 && $hours >= $required;
+            // Finished = marked completed or the required hours rendered; attendance is closed then, so the
+            // "no clock-in" and "behind on hours" flags can never clear and must not be raised.
+            $isFinished = $d->status === 'completed' || $hoursMet;
             $isActive = $d->status === 'active';
+            // An intern who never set up the account cannot clock in yet: that is a "pending account", not an absence.
+            $tracking = $isActive && !$isFinished && $d->intern?->status !== 'pending_activation';
             $started = $d->start_date && $d->start_date->lte($today);
 
             $flags = [];
             $missed = 0;
-            if ($isActive && $started) {
+            if ($tracking && $started) {
                 $ref = ($lastClockIn ? Carbon::parse(\App\Support\LocalTime::date($lastClockIn)) : null) ?? $d->start_date->copy()->subDay();
                 $missed = self::workingDaysBetween($ref, $today);
                 if ($missed >= self::NO_CLOCK_IN_WORKING_DAYS) {
                     $flags[] = ['key' => 'no_clock_in', 'level' => 'red', 'label' => $lastClockIn ? "No clock-in for {$missed} working days" : "Has not clocked in yet ({$missed} working days)"];
                 }
             }
-            if ($isActive && $elapsed !== null && $elapsed >= self::BEHIND_MIN_ELAPSED && $hoursPct < $elapsed - self::BEHIND_POINTS) {
+            if ($tracking && $elapsed !== null && $elapsed >= self::BEHIND_MIN_ELAPSED && $hoursPct < $elapsed - self::BEHIND_POINTS) {
                 $flags[] = ['key' => 'behind_hours', 'level' => 'amber', 'label' => "Behind on hours ({$hoursPct}% done, {$elapsed}% of working days passed)"];
             }
             $prog = $narrative[$d->id] ?? ['done' => 0, 'total' => 0, 'missing_documents' => 0];
@@ -337,9 +343,8 @@ class InternMonitoringService
             }
 
             $projection = self::project($d->status, $d->start_date, $d->end_date, $required, $hours, $dayHours, $today);
-            $hoursMet = $required > 0 && $hours >= $required;
             $group = self::classify($d->status, $hoursMet, $flags, $missed, $projection);
-            $cal = self::calendar($d->status, $d->start_date, $d->end_date, $byDate, $today, $calStart);
+            $cal = self::calendar(($isFinished && $d->status !== 'inactive') ? 'completed' : $d->status, $d->start_date, $d->end_date, $byDate, $today, $calStart);
             $profile = $profiles->get($d->intern_id);
             $t = $tasks->get($d->id);
 
@@ -356,6 +361,13 @@ class InternMonitoringService
                 'moved_from' => $movedFrom[$d->id]['company_name'] ?? null,
                 'supervisor_name' => $d->supervisorNames(),
                 'status' => $d->status,
+                'is_finished' => $isFinished,
+                'display_status' => match (true) {
+                    $d->status === 'inactive' => 'inactive',
+                    $isFinished => 'completed',
+                    $d->intern?->status === 'pending_activation' => 'invitation_pending',
+                    default => $d->status,
+                },
                 'account_status' => SchoolStaff::accountState($d->intern),
                 'start_date' => $d->start_date?->toDateString(),
                 'end_date' => $d->end_date?->toDateString(),
@@ -409,6 +421,40 @@ class InternMonitoringService
         }
 
         return $counts + ['total' => array_sum($counts)];
+    }
+
+    /**
+     * Interns per company on the SAME definitions as every tile: active = still working with an account,
+     * completed = finished (hours rendered or marked completed).
+     *
+     * @return array<int, array{active:int,completed:int}>  keyed by company id
+     */
+    public static function countsByCompany(int $schoolId): array
+    {
+        $school = School::find($schoolId);
+
+        return self::countsFrom($school ? self::rows($school) : []);
+    }
+
+    /**
+     * Same counts from rows you already have (rows() or the coordinator's internRows), without another pass.
+     * active = deployed there and not finished (an intern whose invitation is still pending is deployed too).
+     *
+     * @param  iterable<array>  $rows
+     * @return array<int, array{active:int,completed:int}>
+     */
+    public static function countsFrom(iterable $rows): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            if ($r['display_status'] === 'inactive' || !$r['company_id']) {
+                continue;
+            }
+            $out[$r['company_id']] ??= ['active' => 0, 'completed' => 0];
+            $out[$r['company_id']][$r['display_status'] === 'completed' ? 'completed' : 'active']++;
+        }
+
+        return $out;
     }
 
     public static function publicRow(array $row): array

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/apiFetch";
 import { formatDate, formatTime, timeAgo } from "@/lib/timeAgo";
 import { Pill } from "@/components/dean/ui";
+import { btnClass } from "@/components/dash/page";
 
 const STATUS = {
   open: { label: "Open", tone: "amber" },
@@ -66,22 +67,22 @@ export default function FeedbackThread({ thread, viewer, base, onUpdate }) {
   }
 
   return (
-    <li className={`rounded-2xl border bg-white p-4 ${thread.unread > 0 ? "border-blue-300" : "border-slate-200"}`}>
+    <li className={`dash-card ${thread.unread > 0 ? "border-blue-300" : ""}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-sm font-semibold text-slate-900">{isDean ? "You" : thread.dean_name}</p>
+        <p className="min-w-0 truncate text-sm font-semibold text-slate-900 sm:text-base">{isDean ? "You" : thread.dean_name}</p>
         <div className="flex flex-wrap items-center gap-1.5">
           {thread.unread > 0 && <Pill tone="blue">New</Pill>}
           <Pill tone={status.tone}>{status.label}</Pill>
         </div>
       </div>
-      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-800">{thread.message}</p>
+      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800">{thread.message}</p>
       <p className="mt-2 text-xs text-slate-500">
         {timeAgo(thread.created_at)} · {formatDate(thread.created_at)} {formatTime(thread.created_at)}
         {isDean && (thread.seen ? ` · Seen ${timeAgo(thread.read_at)}` : " · Not seen yet")}
       </p>
 
       {thread.replies.length > 0 && (
-        <ul className="mt-3 space-y-2 border-l-2 border-slate-200 pl-3">
+        <ul className="mt-3 space-y-2 border-l-2 border-slate-200 pl-3 max-sm:pl-2">
           {thread.replies.map((r) => (
             <li key={r.id} className={`rounded-xl px-3 py-2 ${r.mine ? "bg-blue-50" : "bg-slate-50"}`}>
               <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
@@ -95,24 +96,24 @@ export default function FeedbackThread({ thread, viewer, base, onUpdate }) {
         </ul>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2 max-sm:[&>button]:flex-1">
         {!isDean && thread.status === "open" && (
-          <button type="button" disabled={Boolean(busy)} onClick={() => run("ack", "acknowledge")} className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60">
+          <button type="button" disabled={Boolean(busy)} onClick={() => run("ack", "acknowledge")} className={btnClass("secondary", { sm: true })}>
             {busy === "ack" ? "Saving…" : "Acknowledge"}
           </button>
         )}
         {isDean && thread.status !== "resolved" && (
-          <button type="button" disabled={Boolean(busy)} onClick={() => run("resolve", "resolve")} className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60">
+          <button type="button" disabled={Boolean(busy)} onClick={() => run("resolve", "resolve")} className={btnClass("secondary", { sm: true })}>
             {busy === "resolve" ? "Saving…" : "Mark resolved"}
           </button>
         )}
         {isDean && thread.status === "resolved" && (
-          <button type="button" disabled={Boolean(busy)} onClick={() => run("reopen", "reopen")} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+          <button type="button" disabled={Boolean(busy)} onClick={() => run("reopen", "reopen")} className={btnClass("secondary", { sm: true })}>
             {busy === "reopen" ? "Saving…" : "Reopen"}
           </button>
         )}
         {thread.can_reply && !open && (
-          <button type="button" onClick={() => setOpen(true)} className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Reply</button>
+          <button type="button" onClick={() => setOpen(true)} className={btnClass("secondary", { sm: true })}>Reply</button>
         )}
         {!thread.can_reply && <span className="text-xs text-slate-500">Marked resolved. Ask your Dean to reopen it if you need to reply.</span>}
       </div>
@@ -126,20 +127,20 @@ export default function FeedbackThread({ thread, viewer, base, onUpdate }) {
             onChange={(e) => setMessage(e.target.value.slice(0, MAX))}
             rows={3}
             placeholder="Write a reply"
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500"
+            className="k-input"
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-slate-400">{message.length} / {MAX}</span>
-            <span className="flex gap-2">
-              <button type="button" onClick={() => { setOpen(false); setError(""); }} className="rounded-xl px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button>
-              <button type="submit" disabled={Boolean(busy) || !message.trim()} className="rounded-xl bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+            <span className="flex gap-2 max-sm:w-full max-sm:[&>button]:flex-1">
+              <button type="button" onClick={() => { setOpen(false); setError(""); }} className={btnClass("ghost", { sm: true })}>Cancel</button>
+              <button type="submit" disabled={Boolean(busy) || !message.trim()} className={btnClass("primary", { sm: true })}>
                 {busy === "reply" ? "Sending…" : "Send reply"}
               </button>
             </span>
           </div>
         </form>
       )}
-      {error && <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="k-note is-risk mt-3" role="alert">{error}</p>}
     </li>
   );
 }

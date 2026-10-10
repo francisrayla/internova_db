@@ -5,18 +5,39 @@ import Link from "next/link";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 
 import { inputProps } from "@/lib/inputRules";
-const STATUS_STYLES = {
-  active: "bg-emerald-100 text-emerald-700",
-  pending: "bg-amber-100 text-amber-700",
-  completed: "bg-slate-100 text-slate-700",
-  terminated: "bg-red-100 text-red-700",
+import NavIcon from "@/components/NavIcon";
+import { EmptyState, ErrorNote, Pill, ProgressBar, SkeletonList } from "@/components/ui";
+import { FilterBar, Page, PageHeader, SearchField, Section } from "@/components/dash/page";
+
+const STATUS_TONES = {
+  active: "green",
+  pending: "amber",
+  completed: "blue",
+  invitation_pending: "amber",
+  inactive: "slate",
+  terminated: "red",
 };
 
-function ProgressBar({ pct, tone = "blue" }) {
-  const bar = { blue: "bg-blue-600", emerald: "bg-emerald-600" }[tone] ?? "bg-blue-600";
+// "completed" = finished their required hours (or marked completed), the same as the coordinator and the Dean.
+const STATUS_LABELS = { invitation_pending: "Pending account", completed: "Completed" };
+
+function StatusPill({ intern: i }) {
+  const key = i.display_status ?? i.status;
   return (
-    <div className="h-1.5 w-full rounded-full bg-slate-100">
-      <div className={`h-1.5 rounded-full ${bar}`} style={{ width: `${Math.min(100, pct)}%` }} />
+    <Pill tone={STATUS_TONES[key] ?? "slate"} className="capitalize">
+      {STATUS_LABELS[key] ?? key}
+    </Pill>
+  );
+}
+
+function Meter({ left, right, pct, label }) {
+  return (
+    <div className="w-36 max-w-full max-sm:w-44">
+      <div className="mb-1 flex justify-between gap-2 text-xs text-slate-500">
+        <span>{left}</span>
+        <span>{right}</span>
+      </div>
+      <ProgressBar pct={pct} label={label} />
     </div>
   );
 }
@@ -37,134 +58,84 @@ export default function AssignedInterns() {
   const filtered = interns.filter((i) => !query || i.intern_name?.toLowerCase().includes(query.toLowerCase()));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">Interns</h2>
-        <p className="mt-1 text-sm text-slate-600">Every intern at your company (shared with your fellow supervisor) — hours, tasks, and evaluation progress.</p>
-      </div>
+    <Page>
+      <PageHeader title="Interns" sentence="Every intern at your company (shared with your fellow supervisor): hours, tasks, and evaluation progress." />
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <input {...inputProps("search")}
+      <FilterBar>
+        <SearchField
+          {...inputProps("search")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by name…"
-          className="w-full max-w-sm rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-500"
+          aria-label="Search interns by name"
         />
-      </section>
+      </FilterBar>
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <Section flush>
         {loading ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-500">Loading interns…</p>
-        ) : filtered.length === 0 ? (
-          <p className="px-6 py-10 text-center text-sm text-slate-400">
-            {interns.length === 0 ? "No interns are deployed at your company yet." : "No interns match this search."}
-          </p>
+          <div className="k-pad"><SkeletonList rows={4} height="h-16" /></div>
+        ) : filtered.length === 0 && error ? null : filtered.length === 0 ? (
+          <div className="k-pad">
+            <EmptyState
+              icon="users"
+              title={interns.length === 0 ? "No interns yet" : "No matches"}
+              text={interns.length === 0 ? "No interns are deployed at your company yet." : "No interns match this search."}
+            />
+          </div>
         ) : (
-          <>
-            <div className="divide-y divide-slate-100 sm:hidden">
-              {filtered.map((i) => (
-                <div key={i.deployment_id} className="px-5 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">{i.intern_name}</p>
-                      <p className="text-xs text-slate-500">{[i.student_number, i.course].filter(Boolean).join(" · ") || "—"}</p>
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[i.status] ?? "bg-slate-100 text-slate-700"}`}>
-                      {i.status}
-                    </span>
-                  </div>
-                  {i.pending_attendance > 0 && (
-                    <p className="mt-1 text-xs font-medium text-amber-600">{i.pending_attendance} attendance record{i.pending_attendance === 1 ? "" : "s"} pending review</p>
-                  )}
-                  <p className="mt-2 text-sm text-slate-700">{i.company_name ?? "—"}</p>
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="mb-1 flex justify-between text-xs text-slate-500">
-                        <span>{i.hours_completed}h</span>
-                        <span>{i.required_hours}h</span>
+          <div className="k-tablewrap">
+            <table className="k-table is-stack is-hover min-w-[760px] max-sm:min-w-0">
+              <thead>
+                <tr>
+                  <th>Intern</th>
+                  <th>Company</th>
+                  <th>Hours</th>
+                  <th>Tasks</th>
+                  <th>Latest evaluation</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((i) => (
+                  <tr key={i.deployment_id} className="align-top">
+                    <td className="is-title">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900">{i.intern_name}</p>
+                          <p className="text-xs font-normal text-slate-500">{[i.student_number, i.course].filter(Boolean).join(" · ") || "—"}</p>
+                        </div>
+                        <span className="shrink-0 sm:hidden"><StatusPill intern={i} /></span>
                       </div>
-                      <ProgressBar pct={i.hours_progress_pct} />
-                    </div>
-                    <div>
-                      <div className="mb-1 flex justify-between text-xs text-slate-500">
-                        <span>{i.tasks_completed}/{i.tasks_total}</span>
-                        <span>{i.task_progress_pct}%</span>
-                      </div>
-                      <ProgressBar pct={i.task_progress_pct} tone="emerald" />
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Latest evaluation: {i.latest_evaluation_score != null ? `${i.latest_evaluation_score}%` : "No evaluations yet"}
-                  </p>
-                  <Link href={`/supervisor/interns/${i.deployment_id}/portfolio`} className="mt-1 inline-block text-xs font-semibold text-blue-600 hover:underline">
-                    View portfolio →
-                  </Link>
-                </div>
-              ))}
-            </div>
-
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full min-w-[800px] text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3">Intern</th>
-                    <th className="px-5 py-3">Company</th>
-                    <th className="px-5 py-3">Hours</th>
-                    <th className="px-5 py-3">Tasks</th>
-                    <th className="px-5 py-3">Latest evaluation</th>
-                    <th className="px-5 py-3">Status</th>
+                      {i.pending_attendance > 0 && (
+                        <p className="mt-1 text-xs font-medium text-amber-700">{i.pending_attendance} attendance record{i.pending_attendance === 1 ? "" : "s"} pending review</p>
+                      )}
+                      <Link href={`/supervisor/interns/${i.deployment_id}/portfolio`} className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline max-sm:min-h-[44px]">
+                        View portfolio
+                        <NavIcon name="arrow" size={13} />
+                      </Link>
+                    </td>
+                    <td data-label="Company" className="text-slate-700">{i.company_name ?? "—"}</td>
+                    <td data-label="Hours">
+                      <Meter left={`${i.hours_completed}h`} right={`${i.required_hours}h`} pct={i.hours_progress_pct} label="Hours progress" />
+                    </td>
+                    <td data-label="Tasks">
+                      <Meter left={`${i.tasks_completed}/${i.tasks_total}`} right={`${i.task_progress_pct}%`} pct={i.task_progress_pct} label="Task progress" />
+                    </td>
+                    <td data-label="Latest evaluation" className="text-slate-700">
+                      {i.latest_evaluation_score != null ? `${Number(i.latest_evaluation_score)}%` : <span className="text-slate-500">No evaluations yet</span>}
+                    </td>
+                    <td className="max-sm:hidden">
+                      <StatusPill intern={i} />
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filtered.map((i) => (
-                    <tr key={i.deployment_id} className="align-top">
-                      <td className="px-5 py-4">
-                        <p className="font-semibold text-slate-900">{i.intern_name}</p>
-                        <p className="text-xs text-slate-500">{[i.student_number, i.course].filter(Boolean).join(" · ") || "—"}</p>
-                        {i.pending_attendance > 0 && (
-                          <p className="mt-1 text-xs font-medium text-amber-600">{i.pending_attendance} attendance record{i.pending_attendance === 1 ? "" : "s"} pending review</p>
-                        )}
-                        <Link href={`/supervisor/interns/${i.deployment_id}/portfolio`} className="mt-1 inline-block text-xs font-semibold text-blue-600 hover:underline">
-                          View portfolio →
-                        </Link>
-                      </td>
-                      <td className="px-5 py-4 text-slate-700">{i.company_name ?? "—"}</td>
-                      <td className="px-5 py-4">
-                        <div className="w-32">
-                          <div className="mb-1 flex justify-between text-xs text-slate-500">
-                            <span>{i.hours_completed}h</span>
-                            <span>{i.required_hours}h</span>
-                          </div>
-                          <ProgressBar pct={i.hours_progress_pct} />
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="w-32">
-                          <div className="mb-1 flex justify-between text-xs text-slate-500">
-                            <span>{i.tasks_completed}/{i.tasks_total}</span>
-                            <span>{i.task_progress_pct}%</span>
-                          </div>
-                          <ProgressBar pct={i.task_progress_pct} tone="emerald" />
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-slate-700">
-                        {i.latest_evaluation_score != null ? `${i.latest_evaluation_score}%` : <span className="text-slate-400">No evaluations yet</span>}
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${STATUS_STYLES[i.status] ?? "bg-slate-100 text-slate-700"}`}>
-                          {i.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </section>
-    </div>
+      </Section>
+    </Page>
   );
 }

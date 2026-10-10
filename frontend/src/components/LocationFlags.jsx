@@ -21,12 +21,12 @@ export default function LocationFlags({ record, className = "" }) {
   return (
     <span className={`inline-flex flex-wrap items-center gap-1 ${className}`}>
       {distances.length > 0 && (
-        <span className="text-[11px] text-slate-400" title="Distance from the company's map location (for reference only; interns may clock in from anywhere)">
+        <span className="text-xs text-slate-500" title="Distance from the company's map location (for reference only; interns may clock in from anywhere)">
           {distances.join(" · ")} from company
         </span>
       )}
       {flags.map((f) => (
-        <span key={f} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${FLAGS[f].tone}`} title={FLAGS[f].hint}>
+        <span key={f} className={`rounded-full px-2 py-0.5 text-xs font-semibold ${FLAGS[f].tone}`} title={FLAGS[f].hint}>
           {FLAGS[f].label}
         </span>
       ))}

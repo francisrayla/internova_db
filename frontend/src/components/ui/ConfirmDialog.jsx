@@ -59,10 +59,10 @@ export default function ConfirmDialog({ open, title, children, confirmLabel = "C
         <div id={descId} className="mt-2 space-y-2 text-sm text-slate-600">{children}</div>
         {error && <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button ref={cancelRef} type="button" onClick={onCancel} disabled={busy} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50">
+          <button ref={cancelRef} type="button" onClick={onCancel} disabled={busy} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 max-sm:min-h-[44px]">
             {cancelLabel}
           </button>
-          <button type="button" onClick={onConfirm} disabled={busy} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-60 ${confirmClass}`}>
+          <button type="button" onClick={onConfirm} disabled={busy} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-60 max-sm:min-h-[44px] ${confirmClass}`}>
             {busy ? "Please wait…" : confirmLabel}
           </button>
         </div>

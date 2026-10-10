@@ -21,7 +21,10 @@ use App\Models\TaskProof;
 use App\Models\User;
 use App\Services\ActivityLogService;
 use App\Services\AttendanceSessions;
+use App\Services\DashboardQueueService;
 use App\Support\LocalTime;
+use App\Support\Paging;
+use App\Support\TaskListing;
 use App\Services\DeploymentSummaryService;
 use App\Services\NotificationService;
 use App\Services\PlanFeatures;
@@ -49,6 +52,39 @@ class SupervisorMonitoringController extends Controller
     private function deploymentForSupervisor(int $deploymentId, User $user): ?InternshipDeployment
     {
         return InternshipDeployment::visibleToSupervisor($user)->where('id', $deploymentId)->first();
+    }
+
+    /**
+     * Dashboard data: the tiles (same definitions as the Interns page) and the "needs attention" queue.
+     * red_flags_unchecked replaces the old "attendance to review" tile: attendance is approved the moment
+     * it is punched, so the thing a supervisor really has to look at is a red flag nobody has checked.
+     */
+    public function dashboard(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $deployments = InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
+            ->visibleToSupervisor($user)->orderByDesc('id')->get();
+        $profiles = InternProfile::where('school_id', $user->school_id)->get()->keyBy('user_id');
+        $rows = $deployments->map(fn (InternshipDeployment $d) => DeploymentSummaryService::summarize($d, $profiles->get($d->intern_id)))->values();
+        $queue = DashboardQueueService::supervisor($user, $deployments, $rows);
+
+        return response()->json([
+            'summary' => DeploymentSummaryService::stats($rows) + [
+                'red_flags_unchecked' => (int) (collect($queue)->firstWhere('key', 'red_flags')['count'] ?? 0),
+            ],
+            'queue' => $queue,
+        ]);
+    }
+
+    /** The supervisor's "needs attention" list for the bell: only the interns at their own company. */
+    public function attentionQueue(User $user): array
+    {
+        $deployments = InternshipDeployment::with(['intern', 'company.activeSupervisorProfiles.user'])
+            ->visibleToSupervisor($user)->orderByDesc('id')->get();
+        $profiles = InternProfile::where('school_id', $user->school_id)->get()->keyBy('user_id');
+        $rows = $deployments->map(fn (InternshipDeployment $d) => DeploymentSummaryService::summarize($d, $profiles->get($d->intern_id)))->values();
+
+        return DashboardQueueService::supervisor($user, $deployments, $rows);
     }
 
     public function interns(Request $request): JsonResponse
@@ -99,11 +135,16 @@ class SupervisorMonitoringController extends Controller
             $query->where('status', $status);
         }
 
-        $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t));
-
         $notSetUp = InternshipDeployment::with('intern')->visibleToSupervisor($request->user())->where('status', 'active')
             ->whereHas('intern', fn ($q) => $q->where('status', 'pending_activation'))->get()
             ->map(fn ($d) => $d->intern?->name)->filter()->values();
+
+        // ?view=active (open work, whole) or ?view=history (finished and rated, paged); no view = every task.
+        if ($listed = TaskListing::respond($request, $query, $this->ratingsEnabled(), fn (Task $t) => $this->mapTaskRow($t))) {
+            return response()->json($listed + ['interns' => $this->internOptions($request->user()), 'not_set_up' => $notSetUp]);
+        }
+
+        $tasks = $query->get()->map(fn (Task $t) => $this->mapTaskRow($t));
 
         return response()->json(['tasks' => $tasks, 'interns' => $this->internOptions($request->user()), 'not_set_up' => $notSetUp]);
     }
@@ -157,6 +198,38 @@ class SupervisorMonitoringController extends Controller
         return Task::visibleToSupervisor($user)->find($taskId);
     }
 
+    private const EVAL_DATE_MESSAGES = ['evaluation_date.before_or_equal' => 'The evaluation date cannot be in the future.'];
+
+    private const DUE_DATE_MESSAGES = [
+        'due_date.after_or_equal' => 'The due date cannot be in the past. Choose today or a later date.',
+    ];
+
+    /**
+     * A due date can only move forward. Rules (days are Manila calendar days): an unchanged date is
+     * always fine (so an overdue task can be edited without touching its date); a changed date must be
+     * today or later AND not earlier than the date already set. Clearing (null) is the one allowed way
+     * back: it just removes the date. Returns the error message, or null when the new value is allowed.
+     */
+    private function dueDateEditProblem(Task $task, ?string $newRaw): ?string
+    {
+        $current = $task->due_date?->format('Y-m-d');
+        $new = $newRaw ? Carbon::parse($newRaw)->format('Y-m-d') : null;
+        if ($new === $current) {
+            return null;
+        }
+        if ($new === null) {
+            return null; // clearing removes the date
+        }
+        if ($new < LocalTime::today()) {
+            return 'The due date cannot be in the past. Choose today or a later date.';
+        }
+        if ($current !== null && $new < $current) {
+            return 'The due date can only be moved forward. It is currently ' . Carbon::parse($current)->format('M j, Y') . '.';
+        }
+
+        return null;
+    }
+
     public function storeTask(Request $request): JsonResponse
     {
         $supervisorId = $request->user()->id;
@@ -171,9 +244,9 @@ class SupervisorMonitoringController extends Controller
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
             'priority' => 'required|string|in:low,medium,high',
-            'due_date' => 'nullable|date',
+            'due_date' => 'nullable|date|after_or_equal:' . LocalTime::today(),
             'leader_id' => 'nullable|integer',
-        ]);
+        ], self::DUE_DATE_MESSAGES);
 
         // Only deployments actually supervised by this supervisor can be
         // assigned — this also silently drops any id that doesn't belong to
@@ -266,6 +339,13 @@ class SupervisorMonitoringController extends Controller
             'priority' => 'required|string|in:low,medium,high',
             'due_date' => 'nullable|date',
         ]);
+        // A missing due_date key keeps the stored date; an explicit null/empty clears it.
+        if (!$request->has('due_date')) {
+            $data['due_date'] = $task->due_date?->format('Y-m-d');
+        }
+        if ($problem = $this->dueDateEditProblem($task, $data['due_date'] ?? null)) {
+            return response()->json(['success' => false, 'message' => $problem, 'errors' => ['due_date' => [$problem]]], 422);
+        }
         $data['description'] = isset($data['description']) && trim($data['description']) !== '' ? $data['description'] : null;
         $data['title'] = trim($data['title']);
 
@@ -290,6 +370,10 @@ class SupervisorMonitoringController extends Controller
 
         $labels = ['title' => 'title', 'description' => 'description', 'priority' => 'priority', 'due_date' => 'due date'];
         $changedText = implode(', ', array_map(fn ($k) => $labels[$k], $changed));
+        $dueCleared = in_array('due_date', $changed, true) && $after['due_date'] === null;
+        $notifyText = $dueCleared
+            ? "\"{$task->title}\": the supervisor removed the due date" . (count($changed) > 1 ? ' and changed the ' . implode(', ', array_map(fn ($k) => $labels[$k], array_values(array_diff($changed, ['due_date'])))) . '.' : '. This task has no due date now.')
+            : "\"{$task->title}\": the supervisor changed the {$changedText}.";
 
         ActivityLogService::record(
             module: 'Tasks',
@@ -307,7 +391,7 @@ class SupervisorMonitoringController extends Controller
                 $schoolId,
                 'task_updated',
                 'Your task was updated',
-                "\"{$task->title}\": the supervisor changed the {$changedText}.",
+                $notifyText,
                 "/intern/tasks/{$task->id}"
             );
         }
@@ -452,10 +536,10 @@ class SupervisorMonitoringController extends Controller
         $data = $request->validate([
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
-            'due_date' => 'nullable|date',
+            'due_date' => 'nullable|date|after_or_equal:' . LocalTime::today(),
             'assignee_ids' => 'nullable|array',
             'assignee_ids.*' => 'integer',
-        ]);
+        ], self::DUE_DATE_MESSAGES);
 
         [$validIds, $problem] = $task->resolveSubtaskAssignees($data['assignee_ids'] ?? []);
         if ($problem) {
@@ -611,9 +695,12 @@ class SupervisorMonitoringController extends Controller
                 ...$a->redFlagPayload(),
                 'hours' => ($a->clock_in && $a->clock_out) ? round(max(0, Carbon::parse($a->clock_in)->diffInMinutes(Carbon::parse($a->clock_out))) / 60, 1) : null,
                 'status' => $a->status,
-                // A time-out the system filled in (the intern forgot) can be corrected by the supervisor.
+                // Every record of the company's interns can be corrected or deleted by a supervisor.
                 'edited' => $a->edited_at !== null,
-                'can_edit_times' => ($a->auto_clocked_out || $a->edited_at !== null) && $a->clock_in && $a->clock_out,
+                'can_edit_times' => true,
+                'can_delete' => true,
+                'is_open' => $a->clock_in !== null && $a->clock_out === null,
+                'date_label' => $a->attendance_date?->format('M d, Y'),
                 'clock_in_value' => $a->clock_in?->local()?->format('H:i'),
                 'clock_out_value' => $a->clock_out?->local()?->format('H:i'),
                 'max_hours' => Attendance::maxHoursFor($a->session),
@@ -689,12 +776,17 @@ class SupervisorMonitoringController extends Controller
 
         $data = $request->validate([
             'deployment_id' => 'required|integer',
-            'attendance_date' => 'required|date',
-            'clock_in' => 'nullable|date_format:H:i',
+            // Never a day that has not happened yet (Philippine calendar day).
+            'attendance_date' => 'required|date|before_or_equal:' . LocalTime::today(),
+            // A record without a time in is an empty row that would only confuse the hours.
+            'clock_in' => 'required|date_format:H:i',
             'clock_out' => 'nullable|date_format:H:i|after:clock_in',
             // Afternoon, for companies that record morning and afternoon separately.
             'pm_in' => 'nullable|date_format:H:i|after:clock_out',
             'pm_out' => 'nullable|date_format:H:i|after:pm_in',
+        ], [
+            'attendance_date.before_or_equal' => 'Attendance cannot be logged for a day that has not happened yet.',
+            'clock_in.required' => 'Enter the time in.',
         ]);
 
         $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
@@ -715,23 +807,61 @@ class SupervisorMonitoringController extends Controller
         // The times typed here are Philippine wall-clock times; storage is UTC.
         $at = fn (?string $hm) => $hm ? Carbon::parse("{$data['attendance_date']} {$hm}", LocalTime::tz())->utc() : null;
         $split = !empty($data['pm_in']) || !empty($data['pm_out']);
-        $attendance = Attendance::create([
-            'deployment_id' => $deployment->id,
-            'attendance_date' => $data['attendance_date'],
-            'session' => $split ? Attendance::AM : Attendance::FULL,
-            'clock_in' => $at($data['clock_in'] ?? null),
-            'clock_out' => $at($data['clock_out'] ?? null),
-            'status' => 'approved',
-        ]);
+        $shifts = [[$split ? Attendance::AM : Attendance::FULL, $at($data['clock_in']), $at($data['clock_out'] ?? null), 'clock']];
         if ($split) {
-            Attendance::create([
+            if (AttendanceSessions::modeFor($this->companyFor($request->user())) !== AttendanceSessions::SPLIT) {
+                return response()->json(['success' => false, 'message' => 'This company records one time in and one time out a day. Change the attendance format first to log a morning and an afternoon.', 'errors' => ['pm_in' => ['This company records one time in and one time out a day.']]], 422);
+            }
+            if (empty($data['pm_in'])) {
+                return response()->json(['success' => false, 'message' => 'Enter the afternoon time in.', 'errors' => ['pm_in' => ['Enter the afternoon time in.']]], 422);
+            }
+            $shifts[] = [Attendance::PM, $at($data['pm_in']), $at($data['pm_out'] ?? null), 'pm'];
+        }
+
+        // Same safety rules as "Correct attendance": nothing in the future, no shift longer than a workday
+        // (half of one for a morning / afternoon), and no overlap with a record the intern already has that day.
+        $fail = fn (string $field, string $message) => response()->json(['success' => false, 'message' => $message, 'errors' => [$field => [$message]]], 422);
+        $existing = Attendance::where('deployment_id', $deployment->id)
+            ->whereDate('attendance_date', $data['attendance_date'])->whereNotNull('clock_in')->get();
+        foreach ($shifts as [$session, $in, $out, $prefix]) {
+            $inField = $prefix === 'pm' ? 'pm_in' : 'clock_in';
+            $outField = $prefix === 'pm' ? 'pm_out' : 'clock_out';
+            if ($in->gt(now())) {
+                return $fail($inField, 'The time in cannot be in the future.');
+            }
+            if ($out) {
+                if ($out->gt(now())) {
+                    return $fail($outField, 'The time out cannot be in the future.');
+                }
+                $max = Attendance::maxHoursFor($session);
+                if ($in->diffInMinutes($out) > $max * 60) {
+                    return $fail($outField, "A shift here can be at most {$max} hours long.");
+                }
+            }
+            $end = $out ?? $in;
+            $clash = $existing->first(fn (Attendance $o) => $o->clock_in->lt($end) && ($o->clock_out ?? $o->clock_in)->gt($in));
+            if ($clash) {
+                $span = $clash->clock_in->local()->format('h:i A') . ($clash->clock_out ? ' to ' . $clash->clock_out->local()->format('h:i A') : '');
+                return $fail($inField, "This intern already has attendance on that day ({$span}). Use Correct attendance to change it.");
+            }
+        }
+
+        $attendance = null;
+        foreach ($shifts as [$session, $in, $out]) {
+            $row = Attendance::create([
                 'deployment_id' => $deployment->id,
                 'attendance_date' => $data['attendance_date'],
-                'session' => Attendance::PM,
-                'clock_in' => $at($data['pm_in'] ?? null),
-                'clock_out' => $at($data['pm_out'] ?? null),
+                'session' => $session,
+                'clock_in' => $in,
+                'clock_out' => $out,
                 'status' => 'approved',
+                // An odd-hours time typed by the supervisor is red on the record, but already looked at:
+                // it is not pinned as unchecked and nobody is notified (same as "Correct attendance").
+                'clock_in_odd_hours' => Attendance::isOddHour($in),
+                'red_flag_checked_by' => Attendance::isOddHour($in) ? $request->user()->id : null,
+                'red_flag_checked_at' => Attendance::isOddHour($in) ? now() : null,
             ]);
+            $attendance ??= $row;
         }
 
         ActivityLogService::record(
@@ -746,15 +876,18 @@ class SupervisorMonitoringController extends Controller
     }
 
     /**
-     * The intern forgot to time out, so the system closed the shift at its longest length. The
-     * supervisor knows when they really left: this sets the true time in and out, and the hours are
-     * recomputed. A correction can only shorten a shift, never make it longer than the system's cap.
+     * "Correct attendance": the supervisor knows when the intern really came and left, so any record of an
+     * intern at their company can be fixed (not only a time-out the system closed). Safety rules: the time out
+     * is after the time in, a shift is never longer than Attendance::maxHoursFor() (8 h a whole day, 4 h a
+     * morning/afternoon), nothing is in the future, and the shift may not overlap another one of the same day
+     * (so a morning always ends before the afternoon starts). The times typed are Philippine wall-clock times;
+     * storage is UTC. A shift still open (no time out yet) may have its time in corrected and stay open.
      */
     public function updateAttendanceTimes(Request $request, int $id): JsonResponse
     {
         $data = $request->validate([
             'clock_in' => 'required|date_format:H:i',
-            'clock_out' => 'required|date_format:H:i',
+            'clock_out' => 'nullable|date_format:H:i',
         ]);
 
         $attendance = Attendance::with('deployment.intern')
@@ -763,49 +896,170 @@ class SupervisorMonitoringController extends Controller
         if (!$attendance) {
             return response()->json(['success' => false, 'message' => 'Attendance record not found.'], 404);
         }
-        if (!$attendance->auto_clocked_out && $attendance->edited_at === null) {
-            return response()->json(['success' => false, 'message' => 'Only a time-out the system closed automatically can be corrected.'], 422);
-        }
 
-        // The times typed are Philippine wall-clock times on the day of the shift; storage is UTC.
+        $fail = fn (string $field, string $message) => response()->json(['success' => false, 'message' => $message, 'errors' => [$field => [$message]]], 422);
+
         $day = $attendance->clock_in ? LocalTime::date($attendance->clock_in) : $attendance->attendance_date->toDateString();
         $in = Carbon::parse("{$day} {$data['clock_in']}", LocalTime::tz())->utc();
-        $out = Carbon::parse("{$day} {$data['clock_out']}", LocalTime::tz())->utc();
-        if ($out->lte($in)) {
-            return response()->json(['success' => false, 'message' => 'The time out must be after the time in.', 'errors' => ['clock_out' => ['The time out must be after the time in.']]], 422);
+        $out = !empty($data['clock_out']) ? Carbon::parse("{$day} {$data['clock_out']}", LocalTime::tz())->utc() : null;
+
+        // A finished shift stays finished: it cannot lose its time out.
+        if ($out === null && $attendance->clock_out !== null) {
+            return $fail('clock_out', 'Enter the time out.');
         }
-        $max = Attendance::maxHoursFor($attendance->session);
-        if ($in->diffInMinutes($out) > $max * 60) {
-            return response()->json(['success' => false, 'message' => "A shift here can be at most {$max} hours long.", 'errors' => ['clock_out' => ["At most {$max} hours."]]], 422);
+        if ($in->gt(now())) {
+            return $fail('clock_in', 'The time in cannot be in the future.');
+        }
+        if ($out) {
+            if ($out->lte($in)) {
+                return $fail('clock_out', 'The time out must be after the time in.');
+            }
+            if ($out->gt(now())) {
+                return $fail('clock_out', 'The time out cannot be in the future.');
+            }
+            $max = Attendance::maxHoursFor($attendance->session);
+            if ($in->diffInMinutes($out) > $max * 60) {
+                return $fail('clock_out', "A shift here can be at most {$max} hours long.");
+            }
         }
 
-        $attendance->update([
+        // No overlap with the other shift(s) of the same day (touching is fine: out 12:00, in 12:00).
+        $end = $out ?? $in;
+        $clash = Attendance::where('deployment_id', $attendance->deployment_id)
+            ->whereDate('attendance_date', $attendance->attendance_date->toDateString())
+            ->where('id', '!=', $attendance->id)
+            ->whereNotNull('clock_in')
+            ->get()
+            ->first(fn (Attendance $o) => $o->clock_in->lt($end) && ($o->clock_out ?? $o->clock_in)->gt($in));
+        if ($clash) {
+            $label = match ($clash->session) { Attendance::AM => 'morning', Attendance::PM => 'afternoon', default => 'other' };
+            $span = $clash->clock_in->local()->format('h:i A') . ($clash->clock_out ? ' to ' . $clash->clock_out->local()->format('h:i A') : '');
+            return $fail($out ? 'clock_out' : 'clock_in', "These times overlap the {$label} entry of the same day ({$span}).");
+        }
+
+        $oldOddHours = (bool) $attendance->clock_in_odd_hours;
+        $changes = [
             'clock_in' => $in,
             'clock_out' => $out,
             'auto_clocked_out' => false,
             'edited_by' => $request->user()->id,
             'edited_at' => now(),
-        ]);
+            // The odd-hours red flag follows the corrected time in (Attendance::saving derives red_flag from it).
+            'clock_in_odd_hours' => Attendance::isOddHour($in),
+        ];
+        // The supervisor who types a time that is outside normal hours has looked at the record: it is red but
+        // not pinned as unchecked, and nobody is notified. A flag that was already checked stays checked.
+        if ($changes['clock_in_odd_hours'] && !$oldOddHours && $attendance->red_flag_checked_at === null) {
+            $changes['red_flag_checked_by'] = $request->user()->id;
+            $changes['red_flag_checked_at'] = now();
+        }
+        $attendance->update($changes);
 
-        $hours = round($in->diffInMinutes($out) / 60, 1);
+        $hours = $out ? round($in->diffInMinutes($out) / 60, 1) : null;
         $deployment = $attendance->deployment;
+        $dateLabel = $attendance->attendance_date->format('M d, Y');
+        $times = $in->local()->format('h:i A') . ($out ? ' to ' . $out->local()->format('h:i A') . " ({$hours}h)" : ' (still timed in)');
         if ($deployment) {
             NotificationService::toUser(
                 'intern', $deployment->intern_id, $deployment->school_id, 'attendance_edited', 'Your attendance time was corrected',
-                "{$attendance->attendance_date->format('M d, Y')}: {$in->local()->format('h:i A')} to {$out->local()->format('h:i A')} ({$hours}h).",
+                "{$dateLabel}: {$times}.",
+                '/intern/attendance'
+            );
+            // The drafted "Daily Activity Summary" quotes the old times: drop the unedited draft and write it again.
+            $this->refreshDailySummary($deployment, $attendance->attendance_date->toDateString());
+        }
+
+        ActivityLogService::record(
+            module: 'Attendance',
+            action: 'Corrected attendance time',
+            description: "Attendance #{$attendance->id} on {$dateLabel} set to {$times}.",
+            schoolId: $deployment?->school_id,
+            request: $request
+        );
+
+        return response()->json(['success' => true, 'message' => 'Attendance corrected.', 'hours' => $hours]);
+    }
+
+    /**
+     * "Delete this attendance": the record, its hours and its selfie photos are removed. The intern is told.
+     * The drafted "Daily Activity Summary" of that day goes with it when nobody edited it; anything the intern
+     * wrote is never touched. Hours, "finished" and the clock-in rules are all computed from the remaining
+     * records, so they follow by themselves (an intern whose hours drop below the requirement can clock in again).
+     */
+    public function destroyAttendance(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['reason' => 'nullable|string|max:255']);
+
+        $attendance = Attendance::with('deployment.intern')
+            ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))
+            ->find($id);
+        if (!$attendance) {
+            return response()->json(['success' => false, 'message' => 'Attendance record not found.'], 404);
+        }
+
+        $deployment = $attendance->deployment;
+        $date = $attendance->attendance_date->toDateString();
+        $dateLabel = $attendance->attendance_date->format('M d, Y');
+        $part = match ($attendance->session) { Attendance::AM => ' (morning)', Attendance::PM => ' (afternoon)', default => '' };
+        $hours = round($attendance->workedMinutes() / 60, 1);
+        $photos = array_filter([$attendance->clock_in_selfie_path, $attendance->clock_out_selfie_path]);
+        $internName = trim("{$deployment?->intern?->first_name} {$deployment?->intern?->last_name}") ?: (string) $deployment?->intern?->name;
+
+        DB::transaction(function () use ($attendance, $deployment, $date) {
+            $attendance->delete();
+            if ($deployment) {
+                $this->refreshDailySummary($deployment, $date);
+            }
+        });
+
+        // Selfies are files on the public disk; the app removes uploaded files elsewhere too (profile photos, certificates).
+        foreach ($photos as $path) {
+            Storage::disk('public')->delete($path);
+        }
+
+        if ($deployment) {
+            $reason = !empty($data['reason']) ? " Reason: {$data['reason']}" : '';
+            NotificationService::toUser(
+                'intern', $deployment->intern_id, $deployment->school_id, 'attendance_deleted', 'An attendance record was removed',
+                "Your supervisor removed your attendance for {$dateLabel}{$part}" . ($hours > 0 ? " ({$hours}h)" : '') . ". Your rendered hours were updated.{$reason}",
                 '/intern/attendance'
             );
         }
 
         ActivityLogService::record(
             module: 'Attendance',
-            action: 'Corrected attendance time',
-            description: "Attendance #{$attendance->id} on {$attendance->attendance_date->format('M d, Y')} set to {$in->local()->format('h:i A')} - {$out->local()->format('h:i A')} ({$hours}h).",
+            action: 'Deleted attendance',
+            description: "Attendance #{$id} of {$internName} on {$dateLabel}{$part} ({$hours}h) was deleted." . (!empty($data['reason']) ? " Reason: {$data['reason']}" : ''),
             schoolId: $deployment?->school_id,
             request: $request
         );
 
-        return response()->json(['success' => true, 'message' => 'Time corrected.', 'hours' => $hours]);
+        return response()->json(['success' => true, 'message' => 'Attendance deleted.']);
+    }
+
+    /**
+     * Keeps the system-drafted daily summary honest after attendance changed. Only an unedited draft
+     * (is_auto_generated and still "recorded") is removed; an entry the intern wrote or edited stays. When the
+     * day still has finished attendance the draft is written again from the new times, otherwise it stays gone.
+     */
+    private function refreshDailySummary(InternshipDeployment $deployment, string $date): void
+    {
+        $removed = DailyActivity::where('deployment_id', $deployment->id)
+            ->whereDate('activity_date', $date)
+            ->where('is_auto_generated', true)
+            ->where('status', DailyActivity::RECORDED)
+            ->delete();
+        if (!$removed) {
+            return;
+        }
+
+        $left = Attendance::where('deployment_id', $deployment->id)->whereDate('attendance_date', $date)
+            ->whereNotNull('clock_in')->whereNotNull('clock_out')
+            ->orderByDesc('id')->first();
+        if ($left) {
+            // After the commit, so the worker already sees the old draft gone.
+            \App\Jobs\GenerateNarrativeForAttendance::dispatch($left->id)->afterCommit();
+        }
     }
 
     /**
@@ -1028,7 +1282,6 @@ class SupervisorMonitoringController extends Controller
             'deployment_id' => $e->deployment_id,
             'intern_name' => trim("{$e->deployment?->intern?->first_name} {$e->deployment?->intern?->last_name}") ?: $e->deployment?->intern?->name,
             'evaluator_name' => $e->evaluator?->name,
-            'evaluation_type' => $e->evaluation_type,
             'evaluation_date' => $e->evaluation_date?->format('M d, Y'),
             'evaluation_date_raw' => $e->evaluation_date?->format('Y-m-d'),
             'overall_score' => $e->overall_score,
@@ -1095,19 +1348,17 @@ class SupervisorMonitoringController extends Controller
 
         $data = $request->validate([
             'deployment_id' => 'required|integer',
-            // There is one evaluation per intern now, so the type is no longer chosen; it stays on the row
-            // ("Final" unless an older client still sends one).
-            'evaluation_type' => 'nullable|string|max:100',
-            'evaluation_date' => 'required|date',
+            // One evaluation per intern: there is no Prelim / Midterm / Final to choose (an old client that
+            // still sends evaluation_type is ignored).
+            'evaluation_date' => 'required|date|before_or_equal:' . LocalTime::today(),
             'remarks' => 'nullable|string|max:1000',
             'category_comments' => 'nullable|array',
             'category_comments.*' => 'nullable|string|max:500',
             'scores' => 'required|array|min:1',
-            'scores.*.criteria_id' => 'required|integer|exists:evaluation_criteria,id',
+            'scores.*.criteria_id' => 'required|integer|distinct|exists:evaluation_criteria,id',
             'scores.*.score' => 'required|numeric|min:0',
             'scores.*.remarks' => 'nullable|string|max:500',
-        ]);
-        $type = trim((string) ($data['evaluation_type'] ?? '')) ?: 'Final';
+        ], self::EVAL_DATE_MESSAGES);
 
         $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
@@ -1125,7 +1376,7 @@ class SupervisorMonitoringController extends Controller
 
         // Locking the deployment row makes two submits at the same moment line up, so the second one
         // sees the first evaluation and is refused instead of creating a duplicate.
-        $result = DB::transaction(function () use ($deployment, $data, $type, $overallScore, $supervisorId) {
+        $result = DB::transaction(function () use ($deployment, $data, $overallScore, $supervisorId) {
             $locked = InternshipDeployment::where('id', $deployment->id)->lockForUpdate()->first();
             if ($block = $this->evaluationBlock($locked, Evaluation::where('deployment_id', $locked->id)->exists())) {
                 return $block;
@@ -1134,7 +1385,6 @@ class SupervisorMonitoringController extends Controller
             $evaluation = Evaluation::create([
                 'deployment_id' => $locked->id,
                 'evaluator_id' => $supervisorId,
-                'evaluation_type' => $type,
                 'evaluation_date' => $data['evaluation_date'],
                 'overall_score' => $overallScore,
                 'remarks' => $data['remarks'] ?? null,
@@ -1192,10 +1442,10 @@ class SupervisorMonitoringController extends Controller
 
         $data = $request->validate([
             'deployment_id' => 'required|integer',
-            'evaluation_date' => 'required|date',
+            'evaluation_date' => 'required|date|before_or_equal:' . LocalTime::today(),
             'overall_score' => 'required|numeric|min:0|max:100',
             'remarks' => 'nullable|string|max:2000',
-        ]);
+        ], self::EVAL_DATE_MESSAGES);
 
         $deployment = $this->deploymentForSupervisor($data['deployment_id'], $request->user());
         if (!$deployment) {
@@ -1211,7 +1461,6 @@ class SupervisorMonitoringController extends Controller
             return Evaluation::create([
                 'deployment_id' => $locked->id,
                 'evaluator_id' => $supervisorId,
-                'evaluation_type' => 'Manual',
                 'evaluation_date' => $data['evaluation_date'],
                 'overall_score' => $data['overall_score'],
                 'remarks' => $data['remarks'] ?? null,
@@ -1275,15 +1524,15 @@ class SupervisorMonitoringController extends Controller
                 return $this->noFormalEvaluationsResponse();
             }
             $data = $request->validate([
-                'evaluation_date' => 'required|date',
+                'evaluation_date' => 'required|date|before_or_equal:' . LocalTime::today(),
                 'remarks' => 'nullable|string|max:1000',
                 'category_comments' => 'nullable|array',
                 'category_comments.*' => 'nullable|string|max:500',
                 'scores' => 'required|array|min:1',
-                'scores.*.criteria_id' => 'required|integer|exists:evaluation_criteria,id',
+                'scores.*.criteria_id' => 'required|integer|distinct|exists:evaluation_criteria,id',
                 'scores.*.score' => 'required|numeric|min:0',
                 'scores.*.remarks' => 'nullable|string|max:500',
-            ]);
+            ], self::EVAL_DATE_MESSAGES);
             $criteria = $this->criteriaForScores($data['scores'], $schoolId);
             if ($criteria === null) {
                 return response()->json(['success' => false, 'message' => 'One or more criteria do not belong to your school.'], 422);
@@ -1293,12 +1542,9 @@ class SupervisorMonitoringController extends Controller
                 return response()->json(['success' => false, 'message' => $scoreError], 422);
             }
 
-            // A manual evaluation that is now scored per criterion becomes a regular one.
-            $type = $evaluation->scores->isEmpty() && strcasecmp((string) $evaluation->evaluation_type, 'Manual') === 0 ? 'Final' : $evaluation->evaluation_type;
-            DB::transaction(function () use ($evaluation, $data, $overallScore, $type, $user) {
+            DB::transaction(function () use ($evaluation, $data, $overallScore, $user) {
                 $evaluation->update([
                     'evaluation_date' => $data['evaluation_date'],
-                    'evaluation_type' => $type,
                     'overall_score' => $overallScore,
                     'remarks' => $data['remarks'] ?? null,
                     'category_comments' => $data['category_comments'] ?? null,
@@ -1317,10 +1563,10 @@ class SupervisorMonitoringController extends Controller
             });
         } else {
             $data = $request->validate([
-                'evaluation_date' => 'required|date',
+                'evaluation_date' => 'required|date|before_or_equal:' . LocalTime::today(),
                 'overall_score' => 'required|numeric|min:0|max:100',
                 'remarks' => 'nullable|string|max:2000',
-            ]);
+            ], self::EVAL_DATE_MESSAGES);
             $overallScore = $data['overall_score'];
             $evaluation->update([
                 'evaluation_date' => $data['evaluation_date'],
@@ -1375,7 +1621,16 @@ class SupervisorMonitoringController extends Controller
             $query->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
         }
 
-        $activities = $query->get()->map(fn (DailyActivity $a) => [
+        // Entries waiting for review across the whole filtered scope (not just this page), so
+        // "Approve all pending" can name the real number.
+        $pendingQuery = DailyActivity::whereIn('deployment_id', $deploymentIds)->where('status', DailyActivity::PENDING);
+        if ($internId = $request->query('intern_id')) {
+            $pendingQuery->whereHas('deployment', fn ($q) => $q->where('intern_id', $internId));
+        }
+
+        $page = $query->orderByDesc('id')->paginate(Paging::perPage($request, 20, 50));
+
+        $activities = collect($page->items())->map(fn (DailyActivity $a) => [
             'id' => $a->id,
             'deployment_id' => $a->deployment_id,
             'intern_name' => trim("{$a->deployment?->intern?->first_name} {$a->deployment?->intern?->last_name}") ?: $a->deployment?->intern?->name,
@@ -1388,7 +1643,12 @@ class SupervisorMonitoringController extends Controller
             'review_remarks' => $a->review_remarks,
         ]);
 
-        return response()->json(['activities' => $activities, 'interns' => $this->internOptions($request->user())]);
+        return response()->json([
+            'activities' => $activities,
+            ...Paging::meta($page),
+            'pending_total' => $pendingQuery->count(),
+            'interns' => $this->internOptions($request->user()),
+        ]);
     }
 
     public function reviewActivity(Request $request, int $id): JsonResponse
@@ -1450,14 +1710,19 @@ class SupervisorMonitoringController extends Controller
     {
         $supervisorId = $request->user()->id;
         $data = $request->validate([
-            'ids' => 'required|array|min:1|max:500',
+            'ids' => 'required_without:all_pending|array|min:1|max:500',
             'ids.*' => 'integer',
+            // The list is paged, so "approve all" can mean every pending entry in scope, not only the loaded ones.
+            'all_pending' => 'nullable|boolean',
+            'intern_id' => 'nullable|integer',
         ]);
 
         $activities = DailyActivity::with('deployment.intern')
             ->whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))
-            ->whereIn('id', $data['ids'])
             ->where('status', DailyActivity::PENDING)
+            ->when(!empty($data['all_pending']),
+                fn ($q) => $q->when($data['intern_id'] ?? null, fn ($q, $internId) => $q->whereHas('deployment', fn ($d) => $d->where('intern_id', $internId))),
+                fn ($q) => $q->whereIn('id', $data['ids'] ?? []))
             ->get();
 
         if ($activities->isEmpty()) {

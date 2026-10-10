@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { fetchApiData } from "@/lib/apiFetch";
 import InternCard from "@/components/dean/InternCard";
-import InternTable from "@/components/dean/InternTable";
+import InternTable, { SORT_DEFAULT_DIR } from "@/components/dean/InternTable";
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
 import { GROUPS, GROUP_ORDER } from "@/components/dean/monitoring";
 import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
+import Pagination from "@/components/Pagination";
+import { Chip, Chips, FilterBar, Page, PageHeader, SearchField, btnClass } from "@/components/dash/page";
 
 const VIEW_KEY = "dean.internsView";
 
@@ -19,12 +21,10 @@ function readView() {
   }
 }
 
-const STRIP_STYLE = {
-  red: "border-red-200 bg-red-50 text-red-700",
-  amber: "border-amber-200 bg-amber-50 text-amber-700",
-  green: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  blue: "border-blue-200 bg-blue-50 text-blue-700",
-};
+// Colour of the figure for each status group (soft text colours, see dash-fig-value in page.css).
+const STRIP_TONE = { red: "is-risk", amber: "is-warn", green: "is-ok", blue: "is-info" };
+
+const PER_PAGE = 18;
 
 const STATUS_FILTERS = [
   { key: "", label: "All" },
@@ -32,7 +32,6 @@ const STATUS_FILTERS = [
   { key: "completed", label: "Completed" },
 ];
 
-const fieldClass = "rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
 
 export default function DeanInterns() {
   const params = useSearchParams();
@@ -45,6 +44,17 @@ export default function DeanInterns() {
   // Only used once the list has loaded (the toggle and table are not rendered before), so reading localStorage here cannot cause a hydration mismatch.
   const [view, setView] = useState(readView);
   const [downloadError, setDownloadError] = useState("");
+  // The server pages the list (filters and search run on every intern first).
+  const [page, setPage] = useState(1);
+  const [paging, setPaging] = useState(false);
+  // Table column order: asked from the server so it covers every page, not just the 18 rows on screen.
+  const [sort, setSort] = useState({ key: "", dir: "asc" });
+
+  function sortBy(key) {
+    setPaging(true);
+    setPage(1);
+    setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: SORT_DEFAULT_DIR[key] ?? "desc" }));
+  }
 
   function chooseView(next) {
     setView(next);
@@ -56,35 +66,63 @@ export default function DeanInterns() {
   }
   const [data, setData] = useState(null);
   const [error, setError] = useState(false);
+  // Only the newest request may fill the list: a slow earlier answer must not overwrite a later search, sort or page.
+  const latest = useRef(0);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(search.trim()), 300);
+    const t = setTimeout(() => { setDebounced(search.trim()); setPage(1); }, 300);
     return () => clearTimeout(t);
   }, [search]);
 
   const load = useCallback(() => {
-    const query = new URLSearchParams();
+    const query = new URLSearchParams({ page: String(page), per_page: String(PER_PAGE) });
     if (debounced) query.set("search", debounced);
     if (status) query.set("status", status);
     if (companyId) query.set("company_id", companyId);
     if (attention) query.set("attention", "1");
     if (group) query.set("group", group);
-    fetchApiData("dean", `interns?${query}`).then((d) => { setData(d); setError(false); }).catch(() => setError(true));
-  }, [debounced, status, companyId, attention, group]);
+    if (sort.key) {
+      query.set("sort", sort.key);
+      query.set("dir", sort.dir);
+    }
+    const mine = ++latest.current;
+    fetchApiData("dean", `interns?${query}`)
+      .then((d) => {
+        if (mine !== latest.current) return;
+        // The list shrank while this page was open (an intern moved or was archived): step back to the last page that exists.
+        if (d.interns.length === 0 && page > 1 && d.last_page >= 1 && page > d.last_page) {
+          setPage(d.last_page);
+          return;
+        }
+        setData(d);
+        setError(false);
+      })
+      .catch(() => { if (mine === latest.current) setError(true); })
+      .finally(() => { if (mine === latest.current) setPaging(false); });
+  }, [debounced, status, companyId, attention, group, page, sort]);
 
   useEffect(load, [load]);
+
+  // A changed filter always starts again from the first page.
+  function pickFilter(set, value) {
+    setPaging(true);
+    set(value);
+    setPage(1);
+  }
+
+  function goToPage(next) {
+    setPaging(true);
+    setPage(next);
+  }
 
   const filtering = Boolean(debounced || status || companyId || attention || group);
 
   return (
-    <div className="space-y-5 sm:p-2 lg:p-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Interns</h1>
-        <p className="mt-1 text-slate-600">Every intern in your school, read-only. At risk interns are listed first. Tap one to see their attendance, journal, tasks, documents and narrative report.</p>
-      </div>
+    <Page>
+      <PageHeader title="Interns" sentence="Every intern in your school, read-only. At risk interns are listed first. Tap one to see their attendance, journal, tasks, documents and narrative report." />
 
       {data?.summary && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3" role="group" aria-label="Filter by status group">
+        <div className="dash-strip" style={{ "--cols": GROUP_ORDER.length }} role="group" aria-label="Filter by status group">
           {GROUP_ORDER.map((key) => {
             const g = GROUPS[key];
             const on = group === key;
@@ -93,55 +131,45 @@ export default function DeanInterns() {
                 key={key}
                 type="button"
                 aria-pressed={on}
-                onClick={() => setGroup(on ? "" : key)}
-                className={`min-w-0 rounded-2xl border px-3 py-3 text-left transition ${STRIP_STYLE[g.tone]} ${on ? "ring-2 ring-blue-500" : "hover:shadow-sm"}`}
+                onClick={() => pickFilter(setGroup, on ? "" : key)}
+                className={`dash-fig ${on ? "is-on" : ""}`}
               >
-                <span className="block text-xl font-bold">{data.summary[key]}</span>
-                <span className="block truncate text-sm font-semibold">{g.label}</span>
-                <span className="hidden truncate text-xs opacity-80 sm:block">{g.help}</span>
+                <span className="dash-fig-label">{g.label}</span>
+                <span className={`dash-fig-value ${STRIP_TONE[g.tone]}`}>{data.summary[key]}</span>
+                <span className="dash-fig-note hidden sm:block">{g.help}</span>
               </button>
             );
           })}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or student number" aria-label="Search interns" className={`${fieldClass} w-full sm:w-72`} />
-        <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setStatus(f.key)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${status === f.key ? "bg-white text-blue-700 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+      <FilterBar>
+        <SearchField type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or student number" aria-label="Search interns" className="sm:max-w-sm" />
         {data?.companies?.length > 1 && (
-          <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} aria-label="Filter by company" className={fieldClass}>
+          <select value={companyId} onChange={(e) => pickFilter(setCompanyId, e.target.value)} aria-label="Filter by company" className="k-input">
             <option value="">All companies</option>
             {data.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         )}
-        <button
-          type="button"
-          aria-pressed={attention}
-          onClick={() => setAttention((v) => !v)}
-          className={`rounded-xl border px-3 py-2 text-sm font-semibold ${attention ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}
-        >
-          Has a flag
-        </button>
         <DownloadDocxButton
           docxUrl="/api/dean/report/docx"
           label="Download school report (.docx)"
           fallbackName="School_Monitoring_Report.docx"
-          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 sm:ml-auto"
+          className={btnClass("secondary", { className: "w-full sm:ml-auto sm:w-auto" })}
           onError={setDownloadError}
         />
-      </div>
-      {downloadError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{downloadError}</p>}
+        <Chips label="Filter by status">
+          {STATUS_FILTERS.map((f) => (
+            <Chip key={f.key} on={status === f.key} onClick={() => pickFilter(setStatus, f.key)}>
+              {f.label}
+            </Chip>
+          ))}
+          <Chip on={attention} onClick={() => pickFilter(setAttention, !attention)}>
+            Has a flag
+          </Chip>
+        </Chips>
+      </FilterBar>
+      {downloadError && <p className="k-note is-risk" role="alert">{downloadError}</p>}
 
       {error && <ErrorNote onRetry={load}>We couldn&apos;t load your interns.</ErrorNote>}
       {!data && !error && <SkeletonList rows={4} height="h-32" />}
@@ -157,16 +185,10 @@ export default function DeanInterns() {
       {data && data.interns.length > 0 && (
         <>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-slate-500">{data.interns.length} {data.interns.length === 1 ? "intern" : "interns"}</p>
-            <div className="hidden gap-1 rounded-xl bg-slate-100 p-1 lg:flex" role="group" aria-label="Choose how to show interns">
+            <p className="text-sm text-slate-500">{data.total ?? data.interns.length} {(data.total ?? data.interns.length) === 1 ? "intern" : "interns"}</p>
+            <div className="k-seg hidden lg:inline-flex" role="group" aria-label="Choose how to show interns">
               {[["cards", "Cards"], ["table", "Table"]].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={view === key}
-                  onClick={() => chooseView(key)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${view === key ? "bg-white text-blue-700 shadow-sm" : "text-slate-600 hover:text-slate-900"}`}
-                >
+                <button key={key} type="button" aria-pressed={view === key} onClick={() => chooseView(key)}>
                   {label}
                 </button>
               ))}
@@ -174,14 +196,17 @@ export default function DeanInterns() {
           </div>
           {view === "table" && (
             <div className="hidden min-w-0 lg:block">
-              <InternTable interns={data.interns} />
+              <InternTable interns={data.interns} sort={sort} onSort={sortBy} />
             </div>
           )}
           <div className={`grid grid-cols-1 gap-3 lg:grid-cols-2 ${view === "table" ? "lg:hidden" : ""}`}>
             {data.interns.map((i) => <InternCard key={i.deployment_id} intern={i} />)}
           </div>
+          <div className="dash-card !p-0">
+            <Pagination page={page} totalPages={data.last_page ?? 1} total={data.total} loading={paging} onPageChange={goToPage} />
+          </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }

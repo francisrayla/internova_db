@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Wrench } from "lucide-react";
 
 // Where apiFetch sends anyone who hits a 503 from EnforceMaintenanceMode
 // (see backend/app/Http/Middleware/EnforceMaintenanceMode.php), and where a
@@ -38,7 +39,7 @@ export default function Maintenance() {
   return (
     <section className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-amber-100 text-2xl">🛠️</div>
+        <div className="grid h-14 w-14 place-items-center rounded-2xl bg-amber-100 text-amber-700"><Wrench size={28} aria-hidden="true" /></div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-600">Under maintenance</p>
           <h1 className="mt-2 text-2xl font-semibold text-slate-900">We&apos;ll be right back</h1>

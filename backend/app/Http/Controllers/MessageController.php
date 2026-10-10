@@ -13,6 +13,8 @@ use App\Models\Message;
 use App\Models\MessageThreadSetting;
 use App\Models\SupervisorProfile;
 use App\Models\User;
+use App\Services\SchoolStaff;
+use App\Support\SafeUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -32,30 +34,30 @@ class MessageController extends Controller
 {
     private function eligibleContacts(User $user)
     {
-        $roleId = (int) $user->role_id;
+        $role = $user->roles?->name;
 
         // Coordinator: every supervisor and intern at their own school.
-        if ($roleId === 2) {
+        if ($role === 'coordinator') {
             return User::where('school_id', $user->school_id)
-                ->whereIn('role_id', [3, 4])
+                ->whereIn('role_id', array_filter([SchoolStaff::roleId('supervisor'), SchoolStaff::roleId('intern')]))
                 ->orderBy('first_name')
                 ->get();
         }
 
         // Supervisor: interns at their company (shared with the company's other supervisor), plus their school's coordinators.
-        if ($roleId === 3) {
+        if ($role === 'supervisor') {
             $internIds = InternshipDeployment::visibleToSupervisor($user)->pluck('intern_id')->unique();
 
             return User::where(function ($q) use ($internIds, $user) {
                 $q->whereIn('id', $internIds)
-                    ->orWhere(fn ($q2) => $q2->where('school_id', $user->school_id)->where('role_id', 2));
+                    ->orWhere(fn ($q2) => $q2->where('school_id', $user->school_id)->where('role_id', SchoolStaff::roleId('coordinator')));
             })->orderBy('first_name')->get();
         }
 
         // Intern: their own supervisor and coordinator, plus every other
         // intern deployed to the same company (they share a workplace even
         // though they may report to different supervisors within it).
-        if ($roleId === 4) {
+        if ($role === 'intern') {
             $deployments = InternshipDeployment::where('intern_id', $user->id)->get();
             $supervisorIds = SupervisorProfile::whereIn('company_id', $deployments->pluck('company_id')->filter()->unique())
                 ->whereHas('user', fn ($q) => $q->where('status', 'active'))->pluck('user_id');
@@ -175,15 +177,9 @@ class MessageController extends Controller
             return null;
         }
 
-        $file = $request->file('attachment');
-        $path = $file->store("message-attachments/{$senderId}", 'public');
-
-        return [
-            'attachment_path' => $path,
-            'attachment_name' => $file->getClientOriginalName(),
-            'attachment_type' => $file->getClientMimeType(),
-            'attachment_size' => $file->getSize(),
-        ];
+        // Already vetted by SafeUpload::chatRule() in the request validation; stored under a generated
+        // name, with the type taken from the allow list (never the browser-supplied one).
+        return SafeUpload::storeChat($request->file('attachment'), "message-attachments/{$senderId}");
     }
 
     private function mapContact(User $me, User $contact, Collection $settings): array
@@ -204,7 +200,7 @@ class MessageController extends Controller
         return [
             'id' => $contact->id,
             'name' => trim("{$contact->first_name} {$contact->last_name}") ?: $contact->name,
-            'role' => $contact->role_id == 2 ? 'coordinator' : ($contact->role_id == 3 ? 'supervisor' : 'intern'),
+            'role' => $contact->roles?->name === 'coordinator' ? 'coordinator' : ($contact->roles?->name === 'supervisor' ? 'supervisor' : 'intern'),
             'avatar_url' => $contact->avatar_url,
             'last_message' => $this->previewLabel($lastMessage),
             'last_message_at' => $lastMessage?->created_at?->local()?->format('g:i A'),
@@ -267,6 +263,28 @@ class MessageController extends Controller
         return response()->json(['success' => true, 'muted' => (bool) $setting->muted, 'color' => $setting->color]);
     }
 
+    private function wantsPage(Request $request): bool
+    {
+        return $request->query->has('limit') || $request->query->has('before_id');
+    }
+
+    /**
+     * The newest page of a thread, oldest first (what the chat window draws), plus whether anything older exists.
+     * `limit` is clamped (default 30, max 100); `before_id` continues from the oldest message already on screen.
+     *
+     * @return array{0: Collection, 1: bool}
+     */
+    private function newestPage($query, Request $request): array
+    {
+        $limit = min(100, max(10, (int) $request->query('limit', 30)));
+        if ($before = (int) $request->query('before_id')) {
+            $query->where('id', '<', $before);
+        }
+        $rows = $query->orderByDesc('id')->limit($limit + 1)->get();
+
+        return [$rows->take($limit)->reverse()->values(), $rows->count() > $limit];
+    }
+
     public function thread(Request $request, int $userId): JsonResponse
     {
         $me = $request->user();
@@ -274,14 +292,25 @@ class MessageController extends Controller
             return response()->json(['success' => false, 'message' => 'You can\'t message this person.'], 403);
         }
 
-        $messages = Message::with('replyTo.sender')->where(function ($q) use ($me, $userId) {
-            $q->where('sender_id', $me->id)->where('receiver_id', $userId);
-        })->orWhere(function ($q) use ($me, $userId) {
-            $q->where('sender_id', $userId)->where('receiver_id', $me->id);
-        })->orderBy('created_at')->get();
+        $query = Message::with('replyTo.sender')->where(function ($pair) use ($me, $userId) {
+            $pair->where(function ($q) use ($me, $userId) {
+                $q->where('sender_id', $me->id)->where('receiver_id', $userId);
+            })->orWhere(function ($q) use ($me, $userId) {
+                $q->where('sender_id', $userId)->where('receiver_id', $me->id);
+            });
+        });
 
         // Opening the thread is what "reads" it.
         Message::where('sender_id', $userId)->where('receiver_id', $me->id)->whereNull('read_at')->update(['read_at' => now()]);
+
+        // Opt-in: ?limit=N returns the newest N (oldest first), ?before_id= the N before that message.
+        if ($this->wantsPage($request)) {
+            [$messages, $hasMore] = $this->newestPage($query, $request);
+
+            return response()->json(['messages' => $messages->map(fn (Message $m) => $this->mapMessagePayload($m))->values(), 'has_more' => $hasMore]);
+        }
+
+        $messages = $query->orderBy('created_at')->get();
 
         return response()->json(['messages' => $messages->map(fn (Message $m) => $this->mapMessagePayload($m))]);
     }
@@ -292,7 +321,7 @@ class MessageController extends Controller
         $data = $request->validate([
             'receiver_id' => 'required|integer',
             'message' => 'required_without:attachment|nullable|string|max:2000',
-            'attachment' => 'sometimes|file|max:10240',
+            'attachment' => ['sometimes', 'file', 'max:'.SafeUpload::CHAT_MAX_KB, SafeUpload::chatRule()],
             'reply_to_id' => 'sometimes|nullable|integer',
         ]);
 
@@ -509,7 +538,7 @@ class MessageController extends Controller
     public function createGroup(Request $request): JsonResponse
     {
         $me = $request->user();
-        if (!in_array((int) $me->role_id, [2, 3], true)) {
+        if (!in_array($me->roles?->name, ['coordinator', 'supervisor'], true)) {
             return response()->json(['success' => false, 'message' => 'Only coordinators and supervisors can start a group.'], 403);
         }
 
@@ -564,10 +593,18 @@ class MessageController extends Controller
             return response()->json(['success' => false, 'message' => 'Group not found.'], 404);
         }
 
-        $group->load('messages.sender', 'messages.replyTo.sender');
-
         // Opening the thread is what "reads" it, same as a 1:1 conversation.
-        $group->members()->where('user_id', $me->id)->update(['last_read_at' => now()]);
+        $markRead = fn () => $group->members()->where('user_id', $me->id)->update(['last_read_at' => now()]);
+
+        if ($this->wantsPage($request)) {
+            [$messages, $hasMore] = $this->newestPage(GroupMessage::with('sender', 'replyTo.sender')->where('group_conversation_id', $group->id), $request);
+            $markRead();
+
+            return response()->json(['messages' => $messages->map(fn (GroupMessage $m) => $this->mapGroupMessagePayload($m))->values(), 'has_more' => $hasMore]);
+        }
+
+        $group->load('messages.sender', 'messages.replyTo.sender');
+        $markRead();
 
         return response()->json(['messages' => $group->messages->map(fn (GroupMessage $m) => $this->mapGroupMessagePayload($m))]);
     }
@@ -582,7 +619,7 @@ class MessageController extends Controller
 
         $data = $request->validate([
             'message' => 'required_without:attachment|nullable|string|max:2000',
-            'attachment' => 'sometimes|file|max:10240',
+            'attachment' => ['sometimes', 'file', 'max:'.SafeUpload::CHAT_MAX_KB, SafeUpload::chatRule()],
             'reply_to_id' => 'sometimes|nullable|integer',
         ]);
 

@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Icon from "@/components/Icon";
+import { Camera, Trash2 } from "lucide-react";
+import { Avatar, Btn, SheetFrame } from "@/components/dash/page";
 import { apiFetch } from "@/lib/apiFetch";
 import { validateImageFile } from "@/lib/imageValidation";
 import { shrinkImage } from "@/lib/imageCompress";
-import { initialsOf } from "@/lib/format";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -89,61 +89,34 @@ export default function AvatarUploadModal({ user, onClose, onUpdated }) {
   if (!mounted) return null;
 
   return createPortal(
-    <div className="sheet-overlay fixed inset-0 z-[70] flex items-end justify-center sm:items-center bg-black/50 backdrop-blur-sm sm:p-4">
-      <div className="sheet-panel w-full max-w-sm rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:rounded-3xl sm:p-6">
-        <h3 className="text-lg font-semibold text-slate-900">Profile photo</h3>
-        <p className="mt-1 text-xs text-slate-500">This is shown across the app, including in messages.</p>
-
-        <div className="mt-5 flex flex-col items-center gap-3">
-          <div className="grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-blue-600 text-3xl font-semibold text-white ring-4 ring-slate-100">
-            {previewUrl || user?.avatar_url ? (
-              <img src={previewUrl || user.avatar_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              initialsOf(user?.name)
-            )}
-          </div>
-
-          <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handlePick} />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-300 px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <Icon name="camera" size={15} /> Choose photo
-          </button>
-        </div>
-
-        {error && <p className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-
-        <div className="mt-6 flex items-center justify-between gap-2">
-          {user?.avatar_url && !file ? (
-            <button
-              type="button"
-              onClick={handleRemove}
-              disabled={removing}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
-            >
-              <Icon name="trash" size={14} /> {removing ? "Removing…" : "Remove photo"}
-            </button>
-          ) : (
-            <span />
+    <SheetFrame
+      title="Profile photo"
+      description="This is shown across the app, including in messages."
+      onClose={onClose}
+      zIndex={120}
+      footer={
+        <>
+          {user?.avatar_url && !file && (
+            <Btn variant="danger-quiet" onClick={handleRemove} disabled={removing} className="sm:mr-auto">
+              <Trash2 size={15} aria-hidden="true" /> {removing ? "Removing…" : "Remove photo"}
+            </Btn>
           )}
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!file || saving}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={!file || saving}>
+            {saving ? "Saving…" : "Save"}
+          </Btn>
+        </>
+      }
+    >
+      <div className="mt-2 flex flex-col items-center gap-4">
+        <Avatar name={user?.name ?? "Intern"} url={previewUrl || user?.avatar_url} size={112} />
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handlePick} />
+        <Btn onClick={() => inputRef.current?.click()} className="max-sm:w-full">
+          <Camera size={15} aria-hidden="true" /> Choose photo
+        </Btn>
       </div>
-    </div>,
+      {error && <p role="alert" className="k-note is-risk mt-4">{error}</p>}
+    </SheetFrame>,
     document.body
   );
 }

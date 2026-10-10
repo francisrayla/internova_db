@@ -13,7 +13,7 @@ export const CORE_FEATURES = [
 
 // Can be turned on or off per plan.
 export const OPTIONAL_FEATURES = [
-  { label: "Formal Evaluations", hint: "Grade interns against the school's own criteria (monthly, midterm, final)." },
+  { label: "Formal Evaluations", hint: "Grade interns against the school's own criteria (one evaluation per intern)." },
   { label: "Subtasks", hint: "Break a task into smaller steps." },
   { label: "Attachments", hint: "Interns attach proof of work (photos, files) when finishing a task." },
   { label: "Task Comments", hint: "Comments on each task." },

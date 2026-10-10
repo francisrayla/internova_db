@@ -2,11 +2,11 @@
 export { Pill, ProgressBar, initials, Avatar, SectionTitle, EmptyState, Skeleton, SkeletonList, ErrorNote, TabBar, BackLink, Banner } from "@/components/ui";
 
 export const MODULE_ICON = {
-  Documents: "file",
-  Companies: "building",
-  Interns: "users",
-  Evaluations: "check",
-  Tasks: "list",
-  Reports: "file",
-  Coordinator: "user",
+  Documents: "documents",
+  Companies: "companies",
+  Interns: "interns",
+  Evaluations: "evaluations",
+  Tasks: "tasks",
+  Reports: "reports",
+  Coordinator: "coordinator",
 };

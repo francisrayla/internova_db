@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { TriangleAlert, CircleCheck, GraduationCap } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { clean, inputProps } from "@/lib/inputRules";
 
@@ -82,8 +83,8 @@ export default function AcceptInvitePage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center p-6">
         <div className="w-full max-w-md rounded-3xl bg-white p-10 shadow-xl text-center">
-          <div className="text-5xl">⚠️</div>
-          <h2 className="mt-5 text-xl font-bold text-slate-900">Invitation Not Available</h2>
+          <TriangleAlert className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />
+          <h1 className="mt-5 text-xl font-bold text-slate-900">Invitation Not Available</h1>
           <p className="mt-3 text-slate-600 text-sm">{loadError}</p>
           <p className="mt-2 text-xs text-slate-400">If you believe this is a mistake, please contact your Internova account manager for a new invitation.</p>
           <Link href="/" className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700">
@@ -98,8 +99,8 @@ export default function AcceptInvitePage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center p-6">
         <div className="w-full max-w-md rounded-3xl bg-white p-10 shadow-xl text-center">
-          <div className="text-6xl">✅</div>
-          <h2 className="mt-5 text-2xl font-bold text-slate-900">Account Activated!</h2>
+          <CircleCheck className="mx-auto h-14 w-14 text-emerald-600" aria-hidden="true" />
+          <h1 className="mt-5 text-2xl font-bold text-slate-900">Account Activated!</h1>
           <p className="mt-3 text-slate-600 text-sm">
             Welcome, <strong>{invite.first_name}</strong>! Your {ROLE_LABELS[invite.role] ?? "Internova"} account
             {invite.school_name ? <> for <strong>{invite.school_name}</strong></> : null} is ready.
@@ -117,7 +118,7 @@ export default function AcceptInvitePage() {
       <div className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl">
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 mb-4">
-            🎓 Internova
+            <GraduationCap className="h-4 w-4" aria-hidden="true" /> Internova
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Welcome, {invite.first_name}!</h1>
           <p className="mt-2 text-sm text-slate-600">

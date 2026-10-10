@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import InternPortfolioView from "@/components/InternPortfolioView";
+import { ErrorNote, SkeletonList } from "@/components/ui";
+import { Page, PageHeader } from "@/components/dash/page";
 
 export default function SupervisorInternPortfolio() {
   const { deploymentId } = useParams();
@@ -24,21 +25,16 @@ export default function SupervisorInternPortfolio() {
   }, [deploymentId]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/supervisor/interns" className="text-sm font-semibold text-blue-600 hover:underline">
-          ← Back to Interns
-        </Link>
-        <h2 className="mt-2 text-lg font-semibold text-slate-900">{internName ? `${internName}'s Portfolio` : "Portfolio"}</h2>
-      </div>
+    <Page>
+      <PageHeader back={{ href: "/supervisor/interns", label: "Back to Interns" }} title={internName ? `${internName}'s Portfolio` : "Portfolio"} />
 
-      {error && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <ErrorNote>{error}</ErrorNote>}
 
       {loading ? (
-        <p className="rounded-3xl border border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">Loading portfolio…</p>
+        <SkeletonList rows={2} height="h-32" />
       ) : (
         <InternPortfolioView internName={internName} portfolio={portfolio} />
       )}
-    </div>
+    </Page>
   );
 }

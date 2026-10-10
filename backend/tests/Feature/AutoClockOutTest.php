@@ -137,16 +137,17 @@ class AutoClockOutTest extends TestCase
         $this->assertTrue($a->fresh()->auto_clocked_out); // untouched
     }
 
-    public function test_only_an_automatically_closed_shift_can_be_corrected(): void
+    public function test_any_record_can_be_corrected_not_only_an_automatically_closed_one(): void
     {
+        // Used to be refused (422); now every record of the company's interns can be corrected (see AttendanceCorrectionTest).
         $normal = Attendance::create([
             'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-13', 'session' => 'full',
-            'clock_in' => '2026-10-13 00:00:00', 'clock_out' => '2026-10-13 09:00:00', 'status' => 'approved',
+            'clock_in' => '2026-10-13 00:00:00', 'clock_out' => '2026-10-13 08:00:00', 'status' => 'approved',
         ]);
         Sanctum::actingAs($this->supA);
-        $this->patchJson("/api/supervisor/attendance/{$normal->id}/times", ['clock_in' => '08:00', 'clock_out' => '12:00'])->assertStatus(422);
+        $this->patchJson("/api/supervisor/attendance/{$normal->id}/times", ['clock_in' => '08:00', 'clock_out' => '12:00'])->assertOk();
         $row = collect($this->getJson('/api/supervisor/attendance')->json('records'))->firstWhere('id', $normal->id);
-        $this->assertFalse($row['can_edit_times']);
+        $this->assertTrue($row['can_edit_times']);
     }
 
     public function test_only_supervisors_of_that_company_can_correct(): void

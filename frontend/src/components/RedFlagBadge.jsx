@@ -9,14 +9,14 @@ export default function RedFlagBadge({ record, className = "" }) {
   return (
     <span className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${className}`}>
       <span
-        className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-700"
+        className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700"
         title="This record needs the supervisor's attention: an unusual clock-in hour or a suspicious location."
       >
         <Flag size={12} aria-hidden="true" />
         {record.red_flag_text ?? "Red flag"}
       </span>
       {record.red_flag_checked && (
-        <span className="text-[11px] text-slate-500">
+        <span className="text-xs text-slate-500">
           Checked{record.red_flag_checked_by ? ` by ${record.red_flag_checked_by}` : ""}
           {record.red_flag_checked_at ? ` · ${record.red_flag_checked_at}` : ""}
         </span>
