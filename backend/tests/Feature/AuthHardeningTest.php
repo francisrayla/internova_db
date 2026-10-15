@@ -257,4 +257,49 @@ class AuthHardeningTest extends TestCase
         $this->freshRequest();
         $this->withHeaders($headers)->getJson('/api/intern/dashboard')->assertOk();
     }
+
+    // ---- devices per account ----------------------------------------------
+
+    private function loginToken(string $email): array
+    {
+        $this->freshRequest();
+        $login = $this->postJson('/api/auth/login', ['email' => $email, 'password' => 'password'])->assertOk();
+
+        return [$login->json('token'), $login->json('user.id')];
+    }
+
+    private function assertTokenWorks(string $token, int $id, bool $works): void
+    {
+        $this->freshRequest();
+        $this->withHeader('Authorization', "Bearer {$token}")->getJson("/api/auth/session/{$id}")
+            ->assertStatus($works ? 200 : 401);
+    }
+
+    public function test_a_supervisor_stays_signed_in_on_two_devices_and_a_third_login_ends_the_oldest(): void
+    {
+        [$phone, $id] = $this->loginToken('supervisor@internova.test');
+        [$laptop] = $this->loginToken('supervisor@internova.test');
+
+        $this->assertTokenWorks($phone, $id, true);
+        $this->assertTokenWorks($laptop, $id, true);
+
+        [$tablet] = $this->loginToken('supervisor@internova.test');
+
+        $this->assertTokenWorks($phone, $id, false);
+        $this->assertTokenWorks($laptop, $id, true);
+        $this->assertTokenWorks($tablet, $id, true);
+        $this->assertSame(2, $this->user('supervisor@internova.test')->tokens()->count());
+    }
+
+    public function test_every_other_role_has_one_device_at_a_time(): void
+    {
+        foreach (['intern@internova.test', 'coordinator@internova.test', 'dean@internova.test', 'superadmin@internova.test'] as $email) {
+            [$first, $id] = $this->loginToken($email);
+            [$second] = $this->loginToken($email);
+
+            $this->assertTokenWorks($first, $id, false);
+            $this->assertTokenWorks($second, $id, true);
+            $this->assertSame(1, $this->user($email)->tokens()->count(), $email);
+        }
+    }
 }

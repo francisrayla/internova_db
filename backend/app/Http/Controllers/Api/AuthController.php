@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
+    /** How many devices a supervisor can be signed in on at once (other roles: one). */
+    private const SUPERVISOR_DEVICES = 2;
+
     public function login(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -61,9 +64,12 @@ class AuthController extends Controller
             ], 503);
         }
 
-        // Replace any tokens from previous sessions — a fresh login shouldn't
-        // leave old browser tabs/devices holding a still-valid token forever.
-        $user->tokens()->delete();
+        // Replace tokens from previous sessions — a fresh login shouldn't leave old
+        // browser tabs/devices holding a still-valid token forever. Supervisors may
+        // stay signed in on two devices (e.g. phone and laptop), so their newest
+        // other session is kept; every other role has one session at a time.
+        $keep = $user->roles?->name === 'supervisor' ? self::SUPERVISOR_DEVICES - 1 : 0;
+        $user->tokens()->whereNotIn('id', $user->tokens()->latest('id')->limit($keep)->pluck('id'))->delete();
         $token = $user->createToken('internova-session')->plainTextToken;
         // Only feeds the Dean's "last active" — a failure here must never block signing in.
         rescue(fn () => $user->forceFill(['last_login_at' => now()])->saveQuietly());
