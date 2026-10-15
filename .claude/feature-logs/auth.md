@@ -1,5 +1,5 @@
 # Auth (login, signup verification, password reset, invitations)
-last_commit: e79c6eb
+last_commit: ab4d930
 updated: 2026-10-10
 
 ## Map (where the code lives)
@@ -39,8 +39,8 @@ updated: 2026-10-10
 - Manual: login with unverified account (expect 403 needsVerification); submit inquiry, check mail (log/queue worker needed for queued mail), verify code, login; forgot-password flow; coordinator invites intern, open /accept-invite/<token>; click Resend code on /verify-email and see confirmation + Spam hint.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-15 ab4d930 — Sessions per account: login keeps the supervisor's newest other token (AuthController::SUPERVISOR_DEVICES = 2, so phone + laptop; a 3rd login ends the oldest); every other role still deletes all old tokens (one device); change-password still signs out other devices — result: AuthHardeningTest 15/15 (2 new, supervisor test fails on the old code), suite 454/454
 - 2026-10-10 8c21eaf + uncommitted — Security package S1: rate limiters on public POSTs, 7-day Sanctum expiry, 403 no longer logs out, server-side school lockout, error pages — result: AuthHardeningTest 12 + SchoolAccessTest 8 pass, full suite on private DB :3311 (see report), lint+build ok
 - 2026-10-10 8c21eaf + uncommitted — S2: AuthController::buildUserPayload returns billing money details (amount, payment_*, breakdown, pending/approved change, scheduled switch) only to dean + super_admin; User hides invitation_token; MessageController uses role names not ids — result: SensitiveFieldExposureTest 3/3, CrossTenantAccessTest (126 probes) pass
 - 2026-10-08 05a9835 + uncommitted — CompleteEmail rule + shared emailCheck/EmailField; supervisors invited like interns; supervisors:default-password command — result: 239/239 tests (throwaway DB 3308), lint+build ok, headless 390px flow 25/25 (log mailer only, no real mail)
 - 2026-10-07 uncommitted — forgot-password now warns instead of pretending when the email has no account (PasswordResetController::forgotPassword, ForgotPassword.jsx text); ForgotPasswordTest 5/5
-- 2026-10-06 661ce49 + uncommitted — 60s resend countdown on verify-email and forgot-password + backend cooldown; tests/Feature/ResendCooldownTest.php — result: 109/109 tests, lint ok, headless 390px check ok
