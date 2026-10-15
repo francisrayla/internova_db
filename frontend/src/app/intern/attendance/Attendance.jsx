@@ -63,14 +63,28 @@ const GEOCODE_TIMEOUT_MS = 7000;
 /** Waits before each attempt at finding the place name (3 attempts); after the last one the intern is asked to retry. */
 const GEOCODE_ATTEMPT_DELAYS_MS = [0, 2500, 5000];
 
-/** OpenStreetMap's Nominatim: free, no API key, but slow or rate-limited at times. */
-async function nominatimPlaceFor(lat, lng) {
-  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`, {
+/** One Nominatim reverse lookup at the given zoom (18 = the exact spot, 13 = the barangay/village record). */
+async function nominatimAt(lat, lng, zoom) {
+  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=${zoom}&addressdetails=1`, {
     headers: { Accept: "application/json", "Accept-Language": "en" },
     signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
   });
   if (!res.ok) return null;
   return nominatimPlace(await res.json());
+}
+
+/** OpenStreetMap's Nominatim: free, no API key, but slow or rate-limited at times. The spot itself often names only
+ * the barangay ("Marayos, Oriental Mindoro"); the barangay's own record (zoom 13) carries its town, so it is asked
+ * once more for the town when the barangay matches. Zoom 12 is not used: it returns the nearest town centre, which
+ * can be the next town over. */
+async function nominatimPlaceFor(lat, lng) {
+  const spot = await nominatimAt(lat, lng, 18);
+  if (!spot || spot.municipality || !spot.locality) return spot;
+  const area = await nominatimAt(lat, lng, 13).catch(() => null);
+  if (area?.municipality && area.locality && area.locality.toLowerCase() === spot.locality.toLowerCase()) {
+    return { ...spot, municipality: area.municipality, province: spot.province ?? area.province };
+  }
+  return spot;
 }
 
 /** BigDataCloud's client-side reverse geocoder: free, no API key, allowed from a browser. The fallback. */
@@ -83,43 +97,15 @@ async function bigDataCloudPlaceFor(lat, lng) {
   return bigDataCloudPlace(await res.json());
 }
 
-/** After the first provider answers with a place that lacks its municipality or province, the other one is
- * given this long to fill the gap before the incomplete line is used. */
-const GEOCODE_GRACE_MS = 2500;
-
-/** Resolves with the first provider that knows the place (null when every one failed or knew nothing). A first
- * answer that is already "municipality + province" is used at once; otherwise the other provider gets a short
- * moment to complete it. */
-function firstPlace(lookups) {
-  return new Promise((resolve) => {
-    let left = lookups.length;
-    let best = null;
-    let done = false;
-    let timer = null;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(placeLine(best));
-    };
-    const settle = (place) => {
-      left -= 1;
-      if (place) {
-        best = best ? mergePlaces(best, place) : place;
-        if (isCompletePlace(best)) return finish();
-        if (!timer) timer = setTimeout(finish, GEOCODE_GRACE_MS);
-      }
-      if (left === 0) finish();
-    };
-    lookups.forEach((lookup) => lookup.then(settle, () => settle(null)));
-  });
-}
-
 /** Turns raw coordinates into a short, readable place name (barangay, municipality or city, province). Coordinates
- * alone aren't what a supervisor can glance at and recognize. Both providers are asked at once so one being slow,
- * blocked or rate-limited does not hold the intern up. Returns null when neither knows. */
-function reverseGeocode(lat, lng) {
-  return firstPlace([nominatimPlaceFor(lat, lng), bigDataCloudPlaceFor(lat, lng)]);
+ * alone aren't what a supervisor can glance at and recognize. OpenStreetMap decides the place whenever it can name
+ * the town (its barangay and town boundaries are the accurate ones here); BigDataCloud, asked at the same time,
+ * only fills what OpenStreetMap left out or stands in when it fails. Returns null when neither knows. */
+async function reverseGeocode(lat, lng) {
+  const backup = bigDataCloudPlaceFor(lat, lng).catch(() => null);
+  const osm = await nominatimPlaceFor(lat, lng).catch(() => null);
+  if (isCompletePlace(osm)) return placeLine(osm);
+  return placeLine(mergePlaces(osm, await backup));
 }
 
 /** Live overlay + the identical stamp baked into the captured image itself,

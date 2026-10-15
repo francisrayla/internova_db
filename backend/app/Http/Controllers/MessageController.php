@@ -14,6 +14,7 @@ use App\Models\MessageThreadSetting;
 use App\Models\SupervisorProfile;
 use App\Models\User;
 use App\Services\SchoolStaff;
+use App\Support\HeadTitle;
 use App\Support\SafeUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,7 +27,8 @@ use Throwable;
  * never an open roster. A coordinator reaches the supervisors and interns
  * at their own school; a supervisor reaches the interns actually deployed
  * to them plus their school's coordinators; an intern reaches their own
- * supervisor and coordinator. Nobody else is a valid target, and every
+ * supervisor and coordinator. The school's head (dean) and its coordinator
+ * reach only each other, 1:1. Nobody else is a valid target, and every
  * endpoint here re-derives that list server-side rather than trusting a
  * client-submitted id.
  */
@@ -36,10 +38,22 @@ class MessageController extends Controller
     {
         $role = $user->roles?->name;
 
-        // Coordinator: every supervisor and intern at their own school.
+        // Coordinator: every supervisor and intern at their own school, plus the school's head (role 'dean').
         if ($role === 'coordinator') {
             return User::where('school_id', $user->school_id)
-                ->whereIn('role_id', array_filter([SchoolStaff::roleId('supervisor'), SchoolStaff::roleId('intern')]))
+                ->where(function ($q) use ($user) {
+                    $q->whereIn('role_id', array_filter([SchoolStaff::roleId('supervisor'), SchoolStaff::roleId('intern')]))
+                        ->orWhere(fn ($head) => $head->where('role_id', SchoolStaff::roleId('dean'))->where('status', 'active')->where('id', '!=', $user->id));
+                })
+                ->orderBy('first_name')
+                ->get();
+        }
+
+        // Dean / Principal / School Head: only the coordinator of their own school (1:1, nobody else).
+        if ($role === 'dean') {
+            return User::where('school_id', $user->school_id)
+                ->where('role_id', SchoolStaff::roleId('coordinator'))
+                ->where('status', 'active')
                 ->orderBy('first_name')
                 ->get();
         }
@@ -200,7 +214,14 @@ class MessageController extends Controller
         return [
             'id' => $contact->id,
             'name' => trim("{$contact->first_name} {$contact->last_name}") ?: $contact->name,
-            'role' => $contact->roles?->name === 'coordinator' ? 'coordinator' : ($contact->roles?->name === 'supervisor' ? 'supervisor' : 'intern'),
+            'role' => in_array($contact->roles?->name, ['coordinator', 'supervisor', 'dean'], true) ? $contact->roles->name : 'intern',
+            // What to show next to the name: the head's chosen title (Dean/Principal/School Head), never the word "dean" by default.
+            'role_label' => match ($contact->roles?->name) {
+                'dean' => HeadTitle::forSchool($contact->school_id),
+                'coordinator' => 'Coordinator',
+                'supervisor' => 'Supervisor',
+                default => 'Intern',
+            },
             'avatar_url' => $contact->avatar_url,
             'last_message' => $this->previewLabel($lastMessage),
             'last_message_at' => $lastMessage?->created_at?->local()?->format('g:i A'),
@@ -550,7 +571,8 @@ class MessageController extends Controller
 
         // Only people this coordinator/supervisor could already 1:1 message
         // can be added — no smuggling in someone outside that scope.
-        $eligibleIds = $this->eligibleContacts($me)->pluck('id');
+        // The school head is a 1:1 contact only, never a group member.
+        $eligibleIds = $this->eligibleContacts($me)->filter(fn (User $u) => $u->roles?->name !== 'dean')->pluck('id');
         $memberIds = collect($data['member_ids'])->unique()->filter(fn ($id) => $eligibleIds->contains($id));
         if ($memberIds->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'Select at least one valid person.'], 422);

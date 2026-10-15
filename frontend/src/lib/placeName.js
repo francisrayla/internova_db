@@ -103,9 +103,10 @@ export function nominatimPlace(data) {
 
 const MUNICIPALITY_TEXT = /^(?:highly urbanized |independent component |component )?(?:city|municipality)\b/i;
 
-/** BigDataCloud `reverse-geocode-client` JSON. Its `city` is only the nearest populated place (it can be the
- * next town over, which is how "Pinamalayan, Socorro" was produced), so it is never used for the Philippines.
- * The containing municipality comes from the administrative list (level 6) or the informative list. */
+/** BigDataCloud `reverse-geocode-client` JSON, used only when OpenStreetMap cannot name the town. Its `city` is the
+ * nearest populated place (it can be the next town over, which is how "Pinamalayan, Socorro" was produced), and its
+ * municipality boundaries are coarse near town borders (a point in Marayos, Pinamalayan was listed under Socorro),
+ * so the town is read from `locality` first, which named Pinamalayan correctly there. */
 export function bigDataCloudPlace(data) {
   if (!data) return null;
   const admin = Array.isArray(data.localityInfo?.administrative) ? data.localityInfo.administrative : [];
@@ -121,7 +122,7 @@ export function bigDataCloudPlace(data) {
   const municipalityEntry =
     level(6) ??
     informative.find((entry) => clean(entry?.name) && MUNICIPALITY_TEXT.test(clean(entry.description) ?? "") && /Philippines/i.test(entry.description));
-  const municipality = first(municipalityEntry?.name, data.locality);
+  const municipality = first(data.locality, municipalityEntry?.name);
   const province = provinceName(first(level(4)?.name, data.principalSubdivision));
   const place = { locality: null, municipality, province: level(4) || province === "Metro Manila" ? province : null, region: province };
   return place.municipality || place.province || place.region ? place : null;

@@ -11,6 +11,11 @@ import { MAX_ATTACHMENT_BYTES, validateAttachmentFile } from "@/lib/imageValidat
 import { inputProps } from "@/lib/inputRules";
 import { initialsOf, formatBytes } from "@/lib/format";
 const ROLE_LABELS = { coordinator: "Coordinator", supervisor: "Supervisor", intern: "Intern" };
+// The school's head is shown with the title the school picked (Dean / Principal / School Head),
+// which the API sends as role_label; the word in ROLE_LABELS is only a fallback.
+const roleLabelOf = (c) => c?.role_label ?? ROLE_LABELS[c?.role] ?? "";
+// Name as shown in the chat list and header: the head gets "Maria Reyes · Principal".
+const displayNameOf = (c) => (c?.type !== "group" && c?.role === "dean" ? `${c.name} · ${roleLabelOf(c)}` : c?.name);
 const MAX_OPEN_CHATS = 3;
 // Messages loaded when a chat opens, and per "Load earlier messages" click.
 const THREAD_PAGE = 30;
@@ -241,11 +246,11 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
             </span>
             <div className="min-w-0">
               <p className="flex items-center gap-1 truncate text-sm font-semibold leading-tight">
-                {conversation.name}
+                {displayNameOf(conversation)}
                 {conversation.muted && <Icon name="bellOff" size={11} className="shrink-0 text-white/70" />}
               </p>
               <p className="truncate text-[11px] text-white/80">
-                {isGroup ? `${conversation.members?.length ?? 0} members` : ROLE_LABELS[conversation.role] ?? ""}
+                {isGroup ? `${conversation.members?.length ?? 0} members` : roleLabelOf(conversation)}
               </p>
             </div>
           </button>
@@ -815,7 +820,7 @@ function CreateGroupModal({ candidates, onClose, onCreated }) {
                         className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-blue-50"
                       >
                         <span>{c.name}</span>
-                        <span className="text-xs text-slate-400">{ROLE_LABELS[c.role]}</span>
+                        <span className="text-xs text-slate-400">{roleLabelOf(c)}</span>
                       </button>
                     ))
                   )}
@@ -1202,7 +1207,7 @@ export default function MessengerWidget({ currentUser }) {
     if (!q) return conversations;
     return conversations.filter((c) => c.name.toLowerCase().includes(q));
   }, [conversations, search]);
-  const dmCandidatesForGroup = useMemo(() => conversations.filter((c) => c.type === "dm"), [conversations]);
+  const dmCandidatesForGroup = useMemo(() => conversations.filter((c) => c.type === "dm" && c.role !== "dean"), [conversations]);
   const canCreateGroup = GROUP_CREATOR_ROLES.includes(currentUser?.role);
 
   return (
@@ -1265,7 +1270,7 @@ export default function MessengerWidget({ currentUser }) {
                     ? `${c.last_message_from_me ? "You: " : isGroup && c.last_message_sender_name ? `${c.last_message_sender_name}: ` : ""}${c.last_message}`
                     : isGroup
                       ? `${c.members?.length ?? 0} members`
-                      : ROLE_LABELS[c.role] ?? "";
+                      : roleLabelOf(c);
                   return (
                     <button
                       key={keyOf(c)}
@@ -1285,7 +1290,7 @@ export default function MessengerWidget({ currentUser }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
                           <p className={`flex min-w-0 items-center gap-1 truncate text-sm ${c.unread_count > 0 ? "font-semibold text-slate-900" : "font-medium text-slate-700"}`}>
-                            <span className="truncate">{c.name}</span>
+                            <span className="truncate">{displayNameOf(c)}</span>
                             {c.muted && <Icon name="bellOff" size={11} className="shrink-0 text-slate-400" />}
                           </p>
                           {c.last_message_at && <span className="shrink-0 text-[11px] text-slate-400">{c.last_message_at}</span>}

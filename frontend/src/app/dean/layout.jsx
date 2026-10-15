@@ -149,6 +149,7 @@ export default function DeanLayout({ children }) {
       user={user}
       onLogout={handleLogout}
       notificationBellProps={{ audienceRole: "dean", schoolId: user.school_id, userId: user.id, historyHref: "/dean/notifications" }}
+      messengerCurrentUser={user}
       onUserUpdated={handleUserUpdated}
       profileLinks={PROFILE_LINKS}
       fallbackName={headTitle(user)}
