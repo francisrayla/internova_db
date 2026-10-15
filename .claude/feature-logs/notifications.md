@@ -1,5 +1,5 @@
 # Notifications (in-app bell, history, realtime)
-last_commit: e79c6eb
+last_commit: 3c11df6
 updated: 2026-10-10
 
 ## Map (where the code lives)
@@ -33,8 +33,8 @@ updated: 2026-10-10
 - Manual: run `php artisan reverb:start` and frontend; trigger an action (coordinator invites, plan change request, task approval); bell should update live for target role; mark read / mark all read; open role's /notifications page. Without Reverb, API still works (warning logged).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-15 eec7a93 + 3c11df6 — chat realtime re-verified for coordinator <-> dean on private user.{id}.messages (Reverb must be running; see messaging.md) — result: live badge + thread append ok
 - 2026-10-10 8c21eaf + uncommitted — cross-cutting QA realtime: 2 QA sessions on real Reverb: own private channels 200, other user / other role / other school / superadmin / no token = 403/401 (direct + via Next proxy), old token after re-login 401; bell updates live and reconnects with new subscriptions after token change; 7 MB heap. FIXED the /storage hardening: Next does not apply headers() to the external rewrite, so nosniff+CSP never reached the browser; /storage now served by src/app/storage/[...path]/route.js (adds the headers, html/svg -> octet-stream, no path traversal); next.config.js adds nosniff, X-Frame-Options SAMEORIGIN, Referrer-Policy, Permissions-Policy on every route and drops X-Powered-By (no CSP for pages: inline scripts) — result: headers verified with curl on dev :3011; needs a rebuild to reach :3010
 - 2026-10-10 8c21eaf + uncommitted — S2: notifications IDOR fixed (token-user scoping, markRead 404), Reverb chat+notifications moved to private channels with auth route + Next proxy, channel names renamed (dots), personal notifications no longer sent on the role channel — result: RealtimeAccessTest 12/12, live Reverb handshake ok
 - 2026-10-09 8c21eaf + uncommitted — phase A restyle: AttentionQueue is now a hairline list (no bordered colour boxes), bell/trigger 44px on phones, dark palette from globals tokens — result: bell checked light/dark 1440/390
 - 2026-10-09 uncommitted — attention list in the bell (all 5 roles) + attendance_deleted type — result: NotificationAttentionTest 8/8, headless bell 5 roles x light/dark x 390/1440 ok
-- 2026-10-08 uncommitted — new type 'attendance_red_flag' (Attendance::notifyOddHoursClockIn via InternshipDeployment::notifySupervisors, one row per active company supervisor, link /supervisor/attendance?flag=unchecked); never sent to Dean/coordinator (see attendance log) — result: AttendanceRedFlagTest 14/14

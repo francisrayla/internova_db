@@ -1,5 +1,5 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: 182fb09
+last_commit: 3c11df6
 updated: 2026-10-15
 
 ## Map (where the code lives)
@@ -40,8 +40,8 @@ updated: 2026-10-15
 - Frontend: `npx eslint <touched>` (pre-existing set-state-in-effect errors in coordinator/layout.jsx, billing, AppShell); build from a scratch copy: tar copy of frontend minus node_modules/.next, mklink /J node_modules, `npx next build --webpack`, remove junction then copy.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-15 eec7a93 + 3c11df6 — Dean can chat 1:1 with the school's coordinator (and reverse): dean layout mounts MessengerWidget, rules in messaging.md — result: DeanCoordinatorChatTest 5/5
 - 2026-10-15 ab8c629 + 182fb09 — Head title: top bar caption, greeting, profile Role, coordinator nav 'X Feedback' + page/empty text, FeedbackThread, subscription-status, school-access, school info hint, notifications/emails/activity text to the coordinator (FeedbackThreadService, CoordinatorFeedbackController, EnsureSchoolAccess) use the chosen title — result: HeadTitleTest 7/7, DeanTest 7/7, eslint only old set-state-in-effect errors; shots dean light/dark 1440/390 ok
 - 2026-10-15 de02557 — Prod bug: a new school with no coordinator crashed /dean/overview and the bell (buildAlerts() typed $brief as array but coordinatorBrief() returns null without a coordinator); now ?array — result: DeanQaFixesTest 7/7 (new no-coordinator test fails without the fix), suite 452/452, deployed backend
 - 2026-10-10 8c21eaf + uncommitted � QA pass: GET /dean/interns now takes sort/dir (whole filtered list, InternTable controlled by DeanInterns, SORT_KEYS in DeanMonitoringController), intern detail returns `totals` + 'Showing the latest N of M' note (lists stay capped 31/40/60), route params id/deploymentId/taskId/subtaskId/userId are numeric-only (AppServiceProvider, /abc is 404 not 500), Load more dedupes (ActivityTab, InternsTab), page past the end steps back, gated Dean menu hides Settings, 429 on change-password shows a sentence � result: DeanQaFixesTest 5/5 on private DB :3322
 - 2026-10-10 8c21eaf + uncommitted — S4: bank details, plan prices and the Test-mode flag moved to lib/billingConstants.js (NEXT_PUBLIC_PAYMONGO_LIVE=true hides test wording), corrupt localStorage user no longer crashes billing, account page uses SettingsScreen (one h1), WeeklyEmailPreference retry — result: shots, eslint only the old billing error
-- 2026-10-10 8c21eaf + uncommitted — Dean interns paged on the server — result: PaginationRosterTest ok
