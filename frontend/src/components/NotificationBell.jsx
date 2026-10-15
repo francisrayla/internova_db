@@ -71,7 +71,7 @@ export default function NotificationBell({ audienceRole, schoolId, userId, histo
     const channelNames =
       audienceRole === "superadmin"
         ? ["superadmin.notifications"]
-        : [`school.${schoolId}.${audienceRole}.notifications`, ...(userId ? [`user.${userId}.notifications`] : [])];
+        : [...(schoolId ? [`school.${schoolId}.${audienceRole}.notifications`] : []), ...(userId ? [`user.${userId}.notifications`] : [])];
 
     function handlePush(payload) {
       // Non-important rows exist only to wake up live-refresh listeners

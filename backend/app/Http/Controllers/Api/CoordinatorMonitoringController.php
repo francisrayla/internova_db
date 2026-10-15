@@ -1941,7 +1941,7 @@ class CoordinatorMonitoringController extends Controller
         if ($recordCount > 0) {
             return response()->json([
                 'success' => false,
-                'message' => "Can't delete — this intern already has {$recordCount} recorded attendance/task/journal/evaluation/document/message entr(y/ies). That history can't be removed from here; mark the intern inactive instead.",
+                'message' => "This intern can't be deleted because they already have records (attendance, tasks, activities, evaluations, documents or messages). Their history has to stay, so mark the intern inactive instead.",
             ], 422);
         }
 

@@ -95,7 +95,7 @@ export default function AcceptInvitePage() {
           <TriangleAlert className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />
           <h1 className="mt-5 text-xl font-bold text-slate-900">Invitation Not Available</h1>
           <p className="mt-3 text-slate-600 text-sm">{loadError}</p>
-          <p className="mt-2 text-xs text-slate-400">If you believe this is a mistake, please contact your Internova account manager for a new invitation.</p>
+          <p className="mt-2 text-xs text-slate-400">If you got more than one invitation email, open the newest one. Otherwise ask the person who invited you (your school or coordinator) to send a new invitation.</p>
           <Link href="/" className="mt-6 inline-block rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700">
             Back to Home
           </Link>

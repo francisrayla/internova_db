@@ -24,7 +24,7 @@ class InvitationController extends Controller
         $user = $this->findValidUser($token);
 
         if (!$user) {
-            return response()->json(['success' => false, 'message' => 'This invitation link is invalid or has expired.'], 404);
+            return response()->json(['success' => false, 'message' => 'This invitation link is no longer valid. It may have expired, or a newer invitation was sent after it.'], 404);
         }
 
         return response()->json([
@@ -45,7 +45,7 @@ class InvitationController extends Controller
         $user = $this->findValidUser($token);
 
         if (!$user) {
-            return response()->json(['success' => false, 'message' => 'This invitation link is invalid or has expired.'], 404);
+            return response()->json(['success' => false, 'message' => 'This invitation link is no longer valid. It may have expired, or a newer invitation was sent after it.'], 404);
         }
 
         $isIntern = $user->roles?->name === 'intern';

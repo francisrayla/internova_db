@@ -31,8 +31,10 @@ export default function Maintenance() {
   }
 
   useEffect(() => {
+    // Check once right away (someone may open this page when there is no maintenance), then every 20s.
+    const first = setTimeout(checkNow, 0);
     const id = setInterval(checkNow, 20000);
-    return () => clearInterval(id);
+    return () => { clearTimeout(first); clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
