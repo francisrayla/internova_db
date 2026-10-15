@@ -173,4 +173,17 @@ class DeanQaFixesTest extends TestCase
         $this->assertEquals($pending['breakdown']['total'], $pending['amount']);
         $this->assertLessThan(3500, (float) $pending['amount']);
     }
+
+    public function test_the_overview_and_bell_work_for_a_school_without_a_coordinator(): void
+    {
+        // A brand-new school (only a Dean, no coordinator yet) crashed the overview and the bell.
+        $dean = $this->dean();
+        $coordinatorRole = \App\Services\SchoolStaff::roleId('coordinator');
+        User::where('school_id', $dean->school_id)->where('role_id', $coordinatorRole)->each(fn (User $c) => $c->forceDelete());
+        Sanctum::actingAs($dean);
+
+        $this->getJson('/api/dean/overview')->assertOk()
+            ->assertJsonFragment(['key' => 'no_coordinator']);
+        $this->getJson('/api/notifications/attention')->assertOk();
+    }
 }

@@ -256,7 +256,7 @@ class DeanMonitoringController extends Controller
         ], $this->buildAlerts($rows, $pending, $coordinator, $brief, $school->currentSubscription()));
     }
 
-    private function buildAlerts($rows, array $pending, ?User $coordinator, array $brief, $subscription): array
+    private function buildAlerts($rows, array $pending, ?User $coordinator, ?array $brief, $subscription): array
     {
         $today = \App\Support\LocalTime::todayDate();
         $alerts = [];
