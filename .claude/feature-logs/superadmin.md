@@ -1,5 +1,5 @@
 # Superadmin area (dashboard, schools, settings, AI usage, logs, inquiries, support, maintenance)
-last_commit: ab8c629
+last_commit: 182fb09
 updated: 2026-10-15
 
 ## Map (where the code lives)
@@ -26,7 +26,7 @@ Full suite on a loaded machine: `artisan test` dies with 'Maximum execution time
 Existing: backend/tests/Feature/SuperadminApiTest.php (2 tests) hits GET /api/superadmin/dashboard and /users unauthenticated; no such routes appear in routes/api.php, so they are likely stale/failing (not run). Run: `cd backend && php artisan test --filter=SuperadminApiTest`. Manual: log in as super_admin; toggle Maintenance Mode in System Settings, a non-admin request should land on /maintenance and recover when off; submit /inquiry and reply from Inquiries; coordinator creates a ticket at /coordinator/support and superadmin replies at /superadmin/support.
 
 ## History (newest first, keep only the last 5)
-- 2026-10-15 ab8c629 + uncommitted — Head title: inquiry/invite positions limited to Dean/Principal/School Head, schools list shows the head's title, superadmin messages (renewal, payment in progress, dean invitation text/email) use it — result: HeadTitleTest 7/7, DeanTest pass
+- 2026-10-15 ab8c629 + 182fb09 — Head title: inquiry/invite positions limited to Dean/Principal/School Head, schools list shows the head's title, superadmin messages (renewal, payment in progress, dean invitation text/email) use it — result: HeadTitleTest 7/7, DeanTest pass
 - 2026-10-10 8c21eaf + uncommitted — QA pass: convertInquiryToSchool now checks list_price == plan price and amount == price - discount (422) and caps amounts at 9,999,999.99 (was 500 SQL error / tamperable); updateInquiry cannot set 'converted' and cannot change status once a school exists; plan prices capped; support_email must be an email; plans 'active_schools' uses revenue's definition (expired not counted; helper activeSchoolsOn); inquiry reply template no longer says 'Basic Plan plan'; approve sheet says 'Dean Account'; accept-invite error/success headings are h1. Tests: SuperadminInquiryRulesTest (5), DeanTest convert uses real plan price — result: suite passes in chunks (448), see qa report
 - 2026-10-10 8c21eaf + uncommitted — S4: inquiries PATCH awaited with rollback + error toast, Reject Inquiry ConfirmDialog, approve-form prices from GET plans-features (fallback lib/billingConstants.js), 'Confirm payment (manual override)' ConfirmDialog with school + amount, Billing 'Est. monthly revenue' + active count from /superadmin/revenue (same as Dashboard) with ErrorNote, useSaToast hook (timer restart) in the 5 pages, copy-phone catch, support row button keyboard handler, system-settings/activity-log copy — result: shots light/dark 1440/390, eslint no new errors
 - 2026-10-10 8c21eaf + uncommitted — S1: maintenance middleware uses sanctum guard + role name (regression test in AuthHardeningTest); EnsureSchoolAccess locks suspended/expired schools server-side (SchoolAccessTest); public /inquiries throttled — result: pass

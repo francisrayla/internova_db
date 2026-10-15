@@ -1,5 +1,5 @@
 # Terms and Conditions + Privacy Notice acceptance
-last_commit: ab8c629 + uncommitted
+last_commit: 182fb09
 updated: 2026-10-15
 
 ## Map (where the code lives)
@@ -23,4 +23,4 @@ Registration form and invitation accept both require accept_terms=true (422 mess
 - Browser: /terms, /privacy at 1440 + 390, light + dark; invite page with unchecked box -> inline error.
 
 ## History (newest first, keep only the last 5)
-- 2026-10-15 uncommitted — feature built: columns, validation, pages, checkbox, links — result: 51/51 filtered tests, eslint clean on changed files, browser checked
+- 2026-10-15 182fb09 — feature built: columns, validation, pages, checkbox, links — result: 51/51 filtered tests, eslint clean on changed files, browser checked

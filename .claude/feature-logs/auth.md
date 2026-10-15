@@ -1,5 +1,5 @@
 # Auth (login, signup verification, password reset, invitations)
-last_commit: ab8c629
+last_commit: 182fb09
 updated: 2026-10-15
 
 ## Map (where the code lives)
@@ -41,8 +41,8 @@ updated: 2026-10-15
 - Manual: login with unverified account (expect 403 needsVerification); submit inquiry, check mail (log/queue worker needed for queued mail), verify code, login; forgot-password flow; coordinator invites intern, open /accept-invite/<token>; click Resend code on /verify-email and see confirmation + Spam hint.
 
 ## History (newest first, keep only the last 5)
-- 2026-10-15 uncommitted — accept_terms now required by storeInquiry and InvitationController::accept (see terms.md); callers/tests must send it
-- 2026-10-15 ab8c629 + uncommitted — session payload carries head_title for every school user — result: HeadTitleTest session test pass
+- 2026-10-15 182fb09 — accept_terms now required by storeInquiry and InvitationController::accept (see terms.md); callers/tests must send it
+- 2026-10-15 ab8c629 + 182fb09 — session payload carries head_title for every school user — result: HeadTitleTest session test pass
 - 2026-10-15 ab4d930 — Sessions per account: login keeps the supervisor's newest other token (AuthController::SUPERVISOR_DEVICES = 2, so phone + laptop; a 3rd login ends the oldest); every other role still deletes all old tokens (one device); change-password still signs out other devices — result: AuthHardeningTest 15/15 (2 new, supervisor test fails on the old code), suite 454/454
 - 2026-10-10 8c21eaf + uncommitted — Security package S1: rate limiters on public POSTs, 7-day Sanctum expiry, 403 no longer logs out, server-side school lockout, error pages — result: AuthHardeningTest 12 + SchoolAccessTest 8 pass, full suite on private DB :3311 (see report), lint+build ok
 - 2026-10-10 8c21eaf + uncommitted — S2: AuthController::buildUserPayload returns billing money details (amount, payment_*, breakdown, pending/approved change, scheduled switch) only to dean + super_admin; User hides invitation_token; MessageController uses role names not ids — result: SensitiveFieldExposureTest 3/3, CrossTenantAccessTest (126 probes) pass
