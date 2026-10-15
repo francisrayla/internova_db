@@ -9,6 +9,7 @@ import NavIcon from "@/components/NavIcon";
 import { Banner, Btn, EmptyState, ErrorNote, GroupTitle, Page, PageHeader, Pill, Section, SkeletonList, btnClass } from "@/components/dash/page";
 import { ATTENDANCE_SYNCED_EVENT } from "@/components/OfflineStatus";
 import { enqueueAttendance, getPendingAttendance, isNetworkError, QUEUE_CHANGED_EVENT, SUBMIT_TIMEOUT_MS } from "@/lib/offlineQueue";
+import { bigDataCloudPlace, isCompletePlace, mergePlaces, nominatimPlace, placeLine } from "@/lib/placeName";
 import { DISPLAY_TIME_ZONE, syncTrustedClock, trustedNow } from "@/lib/trustedClock";
 import AttendanceCard, { STATUS_TONES } from "./AttendanceCard";
 
@@ -55,10 +56,6 @@ function formatStampLocation(location, pending = false) {
   return `Lat ${location.lat.toFixed(5)}, Lng ${location.lng.toFixed(5)}`;
 }
 
-function truncate(str, max) {
-  return str.length > max ? `${str.slice(0, max - 1)}…` : str;
-}
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** One lookup is given this long before the next provider/attempt takes over. */
@@ -66,61 +63,63 @@ const GEOCODE_TIMEOUT_MS = 7000;
 /** Waits before each attempt at finding the place name (3 attempts); after the last one the intern is asked to retry. */
 const GEOCODE_ATTEMPT_DELAYS_MS = [0, 2500, 5000];
 
-/** "Barangay, City, Province" without repeats ("Mamburao, Mamburao" becomes "Mamburao"). */
-function joinPlaceParts(parts) {
-  const seen = new Set();
-  const out = [];
-  for (const part of parts) {
-    const text = typeof part === "string" ? part.trim() : "";
-    if (text && !seen.has(text.toLowerCase())) {
-      seen.add(text.toLowerCase());
-      out.push(text);
-    }
-  }
-  return out.length ? truncate(out.join(", "), 60) : null;
-}
-
 /** OpenStreetMap's Nominatim: free, no API key, but slow or rate-limited at times. */
-async function nominatimName(lat, lng) {
+async function nominatimPlaceFor(lat, lng) {
   const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`, {
     headers: { Accept: "application/json", "Accept-Language": "en" },
     signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
   });
   if (!res.ok) return null;
-  const data = await res.json();
-  const a = data.address;
-  const name = a ? joinPlaceParts([a.road || a.neighbourhood || a.suburb || a.hamlet, a.city || a.town || a.municipality || a.village, a.state || a.province]) : null;
-  return name ?? (data.display_name ? truncate(data.display_name, 60) : null);
+  return nominatimPlace(await res.json());
 }
 
 /** BigDataCloud's client-side reverse geocoder: free, no API key, allowed from a browser. The fallback. */
-async function bigDataCloudName(lat, lng) {
+async function bigDataCloudPlaceFor(lat, lng) {
   const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
   });
   if (!res.ok) return null;
-  const data = await res.json();
-  return joinPlaceParts([data.locality, data.city, data.principalSubdivision]);
+  return bigDataCloudPlace(await res.json());
 }
 
-/** Resolves with the first provider that gives a name; null when every one failed or knew nothing. */
-function firstName(lookups) {
+/** After the first provider answers with a place that lacks its municipality or province, the other one is
+ * given this long to fill the gap before the incomplete line is used. */
+const GEOCODE_GRACE_MS = 2500;
+
+/** Resolves with the first provider that knows the place (null when every one failed or knew nothing). A first
+ * answer that is already "municipality + province" is used at once; otherwise the other provider gets a short
+ * moment to complete it. */
+function firstPlace(lookups) {
   return new Promise((resolve) => {
     let left = lookups.length;
-    const miss = () => {
-      left -= 1;
-      if (left === 0) resolve(null);
+    let best = null;
+    let done = false;
+    let timer = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(placeLine(best));
     };
-    lookups.forEach((lookup) => lookup.then((name) => (name ? resolve(name) : miss()), miss));
+    const settle = (place) => {
+      left -= 1;
+      if (place) {
+        best = best ? mergePlaces(best, place) : place;
+        if (isCompletePlace(best)) return finish();
+        if (!timer) timer = setTimeout(finish, GEOCODE_GRACE_MS);
+      }
+      if (left === 0) finish();
+    };
+    lookups.forEach((lookup) => lookup.then(settle, () => settle(null)));
   });
 }
 
-/** Turns raw coordinates into a short, readable place name (barangay, city, province). Coordinates alone aren't
- * what a supervisor can glance at and recognize. Both providers are asked at once and whichever answers first
- * wins, so one being slow, blocked or rate-limited does not hold the intern up. Returns null when neither knows. */
+/** Turns raw coordinates into a short, readable place name (barangay, municipality or city, province). Coordinates
+ * alone aren't what a supervisor can glance at and recognize. Both providers are asked at once so one being slow,
+ * blocked or rate-limited does not hold the intern up. Returns null when neither knows. */
 function reverseGeocode(lat, lng) {
-  return firstName([nominatimName(lat, lng), bigDataCloudName(lat, lng)]);
+  return firstPlace([nominatimPlaceFor(lat, lng), bigDataCloudPlaceFor(lat, lng)]);
 }
 
 /** Live overlay + the identical stamp baked into the captured image itself,

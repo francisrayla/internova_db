@@ -7,8 +7,11 @@ import FeedbackThread from "@/components/dean/FeedbackThread";
 import { FEEDBACK_READ_EVENT } from "@/components/FeedbackUnreadWatcher";
 import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
 import { Page, PageHeader } from "@/components/dash/page";
+import { useCurrentUser } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 
 export default function FeedbackFromDean() {
+  const head = headTitle(useCurrentUser().user);
   const [items, setItems] = useState(null);
   const [error, setError] = useState(false);
 
@@ -30,13 +33,13 @@ export default function FeedbackFromDean() {
 
   return (
     <Page size="narrow">
-      <PageHeader title="Feedback from Dean" sentence="Remarks your Dean has sent you. Tap Acknowledge to let them know you have seen it, or reply to follow up. They mark it resolved once it is dealt with." />
+      <PageHeader title={`Feedback from ${head}`} sentence={`Remarks your ${head} has sent you. Tap Acknowledge to let them know you have seen it, or reply to follow up. They mark it resolved once it is dealt with.`} />
 
       {error && <ErrorNote onRetry={load}>We couldn&apos;t load your feedback.</ErrorNote>}
       {!items && !error && <SkeletonList rows={2} height="h-24" />}
 
       {items?.length === 0 && (
-        <EmptyState icon="message" title="No feedback yet" text="When your Dean sends you a remark, you'll get a notification and it will appear here." />
+        <EmptyState icon="message" title="No feedback yet" text={`When your ${head} sends you a remark, you'll get a notification and it will appear here.`} />
       )}
 
       <ul className="space-y-3">

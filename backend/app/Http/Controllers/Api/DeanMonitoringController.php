@@ -26,6 +26,7 @@ use App\Services\NarrativeProgressService;
 use App\Services\NarrativeReportService;
 use App\Services\NotificationService;
 use App\Services\SchoolStaff;
+use App\Support\HeadTitle;
 use App\Support\Paging;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -564,7 +565,7 @@ class DeanMonitoringController extends Controller
         ]);
 
         NotificationService::toUser('coordinator', $coordinator->id, $school->id, 'dean_feedback',
-            'New feedback from your Dean', Str::limit($message, 120), '/coordinator/feedback');
+            'New feedback from your ' . HeadTitle::forSchool($school->id), Str::limit($message, 120), '/coordinator/feedback');
 
         ActivityLogService::record(
             module: 'Coordinator',

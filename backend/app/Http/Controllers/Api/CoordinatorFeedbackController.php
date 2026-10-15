@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeanFeedback;
 use App\Services\ActivityLogService;
 use App\Services\FeedbackThreadService;
+use App\Support\HeadTitle;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -71,7 +72,7 @@ class CoordinatorFeedbackController extends Controller
             return self::notFound();
         }
         FeedbackThreadService::acknowledge($f);
-        $this->log($request, $f, 'Acknowledged Dean feedback');
+        $this->log($request, $f, 'Acknowledged ' . HeadTitle::forSchool($f->school_id) . ' feedback');
 
         return response()->json(['success' => true, 'feedback' => FeedbackThreadService::payload($f->fresh(), 'coordinator')]);
     }
@@ -84,10 +85,10 @@ class CoordinatorFeedbackController extends Controller
             return self::notFound();
         }
         if ($f->status === DeanFeedback::RESOLVED) {
-            return response()->json(['success' => false, 'message' => 'This feedback is marked resolved. Ask your Dean to reopen it to reply.'], 422);
+            return response()->json(['success' => false, 'message' => 'This feedback is marked resolved. Ask your ' . HeadTitle::forSchool($f->school_id) . ' to reopen it to reply.'], 422);
         }
         FeedbackThreadService::reply($f, $request->user(), 'coordinator', $data['message']);
-        $this->log($request, $f, 'Replied to Dean feedback');
+        $this->log($request, $f, 'Replied to ' . HeadTitle::forSchool($f->school_id) . ' feedback');
 
         return response()->json(['success' => true, 'feedback' => FeedbackThreadService::payload($f->fresh(), 'coordinator')], 201);
     }
@@ -97,7 +98,7 @@ class CoordinatorFeedbackController extends Controller
         ActivityLogService::record(
             module: 'Coordinator',
             action: $action,
-            description: "{$request->user()->name} responded to feedback from the Dean.",
+            description: "{$request->user()->name} responded to feedback from the " . HeadTitle::forSchool($f->school_id) . ".",
             schoolId: $f->school_id,
             request: $request
         );

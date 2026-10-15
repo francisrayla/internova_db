@@ -125,9 +125,9 @@ class AuthHardeningTest extends TestCase
 
         $other = str_repeat('b', 64);
         for ($i = 0; $i < 10; $i++) {
-            $this->postJson("/api/invitations/{$other}/accept", ['password' => 'password123', 'password_confirmation' => 'password123']);
+            $this->postJson("/api/invitations/{$other}/accept", ['password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true]);
         }
-        $this->postJson("/api/invitations/{$other}/accept", ['password' => 'password123', 'password_confirmation' => 'password123'])->assertStatus(429);
+        $this->postJson("/api/invitations/{$other}/accept", ['password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true])->assertStatus(429);
     }
 
     public function test_public_inquiry_form_is_throttled_per_email(): void
@@ -135,7 +135,7 @@ class AuthHardeningTest extends TestCase
         $payload = fn (string $email) => [
             'school_name' => 'Flood College', 'contact_person' => 'Pat', 'position' => 'Dean',
             'email' => $email, 'phone' => '09171234567', 'message' => 'Hello',
-            'password' => 'password123', 'password_confirmation' => 'password123',
+            'password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true,
         ];
 
         // Invalid requests (bad e-mail format) still count: that is exactly what a bot sends.

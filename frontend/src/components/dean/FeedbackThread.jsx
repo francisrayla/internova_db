@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/apiFetch";
 import { formatDate, formatTime, timeAgo } from "@/lib/timeAgo";
 import { Pill } from "@/components/dean/ui";
 import { btnClass } from "@/components/dash/page";
+import { useCurrentUser } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 
 const STATUS = {
   open: { label: "Open", tone: "amber" },
@@ -31,6 +33,7 @@ async function post(url, body) {
  * `base` is the API prefix for this side, e.g. /api/dean/coordinator/feedback.
  */
 export default function FeedbackThread({ thread, viewer, base, onUpdate }) {
+  const { user } = useCurrentUser();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -115,7 +118,7 @@ export default function FeedbackThread({ thread, viewer, base, onUpdate }) {
         {thread.can_reply && !open && (
           <button type="button" onClick={() => setOpen(true)} className={btnClass("secondary", { sm: true })}>Reply</button>
         )}
-        {!thread.can_reply && <span className="text-xs text-slate-500">Marked resolved. Ask your Dean to reopen it if you need to reply.</span>}
+        {!thread.can_reply && <span className="text-xs text-slate-500">Marked resolved. Ask your {headTitle(user)} to reopen it if you need to reply.</span>}
       </div>
 
       {open && thread.can_reply && (

@@ -9,6 +9,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import SubscriptionNotice from "@/components/SubscriptionNotice";
 import FeedbackUnreadWatcher from "@/components/FeedbackUnreadWatcher";
 import { UserContext } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import ShellSkeleton from "@/components/ui/ShellSkeleton";
@@ -29,7 +30,7 @@ const BASE_NAV_ITEMS = [
   { label: "Evaluations", href: "/coordinator/evaluations", icon: "evaluations" },
   { label: "Documents", href: "/coordinator/documents", icon: "documents" },
   { label: "Reports", href: "/coordinator/reports", icon: "reports" },
-  { label: "Dean Feedback", href: "/coordinator/feedback", icon: "feedback" },
+  { label: "Head Feedback", href: "/coordinator/feedback", icon: "feedback" },
 ];
 
 // Reachable in any access-gate state — small utility screens, not operational data.
@@ -163,7 +164,7 @@ export default function CoordinatorLayout({ children }) {
   return (
     <AppShell
       section="Coordinator"
-      navItems={BASE_NAV_ITEMS.map((item) => (item.href === "/coordinator/feedback" ? { ...item, badge: feedbackUnread } : item))}
+      navItems={BASE_NAV_ITEMS.map((item) => (item.href === "/coordinator/feedback" ? { ...item, label: `${headTitle(user)} Feedback`, badge: feedbackUnread } : item))}
       user={user}
       onLogout={handleLogout}
       notificationBellProps={{ audienceRole: "coordinator", schoolId: user.school_id, userId: user.id, historyHref: "/coordinator/notifications" }}

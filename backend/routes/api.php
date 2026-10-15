@@ -30,6 +30,15 @@ Route::get('/health', function () {
     ]);
 });
 
+// Public — the contact address and version shown on the /terms and /privacy pages.
+// The email is the Super Admin's `support_email` system setting.
+Route::get('/legal', function () {
+    return response()->json([
+        'terms_version' => config('internova.terms_version'),
+        'support_email' => \App\Models\Setting::value('support_email', 'support@internova.ai'),
+    ]);
+});
+
 Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->group(function () {
     Route::get('/dashboard', [SuperadminFullController::class, 'dashboard']);
 
@@ -253,6 +262,7 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean', 'school.active']
     Route::get('/report/docx', [DeanMonitoringController::class, 'schoolReportDocx']);
     Route::get('/preferences', [DeanController::class, 'preferences']);
     Route::patch('/preferences', [DeanController::class, 'updatePreferences']);
+    Route::patch('/head-title', [DeanController::class, 'updateHeadTitle']);
     Route::get('/interns', [DeanMonitoringController::class, 'interns']);
     Route::get('/interns/{deploymentId}', [DeanMonitoringController::class, 'internDetail']);
     Route::get('/interns/{deploymentId}/narrative-report', [DeanMonitoringController::class, 'narrativeReport']);

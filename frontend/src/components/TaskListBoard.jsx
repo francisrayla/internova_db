@@ -7,6 +7,8 @@ import { useState } from "react";
 import DueDateBadge from "@/components/DueDateBadge";
 import { isAwaitingRating } from "@/lib/taskState";
 import { Pill } from "@/components/ui";
+import { GripVertical } from "lucide-react";
+import DragGuide from "@/components/DragGuide";
 
 const STATUSES = [
   { key: "pending", label: "Pending" },
@@ -74,6 +76,7 @@ function HoldableRow({ task, detailBasePath, subLabel, isBeingDragged }) {
     <div ref={setNodeRef} {...listeners} {...attributes} onContextMenu={blockTouchContextMenu} className={`${DRAG_ROW_CLASS} ${isBeingDragged ? "opacity-30" : ""}`}>
       {/* draggable={false}: a link is natively draggable, and the browser's own drag would cancel ours */}
       <Link draggable={false} href={`${detailBasePath}/${task.id}`} className={`${ROW_CLASS} cursor-grab active:cursor-grabbing`}>
+        <GripVertical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" style={{ color: "var(--ui-faint, var(--ui-muted))" }} />
         <div className="min-w-0 flex-1 space-y-2">
           <CardBody task={task} subLabel={subLabel} />
         </div>
@@ -101,6 +104,9 @@ function DropColumn({ status, label }) {
     </div>
   );
 }
+
+// Tasks with subtasks move with their subtasks; in a group task only the leader moves it.
+const canDragTask = (t) => t.subtask_total === 0 && (!t.is_group || t.is_leader);
 
 /**
  * Resting state is a plain list — no Kanban clutter until you're actually
@@ -141,14 +147,16 @@ export default function TaskListBoard({ tasks, detailBasePath, onStatusChange, o
     >
       {activeId && (
         <div className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-2xl backdrop-blur md:gap-3 md:p-3 lg:inset-x-auto lg:right-6 lg:w-[36rem]">
+          <p className="col-span-3 text-center text-xs text-slate-600">Drop it on the new status. Let go anywhere else to cancel.</p>
           {STATUSES.map((s) => <DropColumn key={s.key} status={s.key} label={s.label} />)}
         </div>
       )}
 
+      {tasks.some(canDragTask) && <DragGuide kind="tasks" />}
+
       <div className="dash-card is-flush divide-y divide-slate-100">
         {tasks.map((t) => {
-          const canDrag = t.subtask_total === 0 && (!t.is_group || t.is_leader);
-          return canDrag ? (
+          return canDragTask(t) ? (
             <HoldableRow key={t.id} task={t} detailBasePath={detailBasePath} subLabel={subLabelFor?.(t)} isBeingDragged={t.id === activeId} />
           ) : (
             <StaticRow key={t.id} task={t} detailBasePath={detailBasePath} subLabel={subLabelFor?.(t)} />

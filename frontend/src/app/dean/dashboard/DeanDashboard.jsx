@@ -7,6 +7,7 @@ import { formatDate, greeting, timeAgo } from "@/lib/timeAgo";
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
 import { GROUPS, GROUP_ORDER } from "@/components/dean/monitoring";
 import { plural } from "@/lib/format";
+import { headTitle } from "@/lib/headTitle";
 import { Card, Col, Cols, DashHeader, DashPage, InitialsAvatar, Notice, ProgressRow, SegmentedBar, Skel, StatusChip, TextLink } from "@/components/dash";
 
 // Same four groups as the Interns page; the bar colours say the same thing as the Pill tones there.
@@ -62,7 +63,7 @@ export default function DeanDashboard() {
   return (
     <DashPage>
       <DashHeader
-        title={`${greeting()}, Dean ${lastName}`}
+        title={`${greeting()}, ${headTitle(user)} ${lastName}`}
         sentence={schoolName ? `Here's how ${schoolName} is doing today.` : "Here's how your school is doing today."}
         meta={today}
       >

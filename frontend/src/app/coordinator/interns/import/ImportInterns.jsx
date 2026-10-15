@@ -89,7 +89,7 @@ function UploadStep({ onLoaded }) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
       <div>
         <button
           type="button"
@@ -422,7 +422,7 @@ function DeployStep({ rows, companies, onBack, onImported }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
       <Section title="Where are they deployed?" help="Applies to everyone in this batch. Import another file for interns going to a different company.">
         {activeCompanies.length === 0 ? (
           <p className="k-note is-warn">

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\DeanFeedback;
 use App\Models\DeanFeedbackReply;
 use App\Models\User;
+use App\Support\HeadTitle;
 use Illuminate\Support\Str;
 
 /**
@@ -31,7 +32,7 @@ class FeedbackThreadService
         $replies = $f->replies->map(fn (DeanFeedbackReply $r) => [
             'id' => $r->id,
             'sender_role' => $r->sender_role,
-            'sender_name' => self::name($r->user, $r->sender_role === 'dean' ? 'Your Dean' : 'Coordinator'),
+            'sender_name' => self::name($r->user, $r->sender_role === 'dean' ? 'Your ' . HeadTitle::forSchool($f->school_id) : 'Coordinator'),
             'message' => $r->message,
             'created_at' => $r->created_at->toIso8601String(),
             'mine' => $r->sender_role === $viewer,
@@ -52,7 +53,7 @@ class FeedbackThreadService
             'read_at' => $f->read_at?->toIso8601String(),
             'seen' => $f->read_at !== null,
             'read' => $f->read_at !== null,
-            'dean_name' => self::name($f->dean, 'Your Dean'),
+            'dean_name' => self::name($f->dean, 'Your ' . HeadTitle::forSchool($f->school_id)),
             'coordinator_name' => self::name($f->coordinator, 'Coordinator'),
             'replies' => $replies,
             'unread' => $unread,
@@ -100,7 +101,7 @@ class FeedbackThreadService
                 'Your coordinator replied', Str::limit($reply->message, 120), '/dean/coordinator?tab=feedback');
         } else {
             NotificationService::toUser('coordinator', $f->coordinator_id, $f->school_id, 'dean_feedback',
-                'Your Dean replied', Str::limit($reply->message, 120), '/coordinator/feedback');
+                'Your ' . HeadTitle::forSchool($f->school_id) . ' replied', Str::limit($reply->message, 120), '/coordinator/feedback');
         }
 
         return $reply;
@@ -124,7 +125,7 @@ class FeedbackThreadService
         }
         $f->update(['status' => DeanFeedback::RESOLVED, 'resolved_at' => now()]);
         NotificationService::toUser('coordinator', $f->coordinator_id, $f->school_id, 'dean_feedback',
-            'Your Dean marked feedback as resolved', Str::limit($f->message, 120), '/coordinator/feedback');
+            'Your ' . HeadTitle::forSchool($f->school_id) . ' marked feedback as resolved', Str::limit($f->message, 120), '/coordinator/feedback');
     }
 
     public static function reopen(DeanFeedback $f): void
@@ -134,6 +135,6 @@ class FeedbackThreadService
         }
         $f->update(['status' => $f->acknowledged_at ? DeanFeedback::ACKNOWLEDGED : DeanFeedback::OPEN, 'resolved_at' => null]);
         NotificationService::toUser('coordinator', $f->coordinator_id, $f->school_id, 'dean_feedback',
-            'Your Dean reopened a feedback thread', Str::limit($f->message, 120), '/coordinator/feedback');
+            'Your ' . HeadTitle::forSchool($f->school_id) . ' reopened a feedback thread', Str::limit($f->message, 120), '/coordinator/feedback');
     }
 }

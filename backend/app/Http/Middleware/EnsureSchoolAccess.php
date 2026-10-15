@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\HeadTitle;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -71,13 +72,13 @@ class EnsureSchoolAccess
         if (in_array($status, ['expired', 'offer_expired'], true)) {
             return [
                 'code'    => 'subscription_expired',
-                'message' => "{$school->school_name}'s subscription has expired. The Dean can renew it in Billing.",
+                'message' => "{$school->school_name}'s subscription has expired. The " . HeadTitle::forSchool($school->id) . " can renew it in Billing.",
             ];
         }
 
         return [
             'code'    => 'subscription_unpaid',
-            'message' => "{$school->school_name}'s subscription is not active yet. The Dean can finish it in Billing.",
+            'message' => "{$school->school_name}'s subscription is not active yet. The " . HeadTitle::forSchool($school->id) . " can finish it in Billing.",
         ];
     }
 }

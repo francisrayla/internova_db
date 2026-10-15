@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { TriangleAlert, CircleCheck, GraduationCap } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
+import TermsCheckbox from "@/components/TermsCheckbox";
 import { clean, inputProps } from "@/lib/inputRules";
 
 const ROLE_LABELS = { dean: "Dean", coordinator: "coordinator", supervisor: "supervisor", intern: "intern" };
@@ -20,6 +21,8 @@ export default function AcceptInvitePage() {
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [termsError, setTermsError] = useState("");
   const [done, setDone] = useState(false);
 
   useEffect(() => {
@@ -37,6 +40,7 @@ export default function AcceptInvitePage() {
   function handleSubmit(e) {
     e.preventDefault();
     setSubmitError("");
+    setTermsError("");
 
     if (invite.needs_student_number && !studentNumber.trim()) {
       setSubmitError("Enter your student number.");
@@ -50,6 +54,10 @@ export default function AcceptInvitePage() {
       setSubmitError("Passwords do not match.");
       return;
     }
+    if (!acceptTerms) {
+      setTermsError("You need to agree to the Terms and Conditions and the Privacy Notice to activate your account.");
+      return;
+    }
 
     setSaving(true);
     fetch(`/api/invitations/${token}/accept`, {
@@ -58,6 +66,7 @@ export default function AcceptInvitePage() {
       body: JSON.stringify({
         password,
         password_confirmation: confirm,
+        accept_terms: acceptTerms,
         ...(invite.needs_student_number ? { student_number: studentNumber } : {}),
       }),
     })
@@ -171,6 +180,8 @@ export default function AcceptInvitePage() {
               className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
             />
           </div>
+
+          <TermsCheckbox checked={acceptTerms} onChange={(v) => { setAcceptTerms(v); if (v) setTermsError(""); }} error={termsError} />
 
           {submitError && (
             <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{submitError}</p>

@@ -258,7 +258,13 @@ export default function Home() {
               <span>Facebook: @internova.ai</span>
             </div>
           </div>
-          <p className="mt-6 text-xs text-slate-400">© {new Date().getFullYear()} Internova. All rights reserved.</p>
+          <div className="mt-6 flex flex-col gap-3 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <p>© {new Date().getFullYear()} Internova. All rights reserved.</p>
+            <div className="flex gap-5">
+              <Link href="/terms" className="inline-flex min-h-11 items-center hover:text-blue-700 sm:min-h-0">Terms and Conditions</Link>
+              <Link href="/privacy" className="inline-flex min-h-11 items-center hover:text-blue-700 sm:min-h-0">Privacy Notice</Link>
+            </div>
+          </div>
         </div>
       </footer>
     </main>

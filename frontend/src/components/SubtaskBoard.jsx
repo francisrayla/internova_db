@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { DndContext, DragOverlay, pointerWithin, useDraggable, useDroppable } from "@dnd-kit/core";
 import { DRAG_ROW_CLASS, blockTouchContextMenu, useDragSensors } from "@/lib/useDragSensors";
-import { Paperclip } from "lucide-react";
+import { GripVertical, Paperclip } from "lucide-react";
+import DragGuide from "@/components/DragGuide";
 import DueDateBadge from "@/components/DueDateBadge";
 import { Pill } from "@/components/ui";
 
@@ -100,6 +101,7 @@ function HoldableRow({ subtask, onSelect, selected, isBeingDragged, taskComplete
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} onContextMenu={blockTouchContextMenu} className={`${DRAG_ROW_CLASS} ${isBeingDragged ? "opacity-30" : ""}`}>
       <div className={`flex w-full cursor-grab items-start justify-between gap-3 text-left transition active:cursor-grabbing ${ROW_BOX} ${rowBorder(selected)}`}>
+        <GripVertical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" style={{ color: "var(--ui-faint, var(--ui-muted))" }} />
         <button draggable={false} onClick={() => onSelect(subtask.id)} className="min-w-0 flex-1 space-y-1 text-left">
           <CardBody subtask={subtask} />
         </button>
@@ -180,9 +182,12 @@ export default function SubtaskBoard({ subtasks, onStatusChange, onRequestComple
     >
       {activeId && (
         <div className="fixed inset-x-4 bottom-4 z-40 grid grid-cols-1 gap-2 rounded-[14px] border border-[var(--ui-line)] bg-white/95 p-3 shadow-2xl backdrop-blur md:grid-cols-3 lg:inset-x-auto lg:right-6 lg:w-[32rem]">
+          <p className="col-span-full text-center text-xs text-slate-600">Drop it on the new status. Let go anywhere else to cancel.</p>
           {STATUSES.map((s) => <DropColumn key={s.key} status={s.key} label={s.label} />)}
         </div>
       )}
+
+      {!taskCompleted && <DragGuide kind="subtasks" />}
 
       <div className="space-y-2">
         {subtasks.map((s) => (

@@ -14,6 +14,7 @@ import SaToast, { useSaToast } from "../SaToast";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
 import { inputProps } from "@/lib/inputRules";
+import { HEAD_TITLES, headTitleOf } from "@/lib/headTitle";
 const FILTERS = ["All Schools", "Awaiting Acceptance", "Accepted", "Pending Payment", "Active", "Offer Expired", "Paused", "Past Due", "Expired"];
 
 function filterToStatus(filter) {
@@ -68,10 +69,10 @@ function SetupPill({ ok, okLabel, badLabel }) {
   return <Pill tone={ok ? "green" : "amber"}>{ok ? okLabel : badLabel}</Pill>;
 }
 
-// The Dean owns billing. A legacy school (registered before the Dean role) has
+// The school head (Dean, Principal or School Head, as picked at registration) owns billing. A legacy school (registered before the Dean role) has
 // none yet: invite one here, or resend / correct the invitation while pending.
 function DeanInvite({ school, onDone }) {
-  const [form, setForm] = useState({ name: "", email: "" });
+  const [form, setForm] = useState({ name: "", email: "", position: HEAD_TITLES[0] });
   const [email, setEmail] = useState(school.dean_email ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -102,18 +103,23 @@ function DeanInvite({ school, onDone }) {
         style={{ borderColor: "var(--ui-line)", background: "var(--ui-soft)" }}
       >
         <div>
-          <p className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>No dean yet</p>
-          <p className="k-hint mt-1">The Dean accepts the plan, pays and invites the coordinator. They get an email link to set their own password.</p>
+          <p className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>No school head yet</p>
+          <p className="k-hint mt-1">The school head accepts the plan, pays and invites the coordinator. They get an email link to set their own password.</p>
         </div>
-        <FormField label="Dean's full name">
-          <Input {...inputProps("fullName")} required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Full name of the Dean" />
+        <FormField label="Title">
+          <Select value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}>
+            {HEAD_TITLES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </Select>
         </FormField>
-        <FormField label="Dean's email">
-          <Input {...inputProps("email")} required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value.trim() }))} placeholder="Email of the Dean" />
+        <FormField label="Full name">
+          <Input {...inputProps("fullName")} required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Full name of the school head" />
+        </FormField>
+        <FormField label="Email">
+          <Input {...inputProps("email")} required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value.trim() }))} placeholder="Email of the school head" />
         </FormField>
         {error && <p className="k-note is-risk" role="alert">{error}</p>}
         <Btn variant="primary" block type="submit" disabled={busy}>
-          {busy ? "Sending…" : "Invite Dean"}
+          {busy ? "Sending…" : `Invite ${form.position}`}
         </Btn>
       </form>
     );
@@ -122,8 +128,8 @@ function DeanInvite({ school, onDone }) {
   if (school.dean_setup === "pending") {
     return (
       <div className="grid gap-3 rounded-[14px] border p-4" style={{ borderColor: "var(--ui-line)", background: "var(--ui-soft)" }}>
-        <p className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>Waiting for the Dean ({school.dean_email}) to accept the invitation and set a password.</p>
-        <FormField label="Dean's email">
+        <p className="text-sm font-semibold" style={{ color: "var(--ui-ink)" }}>Waiting for the {headTitleOf(school.dean_title)} ({school.dean_email}) to accept the invitation and set a password.</p>
+        <FormField label={`${headTitleOf(school.dean_title)}'s email`}>
           <Input {...inputProps("email")} type="email" value={email} onChange={(e) => setEmail(e.target.value.trim())} />
         </FormField>
         {error && <p className="k-note is-risk" role="alert">{error}</p>}
@@ -281,7 +287,7 @@ export default function SchoolsPage() {
 
       <PageHeader
         title="Schools"
-        sentence="Schools are created from approved Plan Inquiries. A school becomes fully active once its Dean accepts the subscription offer and payment is confirmed."
+        sentence="Schools are created from approved Plan Inquiries. A school becomes fully active once its school head accepts the subscription offer and payment is confirmed."
       >
         <Btn variant="primary" href="/superadmin/inquiries">
           Plan Inquiries <NavIcon name="arrow" size={16} />
@@ -312,7 +318,7 @@ export default function SchoolsPage() {
             <table className="k-table is-hover is-stack">
               <thead>
                 <tr>
-                  {["School", "Plan", "Dean", "Payment", "Subscription", "Action"].map((h) => (
+                  {["School", "Plan", "Head", "Payment", "Subscription", "Action"].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -336,15 +342,16 @@ export default function SchoolsPage() {
                         )}
                       </span>
                     </td>
-                    <td data-label="Dean">
+                    <td data-label="Head">
                       {school.dean_email ? (
                         <span className="block min-w-0 max-sm:text-right">
                           <span className="block text-sm font-medium">{school.dean_name}</span>
+                          <span className="block text-xs font-medium" style={{ color: "var(--ui-muted)" }}>{headTitleOf(school.dean_title)}</span>
                           <span className="mb-1 block break-all text-xs" style={{ color: "var(--ui-muted)" }}>{school.dean_email}</span>
                           <SetupPill ok={school.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" />
                         </span>
                       ) : (
-                        <span className="text-xs" style={{ color: "var(--ui-muted)" }}>No dean yet</span>
+                        <span className="text-xs" style={{ color: "var(--ui-muted)" }}>No head yet</span>
                       )}
                     </td>
                     <td data-label="Payment">
@@ -386,7 +393,7 @@ export default function SchoolsPage() {
       {manageSchool && (
         <SheetFrame
           title={manageSchool.name}
-          description={manageSchool.dean_name ? `Dean: ${manageSchool.dean_name}` : "No dean yet"}
+          description={manageSchool.dean_name ? `${headTitleOf(manageSchool.dean_title)}: ${manageSchool.dean_name}` : "No school head yet"}
           size="md"
           onClose={() => { setManageSchool(null); setConfirmingPauseId(null); }}
         >
@@ -418,9 +425,9 @@ export default function SchoolsPage() {
             <BillingBreakdown breakdown={manageSchool.breakdown} title="Subscription price breakdown" />
             <KeyValueList
               items={[
-                { label: "Dean", value: manageSchool.dean_name ?? "None yet" },
+                { label: manageSchool.dean_name ? headTitleOf(manageSchool.dean_title) : "School head", value: manageSchool.dean_name ?? "None yet" },
                 ...(manageSchool.dean_email
-                  ? [{ label: "Dean Setup", value: <SetupPill ok={manageSchool.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /> }]
+                  ? [{ label: `${headTitleOf(manageSchool.dean_title)} Setup`, value: <SetupPill ok={manageSchool.dean_setup === "active"} okLabel="Active" badLabel="Invitation Pending" /> }]
                   : []),
                 { label: "Coordinator", value: manageSchool.admin_name || "None yet" },
                 { label: "Payment", value: <SetupPill ok={manageSchool.payment === "paid"} okLabel="Paid" badLabel="Unpaid" /> },
@@ -451,7 +458,7 @@ export default function SchoolsPage() {
                 {manageSchool.status === "awaiting_acceptance" && (
                   <p className="k-note">
                     <span className="min-w-0">
-                      Subscription offer sent to {manageSchool.dean_email ?? manageSchool.admin_email}. Waiting for the Dean to review and accept it.
+                      Subscription offer sent to {manageSchool.dean_email ?? manageSchool.admin_email}. Waiting for the {headTitleOf(manageSchool.dean_title)} to review and accept it.
                       {manageSchool.offer_expires_at && <> Expires {manageSchool.offer_expires_at} if unanswered.</>}
                     </span>
                   </p>

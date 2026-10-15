@@ -60,8 +60,10 @@ class InvitationController extends Controller
 
         $data = $request->validate([
             'password' => 'required|string|min:8|confirmed',
+            'accept_terms' => 'accepted',
             'student_number' => $isIntern ? ['required', 'string', 'max:20', 'regex:/^[A-Z0-9-]+$/'] : ['prohibited'],
         ], [
+            'accept_terms.accepted' => 'You need to agree to the Terms and Conditions and the Privacy Notice to activate your account.',
             'student_number.required' => 'Enter your student number.',
             'student_number.regex' => 'Student number can only have letters, numbers and hyphens.',
         ]);
@@ -86,6 +88,8 @@ class InvitationController extends Controller
                 'email_verified_at'      => now(),
                 'invitation_token'       => null,
                 'invitation_expires_at'  => null,
+                'terms_accepted_at'      => now(),
+                'terms_version'          => config('internova.terms_version'),
             ]);
 
             if ($isIntern) {

@@ -1,6 +1,6 @@
 # Auth (login, signup verification, password reset, invitations)
-last_commit: ab4d930
-updated: 2026-10-10
+last_commit: ab8c629
+updated: 2026-10-15
 
 ## Map (where the code lives)
 - backend/routes/api.php — public POSTs all carry `throttle:<name>` (S1 2026-10-10): auth/login=auth-login, forgot-password+resend-verification=auth-mail, verify-email+verify-reset-code+reset-password=auth-code, invitations show/accept=invitation, /inquiries=inquiry; webhooks (throttle 120). auth:sanctum group: logout, change-password, profile, avatar, session/{id}, notifications, messages (wrapped in `school.active`). Role groups coordinator/dean/supervisor/intern carry `school.active`; exempt via ->withoutMiddleware: support-tickets, dean billing (dean.school group).
@@ -25,6 +25,8 @@ updated: 2026-10-10
 - frontend/src/lib: apiFetch.js (Bearer from localStorage `internova_token`; ONLY 401 clears the session -> /login?reason=expired (Login.jsx shows the notice); 403 never logs out; 403 with a school code -> sendToSchoolGate: coordinator /coordinator/subscription-status, dean /dean/billing (or /school-access when suspended), others /school-access; 503 maintenance -> /maintenance), serverProxy.js (forwardHeaders, createApiProxy), UserContext.js, roleDashboard.js (role -> dashboard), backendUrl.js.
 - DB: users (email_verified_at, password, invitation_token sha256, invitation_expires_at, email_bounced_at, role_id), email_verification_tokens, password_reset_tokens, personal_access_tokens (Sanctum).
 
+- HEAD TITLE (2026-10-15): buildUserPayload adds `head_title` (dean: HeadTitle::forDean; others: HeadTitle::forSchool(school_id)); dean_position kept for the dean only. Frontend reads it via lib/headTitle.js headTitle(user); EnsureSchoolAccess 403 text and the invitation email use the title. See dean.md.
+
 ## How it works
 - Login: email+password -> 401 generic on failure; 403 `needsVerification` if email_verified_at null; 503 `maintenance` for non-superadmin (role_id 1) when Setting maintenance_mode=1. Success deletes old tokens, issues a new Sanctum token + user payload.
 - Signup (inquiry form) -> 6-digit code (sha256 stored) emailed -> /verify-email -> email_verified_at set. Resend always returns the same message (anti-enumeration). Commit 85e28de: VerifyEmail shows Spam/Promotions hint and a confirmation after resend that only the newest code works.
@@ -39,8 +41,9 @@ updated: 2026-10-10
 - Manual: login with unverified account (expect 403 needsVerification); submit inquiry, check mail (log/queue worker needed for queued mail), verify code, login; forgot-password flow; coordinator invites intern, open /accept-invite/<token>; click Resend code on /verify-email and see confirmation + Spam hint.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-15 uncommitted — accept_terms now required by storeInquiry and InvitationController::accept (see terms.md); callers/tests must send it
+- 2026-10-15 ab8c629 + uncommitted — session payload carries head_title for every school user — result: HeadTitleTest session test pass
 - 2026-10-15 ab4d930 — Sessions per account: login keeps the supervisor's newest other token (AuthController::SUPERVISOR_DEVICES = 2, so phone + laptop; a 3rd login ends the oldest); every other role still deletes all old tokens (one device); change-password still signs out other devices — result: AuthHardeningTest 15/15 (2 new, supervisor test fails on the old code), suite 454/454
 - 2026-10-10 8c21eaf + uncommitted — Security package S1: rate limiters on public POSTs, 7-day Sanctum expiry, 403 no longer logs out, server-side school lockout, error pages — result: AuthHardeningTest 12 + SchoolAccessTest 8 pass, full suite on private DB :3311 (see report), lint+build ok
 - 2026-10-10 8c21eaf + uncommitted — S2: AuthController::buildUserPayload returns billing money details (amount, payment_*, breakdown, pending/approved change, scheduled switch) only to dean + super_admin; User hides invitation_token; MessageController uses role names not ids — result: SensitiveFieldExposureTest 3/3, CrossTenantAccessTest (126 probes) pass
 - 2026-10-08 05a9835 + uncommitted — CompleteEmail rule + shared emailCheck/EmailField; supervisors invited like interns; supervisors:default-password command — result: 239/239 tests (throwaway DB 3308), lint+build ok, headless 390px flow 25/25 (log mailer only, no real mail)
-- 2026-10-07 uncommitted — forgot-password now warns instead of pretending when the email has no account (PasswordResetController::forgotPassword, ForgotPassword.jsx text); ForgotPasswordTest 5/5

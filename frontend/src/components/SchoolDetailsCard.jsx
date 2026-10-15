@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch, fetchApiData } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
+import { useCurrentUser } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 
 const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500";
 
@@ -11,6 +13,7 @@ const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm 
  * "coordinator"); only the Dean can edit, a coordinator passes readOnly.
  */
 export default function SchoolDetailsCard({ role, readOnly = false }) {
+  const { user } = useCurrentUser();
   const [school, setSchool] = useState(null);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -139,7 +142,7 @@ export default function SchoolDetailsCard({ role, readOnly = false }) {
       </div>
 
       {readOnly ? (
-        <p className="mt-3 text-xs text-slate-400">Your school&apos;s Dean manages these details.</p>
+        <p className="mt-3 text-xs text-slate-400">Your school&apos;s {headTitle(user)} manages these details.</p>
       ) : (
         <div className="mt-4 flex justify-end">
           <button type="button" onClick={startEdit} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">

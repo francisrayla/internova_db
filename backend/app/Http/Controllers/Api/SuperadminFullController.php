@@ -38,6 +38,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
+use App\Support\HeadTitle as HT;
 
 class SuperadminFullController extends Controller
 {
@@ -70,6 +71,7 @@ class SuperadminFullController extends Controller
                     'admin_email' => $admin?->email,
                     'account_setup' => $accountSetup,
                     'dean_name'     => $dean ? (trim("{$dean->first_name} {$dean->last_name}") ?: $dean->name) : null,
+                    'dean_title'    => $dean ? \App\Support\HeadTitle::forDean($dean) : null,
                     'dean_email'    => $dean?->email,
                     'dean_setup'    => SchoolStaff::accountState($dean),
                     'plan'          => $subscription?->plan?->name ?? '—',
@@ -189,7 +191,7 @@ class SuperadminFullController extends Controller
             'address'               => 'nullable|string|max:500',
             'website'               => 'nullable|string|max:255',
             'contact_person'        => 'required|string|max:255',
-            'position'              => 'nullable|string|max:255',
+            'position'              => ['nullable', 'string', Rule::in(\App\Support\HeadTitle::OPTIONS)],
             'email'                 => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'phone'                 => ['required', 'string', 'regex:/^[0-9]{11}$/'],
             'intern_range'          => 'nullable|string|max:50',
@@ -198,6 +200,9 @@ class SuperadminFullController extends Controller
             'heard_from'            => 'nullable|string|max:100',
             'message'               => 'required|string',
             'password'              => 'required|string|min:8|confirmed',
+            'accept_terms'          => 'accepted',
+        ], [
+            'accept_terms.accepted' => 'You need to agree to the Terms and Conditions and the Privacy Notice to register.',
         ]);
 
         $deanRole = Role::where('name', 'dean')->first();
@@ -206,6 +211,9 @@ class SuperadminFullController extends Controller
         }
 
         [$inquiry, $user] = DB::transaction(function () use ($data, $deanRole) {
+            $termsAt = now();
+            $termsVersion = config('internova.terms_version');
+
             [$firstName, $lastName] = array_pad(explode(' ', trim($data['contact_person']), 2), 2, '');
 
             $user = User::create([
@@ -218,6 +226,8 @@ class SuperadminFullController extends Controller
                 'phone'      => $data['phone'] ?? null,
                 'password'   => Hash::make($data['password']),
                 'status'     => 'pending_approval',
+                'terms_accepted_at' => $termsAt,
+                'terms_version'     => $termsVersion,
                 // Stays null until they enter the code emailed below — see
                 // EmailVerificationController and AuthController::login(),
                 // which refuses to sign in an unverified account.
@@ -225,9 +235,11 @@ class SuperadminFullController extends Controller
             ]);
 
             $inquiry = PlanInquiry::create([
-                ...collect($data)->except(['password', 'password_confirmation'])->toArray(),
+                ...collect($data)->except(['password', 'password_confirmation', 'accept_terms'])->toArray(),
                 'user_id' => $user->id,
                 'status'  => 'new',
+                'terms_accepted_at' => $termsAt,
+                'terms_version'     => $termsVersion,
             ]);
 
             return [$inquiry, $user];
@@ -340,11 +352,18 @@ class SuperadminFullController extends Controller
 
             // An inquiry submitted before the Dean role existed belongs to a coordinator-role
             // account; whoever registered the school is the Dean, so flip it here.
-            $inquiry->user->update(['school_id' => $school->id, 'status' => 'active', 'role_id' => SchoolStaff::roleId('dean') ?? $inquiry->user->role_id]);
+            $inquiry->user->update([
+                'school_id' => $school->id,
+                'status' => 'active',
+                'role_id' => SchoolStaff::roleId('dean') ?? $inquiry->user->role_id,
+                // The Dean agreed on the registration form; carry that over (never overwrite a newer one).
+                'terms_accepted_at' => $inquiry->user->terms_accepted_at ?? $inquiry->terms_accepted_at,
+                'terms_version' => $inquiry->user->terms_version ?? $inquiry->terms_version,
+            ]);
 
             DeanProfile::updateOrCreate(
                 ['user_id' => $inquiry->user->id],
-                ['school_id' => $school->id, 'position' => $inquiry->position ?: 'Dean']
+                ['school_id' => $school->id, 'position' => \App\Support\HeadTitle::normalize($inquiry->position)]
             );
 
             $inquiry->update(['status' => 'converted', 'school_id' => $school->id]);
@@ -449,7 +468,7 @@ class SuperadminFullController extends Controller
 
             if ($subscription->status === 'active') {
                 $message = $subscription->isRenewalExpired()
-                    ? "This school's subscription has expired. Ask the Dean to start the renewal from Billing, then confirm the payment."
+                    ? "This school's subscription has expired. Ask the " . HT::forSchool($school->id) . " to start the renewal from Billing, then confirm the payment."
                     : 'This subscription is already active.';
 
                 return response()->json(['success' => false, 'message' => $message], 422);
@@ -576,7 +595,7 @@ class SuperadminFullController extends Controller
         $data = $request->validate([
             'name'     => 'required|string|max:150',
             'email'    => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
-            'position' => 'nullable|string|max:100',
+            'position' => ['nullable', 'string', Rule::in(\App\Support\HeadTitle::OPTIONS)],
         ]);
 
         if (SchoolStaff::dean($school->id)) {
@@ -608,7 +627,7 @@ class SuperadminFullController extends Controller
             DeanProfile::create([
                 'user_id'   => $user->id,
                 'school_id' => $school->id,
-                'position'  => $data['position'] ?? 'Dean',
+                'position'  => \App\Support\HeadTitle::normalize($data['position'] ?? null),
             ]);
 
             return $user;
@@ -619,7 +638,7 @@ class SuperadminFullController extends Controller
         ActivityLogService::record(
             module: 'Schools',
             action: 'Invited dean',
-            description: "{$user->name} was invited as the Dean of {$school->school_name}.",
+            description: "{$user->name} was invited as the " . HT::forDean($user) . " of {$school->school_name}.",
             schoolId: $school->id,
             request: $request
         );
@@ -640,7 +659,7 @@ class SuperadminFullController extends Controller
             return response()->json(['success' => false, 'message' => "{$school->school_name} has no Dean to re-invite."], 404);
         }
         if ($dean->status !== 'pending_activation') {
-            return response()->json(['success' => false, 'message' => 'The Dean has already activated their account.'], 422);
+            return response()->json(['success' => false, 'message' => 'The ' . HT::forDean($dean) . ' has already activated their account.'], 422);
         }
 
         if ($request->filled('email')) {
@@ -659,7 +678,7 @@ class SuperadminFullController extends Controller
         ActivityLogService::record(
             module: 'Schools',
             action: 'Resent dean invitation',
-            description: "The Dean invitation for {$school->school_name} was resent to {$dean->email}.",
+            description: "The " . HT::forDean($dean) . " invitation for {$school->school_name} was resent to {$dean->email}.",
             schoolId: $school->id,
             request: $request
         );
@@ -670,7 +689,7 @@ class SuperadminFullController extends Controller
     private function sendDeanInvitation(User $dean, School $school): void
     {
         // Sent on behalf of the platform, not the Super Admin's personal address.
-        AccountInvitationService::send($dean, 'Dean', "of {$school->school_name}", 'Internova', config('mail.from.address'));
+        AccountInvitationService::send($dean, HT::forDean($dean), "of {$school->school_name}", 'Internova', config('mail.from.address'));
     }
 
     /**
@@ -853,7 +872,7 @@ class SuperadminFullController extends Controller
         // subscription as an accepted offer awaiting payment (dates are set when it is
         // paid). The current plan keeps governing access until then.
         if ($school->pendingUpgrade()) {
-            return response()->json(['success' => false, 'message' => "{$school->school_name} has a payment in progress. Wait for it to finish or have the Dean cancel it first."], 422);
+            return response()->json(['success' => false, 'message' => "{$school->school_name} has a payment in progress. Wait for it to finish or have the " . HT::forSchool($school->id) . " cancel it first."], 422);
         }
 
         $previousPayment = $school->latestBillableSubscription();

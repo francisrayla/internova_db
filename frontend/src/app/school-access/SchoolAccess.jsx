@@ -8,6 +8,7 @@ import { Btn } from "@/components/dash/page";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import { readStoredUser, resolveDashboardPath } from "@/lib/roleDashboard";
+import { headTitle } from "@/lib/headTitle";
 
 // Where apiFetch sends interns, supervisors and a suspended Dean when the API answers 403 with
 // school_suspended / subscription_expired / subscription_unpaid (EnsureSchoolAccess). The session is
@@ -19,19 +20,19 @@ const COPY = {
     icon: Ban,
     tone: "red",
     title: "Your school's access is paused",
-    text: "The Super Admin has suspended this school's access for now. Nothing is lost. Your work stays saved and opens again once access is restored.",
+    text: () => "The Super Admin has suspended this school's access for now. Nothing is lost. Your work stays saved and opens again once access is restored.",
   },
   expired: {
     icon: Lock,
     tone: "amber",
     title: "Your school's subscription has ended",
-    text: "The subscription period ended. The school's Dean can renew it in Billing, and your workspace opens again right after.",
+    text: (head) => `The subscription period ended. The school's ${head} can renew it in Billing, and your workspace opens again right after.`,
   },
   unpaid: {
     icon: Hourglass,
     tone: "amber",
     title: "Waiting for the school's subscription",
-    text: "The school's subscription is not active yet. Your workspace opens as soon as the Dean accepts the plan and pays.",
+    text: (head) => `The school's subscription is not active yet. Your workspace opens as soon as the ${head} accepts the plan and pays.`,
   },
 };
 
@@ -100,7 +101,7 @@ export default function SchoolAccess() {
   const name = user.school_name ? ` (${user.school_name})` : "";
 
   return (
-    <StatusScreen icon={copy.icon} tone={copy.tone} eyebrow="School access" title={copy.title} text={copy.text} detail={note || `Signed in as ${user.email}${name}`}>
+    <StatusScreen icon={copy.icon} tone={copy.tone} eyebrow="School access" title={copy.title} text={copy.text(headTitle(user))} detail={note || `Signed in as ${user.email}${name}`}>
       <Btn variant="primary" block onClick={() => recheck(user)} disabled={checking}>{checking ? "Checking…" : "Check again"}</Btn>
       {user.role === "dean" ? <Btn block href="/dean/billing">Open billing</Btn> : null}
       <Btn block onClick={logout}>Log out</Btn>

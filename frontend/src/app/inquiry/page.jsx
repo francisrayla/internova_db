@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CircleCheck, GraduationCap, ArrowLeft, Mail, Phone, MessageCircle, Globe } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import AddressPicker from "@/components/AddressPicker";
+import TermsCheckbox from "@/components/TermsCheckbox";
 
 import { INPUT_RULES } from "@/lib/inputRules";
 import { markCodeSent } from "@/lib/useResendCooldown";
@@ -126,6 +127,7 @@ export default function InquiryPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const [error, setError] = useState("");
   const handleChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -154,13 +156,15 @@ export default function InquiryPage() {
       setError("Passwords do not match.");
       return;
     }
+    // The inline error under the checkbox explains this one.
+    if (!acceptTerms) return;
 
     setSaving(true);
 
     fetch('/api/inquiries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...form, accept_terms: acceptTerms }),
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
@@ -348,6 +352,8 @@ export default function InquiryPage() {
             </div>
           </div>
 
+          <TermsCheckbox checked={acceptTerms} onChange={setAcceptTerms} error={submitAttempted && !acceptTerms ? "You need to agree to the Terms and Conditions and the Privacy Notice to register." : ""} />
+
           {error && (
             <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 text-center">{error}</p>
           )}
@@ -361,7 +367,7 @@ export default function InquiryPage() {
           </button>
 
           <p className="text-center text-xs text-slate-400">
-            By submitting this form, you agree to be contacted by the Internova team regarding your registration.
+            By submitting this form, you also agree to be contacted by the Internova team regarding your registration.
           </p>
         </form>
       </div>

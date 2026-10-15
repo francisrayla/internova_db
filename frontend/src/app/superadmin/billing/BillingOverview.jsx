@@ -96,7 +96,7 @@ function PlanChangeRequests({ showToast, reloadKey }) {
         <div className="k-pad"><SkeletonList rows={2} height="h-16" /></div>
       ) : requests.length === 0 ? (
         <div className="k-pad">
-          <EmptyState icon="plans" title="No plan change requests yet." text="When a Dean asks to switch plans, the request shows up here." />
+          <EmptyState icon="plans" title="No plan change requests yet." text="When a school head asks to switch plans, the request shows up here." />
         </div>
       ) : (
         <DataList>

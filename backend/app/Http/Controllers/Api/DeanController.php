@@ -13,6 +13,7 @@ use App\Services\AccountInvitationService;
 use App\Services\ActivityLogService;
 use App\Services\EmailDeliverability;
 use App\Services\SchoolStaff;
+use App\Support\HeadTitle;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -346,7 +347,17 @@ class DeanController extends Controller
     {
         $profile = DeanProfile::firstOrCreate(['user_id' => $request->user()->id], ['school_id' => $request->user()->school_id]);
 
-        return response()->json(['success' => true, 'weekly_summary_email' => (bool) $profile->fresh()->weekly_summary_email]);
+        return response()->json(['success' => true, 'weekly_summary_email' => (bool) $profile->fresh()->weekly_summary_email, 'head_title' => HeadTitle::forDean($request->user())]);
+    }
+
+    /** The title shown for the school's head everywhere (Dean, Principal or School Head). */
+    public function updateHeadTitle(Request $request): JsonResponse
+    {
+        $data = $request->validate(['head_title' => ['required', 'string', Rule::in(HeadTitle::OPTIONS)]]);
+        $profile = DeanProfile::firstOrCreate(['user_id' => $request->user()->id], ['school_id' => $request->user()->school_id]);
+        $profile->update(['position' => $data['head_title']]);
+
+        return response()->json(['success' => true, 'head_title' => $data['head_title']]);
     }
 
     public function updatePreferences(Request $request): JsonResponse

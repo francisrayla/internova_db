@@ -57,7 +57,7 @@ class DeanTest extends TestCase
         $this->postJson('/api/inquiries', [
             'school_name' => 'New College', 'contact_person' => 'Pat Principal', 'position' => 'Principal',
             'email' => 'pat@newcollege.test', 'phone' => '09171234567', 'message' => 'Hello',
-            'password' => 'password123', 'password_confirmation' => 'password123',
+            'password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true,
         ])->assertCreated();
 
         $user = $this->user('pat@newcollege.test');
@@ -147,7 +147,7 @@ class DeanTest extends TestCase
             return $m->hasTo('fixed@gmail.com');
         });
         $token = basename($url);
-        $this->postJson("/api/invitations/{$token}/accept", ['password' => 'newpassword1', 'password_confirmation' => 'newpassword1'])->assertOk();
+        $this->postJson("/api/invitations/{$token}/accept", ['password' => 'newpassword1', 'password_confirmation' => 'newpassword1', 'accept_terms' => true])->assertOk();
         $this->assertSame('active', $new->fresh()->status);
         $this->postJson('/api/auth/login', ['email' => 'fixed@gmail.com', 'password' => 'newpassword1'])->assertOk()->assertJsonPath('user.role', 'coordinator');
 

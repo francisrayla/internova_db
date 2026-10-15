@@ -6,13 +6,15 @@ import AvatarUploadModal from "@/components/AvatarUploadModal";
 import EditProfileModal from "@/components/EditProfileModal";
 import { Avatar, Btn, KeyValueList, Page, PageHeader, Section } from "@/components/dash/page";
 import { useCurrentUser } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 
 /**
  * Profile page shared by the coordinator, supervisor and Dean "My Profile" pages:
  * photo, name, email, and the account details below. `roleLabel` adds a
- * Role row (coordinators show whether they're the school's primary one).
+ * Role row (coordinators show whether they're the school's primary one);
+ * `headRole` shows the school head's own title (Dean / Principal / School Head).
  */
-export default function StaffProfile({ fallbackName, roleLabel }) {
+export default function StaffProfile({ fallbackName, roleLabel, headRole = false }) {
   const { user, onUserUpdated } = useCurrentUser();
   const [showAvatarModal, setShowAvatarModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -20,7 +22,7 @@ export default function StaffProfile({ fallbackName, roleLabel }) {
   const details = [
     ...(user?.phone ? [{ label: "Phone", value: user.phone }] : []),
     { label: "School", value: user?.school_name ?? "—" },
-    ...(roleLabel ? [{ label: "Role", value: roleLabel }] : []),
+    ...(headRole ? [{ label: "Role", value: headTitle(user) }] : roleLabel ? [{ label: "Role", value: roleLabel }] : []),
     { label: "Status", value: <span className="capitalize">{user?.status ?? "active"}</span> },
   ];
 

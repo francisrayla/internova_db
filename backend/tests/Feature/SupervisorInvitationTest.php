@@ -90,7 +90,7 @@ class SupervisorInvitationTest extends TestCase
         $this->postJson('/api/auth/login', ['email' => 'nina.lopez@gmail.com', 'password' => 'password'])->assertStatus(401);
 
         $token = $this->inviteToken($user);
-        $this->postJson("/api/invitations/{$token}/accept", ['password' => 'MyOwnPass123', 'password_confirmation' => 'MyOwnPass123'])->assertOk();
+        $this->postJson("/api/invitations/{$token}/accept", ['password' => 'MyOwnPass123', 'password_confirmation' => 'MyOwnPass123', 'accept_terms' => true])->assertOk();
 
         $user->refresh();
         $this->assertSame('active', $user->status);

@@ -144,6 +144,12 @@ export default function Login() {
         <Link href="/" className="text-center text-sm font-medium text-slate-500 hover:text-slate-700">
           ← Back to Home
         </Link>
+
+        <p className="text-center text-xs text-slate-500">
+          <Link href="/terms" className="hover:text-slate-700 hover:underline">Terms and Conditions</Link>
+          {" · "}
+          <Link href="/privacy" className="hover:text-slate-700 hover:underline">Privacy Notice</Link>
+        </p>
       </div>
     </section>
   );

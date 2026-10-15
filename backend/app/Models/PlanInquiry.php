@@ -14,7 +14,10 @@ class PlanInquiry extends Model
         'contact_person', 'position', 'email', 'phone',
         'intern_range', 'expected_coordinators', 'interested_plan',
         'heard_from', 'message', 'status', 'notes', 'school_id', 'user_id',
+        'terms_accepted_at', 'terms_version',
     ];
+
+    protected $casts = ['terms_accepted_at' => 'datetime'];
 
     public function school()
     {

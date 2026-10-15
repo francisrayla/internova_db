@@ -8,6 +8,7 @@ import Logo from "@/components/Logo";
 import ProfileMenu from "@/components/ProfileMenu";
 import ThemeToggle from "@/components/ThemeToggle";
 import { UserContext } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 import { apiFetch } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import { readStoredUser } from "@/lib/roleDashboard";
@@ -53,7 +54,7 @@ function MinimalTopBar({ user, onLogout }) {
       <Logo size={34} />
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <ThemeToggle />
-        <ProfileMenu user={user} onLogout={onLogout} fallbackName="Dean" links={GATED_PROFILE_LINKS} />
+        <ProfileMenu user={user} onLogout={onLogout} fallbackName={headTitle(user)} links={GATED_PROFILE_LINKS} />
       </div>
     </header>
   );
@@ -143,14 +144,14 @@ export default function DeanLayout({ children }) {
 
   return (
     <AppShell
-      section="Dean"
+      section={headTitle(user)}
       navItems={NAV_ITEMS.map((item) => (item.href === "/dean/coordinator" ? { ...item, badge: feedbackUnread } : item))}
       user={user}
       onLogout={handleLogout}
       notificationBellProps={{ audienceRole: "dean", schoolId: user.school_id, userId: user.id, historyHref: "/dean/notifications" }}
       onUserUpdated={handleUserUpdated}
       profileLinks={PROFILE_LINKS}
-      fallbackName="Dean"
+      fallbackName={headTitle(user)}
     >
       <FeedbackUnreadWatcher role="dean" onCount={setFeedbackUnread} />
       {children}

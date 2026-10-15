@@ -1,4 +1,5 @@
 import SchoolDetailsCard from "@/components/SchoolDetailsCard";
+import HeadTitleCard from "@/components/dean/HeadTitleCard";
 import { Page, PageHeader } from "@/components/dash/page";
 
 export default function SchoolSettingsPage() {
@@ -10,6 +11,7 @@ export default function SchoolSettingsPage() {
         sentence="Basic information for your school account. Your coordinator can see these details but not edit them."
       />
       <SchoolDetailsCard role="dean" />
+      <HeadTitleCard />
     </Page>
   );
 }

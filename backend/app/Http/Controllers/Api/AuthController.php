@@ -212,7 +212,9 @@ class AuthController extends Controller
             'school_status' => $user->school?->status,
             'school_suspended' => $user->school?->is_suspended ?? false,
             'is_primary_coordinator' => $user->coordinatorProfile?->is_primary_coordinator ?? false,
-            'dean_position' => $user->deanProfile?->position,
+            // What the school's head is called on screen (Dean / Principal / School Head); the role key stays 'dean'.
+            'head_title' => $user->roles?->name === 'dean' ? \App\Support\HeadTitle::forDean($user) : \App\Support\HeadTitle::forSchool($user->school_id),
+            'dean_position' => $user->roles?->name === 'dean' ? \App\Support\HeadTitle::forDean($user) : null,
             'subscription_status' => $subscription?->effectiveStatus(),
             'subscription_plan'   => $subscription?->plan?->name,
             'subscription_billing_period' => $subscription?->billing_period,

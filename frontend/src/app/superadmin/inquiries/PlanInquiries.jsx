@@ -16,6 +16,7 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 // List price per plan + billing period comes from the Plans page data (GET superadmin/plans-features);
 // the shared constants are only the fallback while it loads or if it fails. Super Admin can still apply a discount below.
 import { PLAN_PRICES } from "@/lib/billingConstants";
+import { headTitleOf } from "@/lib/headTitle";
 
 const STATUS_META = {
   new:              { label: "New",              tone: "blue" },
@@ -318,7 +319,7 @@ function ConvertToSchoolModal({ inquiry, prices, onClose, onConverted }) {
         </div>
 
         <div className="rounded-xl px-4 py-3 text-sm break-words" style={{ background: "var(--ui-soft)" }}>
-          <p className="k-label">Dean Account</p>
+          <p className="k-label">{headTitleOf(inquiry.position)} Account</p>
           <p className="mt-1 font-medium" style={{ color: "var(--ui-ink)" }}>{inquiry.contact_person} · {inquiry.email}</p>
           <p className="mt-0.5 text-xs" style={{ color: "var(--ui-muted)" }}>Password was already set during registration.</p>
         </div>
@@ -377,7 +378,7 @@ function ConvertToSchoolModal({ inquiry, prices, onClose, onConverted }) {
 
         <p className="k-note">
           <span className="min-w-0">
-            This sends a subscription offer (status <strong>Awaiting Acceptance</strong>) to {inquiry.email} as the school&apos;s Dean —
+            This sends a subscription offer (status <strong>Awaiting Acceptance</strong>) to {inquiry.email} as the school&apos;s {headTitleOf(inquiry.position)} —
             they can log in with their existing password to review, accept, and pay. The offer expires in 14 days if unanswered.
           </span>
         </p>
@@ -670,7 +671,7 @@ export default function InquiriesPage() {
       </FilterBar>
 
       {/* Two-column: list + detail */}
-      <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start">
 
         {/* Left: inquiry list — hidden on mobile once something's selected,
             since a master-detail split only makes sense side by side; below
@@ -721,7 +722,7 @@ export default function InquiriesPage() {
 
         {/* Right: detail panel */}
         {selected ? (
-          <section className="dash-card is-flush">
+          <section className="dash-card is-flush min-w-0">
             <button type="button" onClick={() => setSelected(null)} className="k-back px-4 pt-2 lg:hidden">
               <NavIcon name="back" size={16} /> Back to Inquiries
             </button>
@@ -762,9 +763,9 @@ export default function InquiriesPage() {
               )}
             </div>
 
-            <div className="k-pad grid gap-6">
+            <div className="k-pad grid grid-cols-1 gap-6">
               {/* Two-column info */}
-              <div className="grid gap-6 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
 
                 {/* Contact info */}
                 <div className="min-w-0">
@@ -832,7 +833,7 @@ export default function InquiriesPage() {
               {/* Action buttons */}
               <div className="pt-4" style={{ borderTop: "1px solid var(--ui-line)" }}>
                 <h3 className="k-label mb-3">Actions</h3>
-                <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
                   <Btn variant="primary" onClick={() => setShowEmail(true)}>
                     <Icon name="mail" size={15} /> Reply via Email
                   </Btn>
