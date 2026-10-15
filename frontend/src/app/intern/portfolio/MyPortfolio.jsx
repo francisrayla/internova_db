@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, FileText, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ExternalLink, FileText, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { Btn, EmptyState, FormField, Input, Page, PageHeader, Section, SkeletonList, Textarea } from "@/components/dash/page";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import NarrativeChecklist from "@/components/narrative-report/NarrativeChecklist";
+import UploadRequirementSheet from "@/components/narrative-report/UploadRequirementSheet";
 import { fetchInternData } from "@/lib/internApi";
 import { apiFetch } from "@/lib/apiFetch";
 import { validateImageFile } from "@/lib/imageValidation";
@@ -36,6 +37,7 @@ export default function MyPortfolio() {
   const [textsMsg, setTextsMsg] = useState("");
   const [polishing, setPolishing] = useState("");
   const [narrative, setNarrative] = useState(null);
+  const [uploadType, setUploadType] = useState(""); // report requirement being uploaded from the checklist
 
   const loadNarrative = useCallback(() => {
     fetchInternData("portfolio/narrative-report")
@@ -59,6 +61,50 @@ export default function MyPortfolio() {
     load();
     loadNarrative();
   }, [load, loadNarrative]);
+
+  // Each checklist row says where to finish it: upload a document here, jump to the text box,
+  // open the work-samples form, or go to the page that fills it (attendance, tasks, activities).
+  function focusField(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.focus({ preventScroll: true });
+  }
+
+  function openAddItem() {
+    setShowItemForm(true);
+    setTimeout(() => focusField("portfolio-item-title"), 50);
+  }
+
+  function checklistAction(section, status) {
+    const byHand = (href, label) => <Btn sm href={href}>{label}</Btn>;
+    switch (section.source) {
+      case "document": {
+        if (status.done && !status.rejected) return null;
+        const type = section.document_type || section.title.charAt(0) + section.title.slice(1).toLowerCase();
+        return (
+          <Btn sm variant="primary" onClick={() => setUploadType(type)}>
+            <Upload size={14} aria-hidden="true" /> {status.rejected ? "Upload again" : "Upload"}
+          </Btn>
+        );
+      }
+      case "intern_text":
+        return status.done ? null : <Btn sm onClick={() => focusField(`report-${section.key}`)}><Pencil size={14} aria-hidden="true" /> Write</Btn>;
+      case "auto_ledger":
+        return status.done ? null : byHand("/intern/attendance", "Clock in");
+      case "auto_photos":
+        return status.done ? null : byHand("/intern/tasks", "Add task proof");
+      case "auto_work_samples":
+        return status.done ? null : <Btn sm onClick={openAddItem}><Plus size={14} aria-hidden="true" /> Add item</Btn>;
+      case "auto_journal":
+        return status.done ? null : byHand("/intern/activities", "Write entry");
+      case "auto_duties":
+      case "auto_evaluation":
+        return status.done ? null : <span className="text-xs text-slate-500">Your supervisor adds this</span>;
+      default:
+        return null;
+    }
+  }
 
   async function saveTexts(e) {
     e.preventDefault();
@@ -244,12 +290,11 @@ export default function MyPortfolio() {
 
       <Section
         title="Narrative report"
-        help="Your school's printable OJT narrative report. Write the parts only you can, then generate it."
-        action={<Btn sm href="/intern/portfolio/report">Generate Portfolio</Btn>}
+        help="Your school's printable OJT narrative report. Finish what it needs below, then use Generate Portfolio at the top."
       >
         {narrative && (
           <div className="mb-5">
-            <NarrativeChecklist report={narrative} title="What your report needs" />
+            <NarrativeChecklist report={narrative} title="What your report needs" renderAction={checklistAction} />
           </div>
         )}
 
@@ -296,6 +341,7 @@ export default function MyPortfolio() {
           <form onSubmit={handleAddItem} className="mb-5 grid gap-3 rounded-xl bg-slate-50 p-4">
             <FormField label="Title">
               <Input {...inputProps("title")}
+                id="portfolio-item-title"
                 value={itemForm.title}
                 onChange={(e) => setItemForm((f) => ({ ...f, title: e.target.value }))}
                 placeholder="e.g. Company Attendance Module"
@@ -368,6 +414,16 @@ export default function MyPortfolio() {
       >
         <p>&ldquo;{deleting?.title}&rdquo; will be taken off your portfolio. You can add it again later.</p>
       </ConfirmDialog>
+      {uploadType && (
+        <UploadRequirementSheet
+          documentType={uploadType}
+          onClose={() => setUploadType("")}
+          onUploaded={() => {
+            setUploadType("");
+            loadNarrative();
+          }}
+        />
+      )}
     </Page>
   );
 }

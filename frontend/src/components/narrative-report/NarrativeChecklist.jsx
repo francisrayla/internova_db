@@ -18,7 +18,7 @@ function sectionStatus(section, report) {
       const doc = report.documents?.[section.key];
       if (!doc) return { done: false, detail: "Not uploaded yet" };
       const pending = doc.status && doc.status !== "approved";
-      return { done: true, detail: `${doc.file_name}${pending ? ` (${doc.status})` : ""}`, warn: pending };
+      return { done: true, detail: `${doc.file_name}${pending ? ` (${doc.status})` : ""}`, warn: pending, rejected: doc.status === "rejected" };
     }
     case "intern_text": {
       const written = report.texts?.[section.key]?.trim();
@@ -53,7 +53,9 @@ function sectionStatus(section, report) {
   }
 }
 
-export default function NarrativeChecklist({ report, title = "Narrative report requirements" }) {
+// renderAction(section, status) is optional: the intern's page passes it to put an Upload / Write / Open
+// button on each row; the coordinator and Dean views leave it out and stay read-only.
+export default function NarrativeChecklist({ report, title = "Narrative report requirements", renderAction }) {
   // A document the intern's course does not require (kept in the report only because it was uploaded) is not a requirement.
   const rows = (report?.template?.sections ?? [])
     .filter((section) => !(section.source === "document" && section.required === false))
@@ -84,9 +86,12 @@ export default function NarrativeChecklist({ report, title = "Narrative report r
             >
               <NavIcon name={status.done ? "check" : "alert"} size={12} />
             </span>
-            <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:justify-between sm:gap-4">
+            <div className="min-w-0 flex-1 sm:flex sm:items-center sm:justify-between sm:gap-4">
               <p className="font-medium text-slate-800">{titleCase(section.title)}</p>
-              <p className={`break-words sm:text-right ${status.done ? "text-slate-500" : "text-amber-700"}`}>{status.detail}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2 sm:mt-0 sm:justify-end">
+                <p className={`break-words sm:text-right ${status.done && !status.rejected ? "text-slate-500" : "text-amber-700"}`}>{status.detail}</p>
+                {renderAction?.(section, status)}
+              </div>
             </div>
           </li>
         ))}
