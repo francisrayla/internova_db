@@ -1,5 +1,5 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: e79c6eb
+last_commit: de02557
 updated: 2026-10-10
 
 ## Map (where the code lives)
@@ -38,8 +38,8 @@ updated: 2026-10-10
 - Frontend: `npx eslint <touched>` (pre-existing set-state-in-effect errors in coordinator/layout.jsx, billing, AppShell); build from a scratch copy: tar copy of frontend minus node_modules/.next, mklink /J node_modules, `npx next build --webpack`, remove junction then copy.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-15 de02557 — Prod bug: a new school with no coordinator crashed /dean/overview and the bell (buildAlerts() typed $brief as array but coordinatorBrief() returns null without a coordinator); now ?array — result: DeanQaFixesTest 7/7 (new no-coordinator test fails without the fix), suite 452/452, deployed backend
 - 2026-10-10 8c21eaf + uncommitted � QA pass: GET /dean/interns now takes sort/dir (whole filtered list, InternTable controlled by DeanInterns, SORT_KEYS in DeanMonitoringController), intern detail returns `totals` + 'Showing the latest N of M' note (lists stay capped 31/40/60), route params id/deploymentId/taskId/subtaskId/userId are numeric-only (AppServiceProvider, /abc is 404 not 500), Load more dedupes (ActivityTab, InternsTab), page past the end steps back, gated Dean menu hides Settings, 429 on change-password shows a sentence � result: DeanQaFixesTest 5/5 on private DB :3322
 - 2026-10-10 8c21eaf + uncommitted — S4: bank details, plan prices and the Test-mode flag moved to lib/billingConstants.js (NEXT_PUBLIC_PAYMONGO_LIVE=true hides test wording), corrupt localStorage user no longer crashes billing, account page uses SettingsScreen (one h1), WeeklyEmailPreference retry — result: shots, eslint only the old billing error
 - 2026-10-10 8c21eaf + uncommitted — Dean interns paged on the server — result: PaginationRosterTest ok
 - 2026-10-10 uncommitted — phase B restyle only (no logic): all dean screens on the page kit; new components/dean/PendingApproval.jsx for /dean/pending; PreviewMode no longer uses WorkspaceShell; billing emoji replaced by Lucide — result: eslint clean except old billing error, screens checked light/dark 1440/390 (see ui-design.md)
-- 2026-10-09 uncommitted — Dean alerts extracted from overview() into buildAlerts() + attentionQueue(User) (shown in the bell, no longer on DeanDashboard; overview still returns `alerts`); dashboard arrows/EmptyState/MODULE_ICON/Insights checklist use Lucide via NavIcon — result: DeanMonitoringTest/DeanInsightsTest pass, NotificationAttentionTest dean scoping pass
