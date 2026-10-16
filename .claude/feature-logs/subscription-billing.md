@@ -1,5 +1,5 @@
 # Subscription & billing
-last_commit: e79c6eb
+last_commit: 6918f57
 updated: 2026-10-10
 
 ## Map (where the code lives)
@@ -36,8 +36,8 @@ Tests (internova_testing): PlanChangePaymentTest (approve awaiting payment, waiv
 DeanTest.php covers dean accept-offer + coordinator 403/404 + cross-school dean 403. Manual: submit /inquiry, convert in superadmin Inquiries, log in as the Dean -> /dean/billing, accept offer, pay with PayMongo test keys or upload proof, confirm in superadmin Schools; check a Basic school is blocked on subtasks/AI and a Premium one is not.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-16 6918f57 — Billing emails: new SubscriptionOfferReady (convertInquiryToSchool + resendSchoolOffer; plan, amount, discount, valid-until, 'Review My Offer' to {frontend}/dean/billing, head title) and PaymentReceipt (sent from PaymentActivation::activate only when the result is ACTIVATED, so the return flow + webhook give exactly one receipt; receipt no., plan, method, paid on, covers, amount). Both via AppServicesBillingMailer (queued, skip bounced addresses, a mail error never blocks approval/activation). Shared footer partial emails/partials/footer-links + AppSupportMailBrand (support_email setting, frontend URL) replaced the fake hello@internova.ai / +63 917 / backend url('/') in every email — result: BillingEmailsTest 4/4, suite 477/477, both emails rendered and checked
 - 2026-10-10 8c21eaf + uncommitted � QA (Dean): upload-proof refuses a second file while the first is under review (422), request-plan-change refuses a second pending request (422); PayMongo-disabled checkout answers 502 'Online payment is unavailable right now' and the screen shows it; verified every billing screen state on a QA school � result: DeanQaFixesTest
 - 2026-10-10 8c21eaf + uncommitted — S4 (frontend only): SubscriptionBilling reads BANK_DETAILS / PLAN_PRICES / PAYMENT_TEST_MODE from lib/billingConstants.js instead of three hard-coded copies; no payment logic touched
 - 2026-10-10 8c21eaf + uncommitted — S3: PayMongo idempotency + webhook + shared PaymentActivation, expired-subscription renew flow, locks on approve/rollover/switch, manual-override audit — result: PaymentIntegrityTest + DeletionIntegrityTest pass, full suite 419/423 on private DB (4 failures belong to S1 lockout work, not billing)
 - 2026-10-06 9642298 + uncommitted — plan features reorganized: core (always) vs optional list in frontend/src/lib/planCatalog.js, Formal Evaluations now in Basic, 'AI Portfolio / Reports' renamed 'AI Narrative Writing' (PlanFeatures::AI_FEATURES), migration 2026_10_10_000000_reorganize_plan_features — result: 109/109 tests
-- 2026-10-06 a0e19d5 + uncommitted — approvePlanChange no longer marks paid (accepted offer, waived 0 txn); self-service monthly->yearly with credit; Dean/superadmin UI — result: php artisan test 107/107, eslint clean in touched files (2 pre-existing set-state-in-effect), next build ok
