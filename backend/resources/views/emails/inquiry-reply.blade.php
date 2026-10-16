@@ -31,14 +31,14 @@
         <span class="badge">Plan Inquiry Reply</span>
         <p>Dear <strong>{{ $recipientName }}</strong>,</p>
         <div class="message-block">{{ $replyBody }}</div>
-        <p>If you have more questions, feel free to reply to this email or contact us directly at <a href="mailto:hello@internova.ai">hello@internova.ai</a>.</p>
+        <p>If you have more questions, feel free to reply to this email or contact us directly at <a href="mailto:{{ \App\Support\MailBrand::supportEmail() }}">{{ \App\Support\MailBrand::supportEmail() }}</a>.</p>
         <p>We look forward to helping <strong>{{ $schoolName }}</strong> manage your internship program efficiently.</p>
         <p style="margin-top: 24px;">Best regards,<br><strong>Internova Team</strong></p>
       </div>
       <div class="footer">
         <p>
           You are receiving this because you submitted an inquiry through the Internova platform.<br>
-          <a href="{{ url('/') }}">internova.ai</a> · hello@internova.ai · +63 917 123 4567
+          @include('emails.partials.footer-links')
         </p>
       </div>
     </div>

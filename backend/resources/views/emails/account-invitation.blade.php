@@ -49,7 +49,7 @@
       </div>
       <div class="footer">
         <p>
-          <a href="{{ url('/') }}">internova.ai</a> · hello@internova.ai · +63 917 123 4567
+          @include('emails.partials.footer-links')
         </p>
       </div>
     </div>

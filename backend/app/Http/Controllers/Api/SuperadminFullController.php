@@ -386,6 +386,9 @@ class SuperadminFullController extends Controller
             '/dean/billing'
         );
 
+        // The head may not log in for days; the offer also goes out by email.
+        \App\Services\BillingMailer::sendOffer($school, $school->subscriptions()->latest('id')->first(), [$inquiry->user->fresh()]);
+
         ActivityLogService::record(
             module: 'Schools',
             action: 'Approved registration',
@@ -562,6 +565,8 @@ class SuperadminFullController extends Controller
             'proof_of_payment_path' => null,
         ]);
         $school->update(['status' => 'awaiting_acceptance']);
+
+        \App\Services\BillingMailer::sendOffer($school, $subscription->fresh(), null, resent: true);
 
         NotificationService::toSchoolDean(
             $school->id,

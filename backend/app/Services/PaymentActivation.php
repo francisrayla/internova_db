@@ -30,6 +30,19 @@ class PaymentActivation
      */
     public static function activate(SchoolSubscription $subscription, ?string $gatewayReference = null): array
     {
+        $outcome = self::activateInTransaction($subscription, $gatewayReference);
+        // Exactly one receipt: only the call that actually switched the subscription on sends it
+        // (a webhook arriving after the return flow gets ALREADY_ACTIVE and sends nothing).
+        if ($outcome['result'] === self::ACTIVATED && $outcome['subscription']) {
+            BillingMailer::sendReceipt($outcome['subscription']);
+        }
+
+        return $outcome;
+    }
+
+    /** @return array{result: string, subscription: ?SchoolSubscription} */
+    private static function activateInTransaction(SchoolSubscription $subscription, ?string $gatewayReference): array
+    {
         return DB::transaction(function () use ($subscription, $gatewayReference) {
             // School first, then subscription: the same order everywhere keeps two
             // simultaneous payments for one school from deadlocking each other.
