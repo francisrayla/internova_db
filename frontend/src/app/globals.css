@@ -668,6 +668,19 @@ input[type="file"]::file-selector-button:hover {
 .sheet-overlay { top: var(--vv-top, 0px); bottom: var(--kb, 0px); }
 .sheet-panel { max-height: min(92dvh, calc(100% - 0.5rem)); overflow-y: auto; overscroll-behavior: contain; }
 .kb-lift { bottom: var(--kb, 0px); }
+/* The phone messenger (components/MessengerWidget.jsx, below 640px): a full-screen
+   layer that ends above the keyboard and respects the notch / home indicator.
+   The bottom safe area is dropped once the keyboard covers it. */
+.msg-screen {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--vv-top, 0px);
+  bottom: var(--kb, 0px);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--kb, 0px)));
+  overscroll-behavior: contain;
+}
 
 /* Paper is white: no tinted page ground when a report is printed or saved as PDF. */
 @media print { html, body { background: #fff !important; } }

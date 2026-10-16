@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { getEcho } from "@/lib/echo";
 import Icon from "@/components/Icon";
@@ -65,6 +65,105 @@ function keyOf(conversation) {
   return `${conversation.type}-${conversation.id}`;
 }
 
+// Below Tailwind's `sm` (640px) the messenger is a full-screen, Messenger-app
+// style experience (chat list, then one conversation); from `sm` up it is the
+// docked widget. useSyncExternalStore reads the media query on the very first
+// client render, so nothing flashes in the wrong layout.
+const PHONE_QUERY = "(max-width: 639.98px)";
+function subscribePhone(callback) {
+  const mq = window.matchMedia(PHONE_QUERY);
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+function useIsPhone() {
+  return useSyncExternalStore(subscribePhone, () => window.matchMedia(PHONE_QUERY).matches, () => false);
+}
+
+// One row of the chat list. The desktop dropdown keeps its compact row; on a
+// phone the row is a big tap target: 48px avatar, name, role label, last
+// message, time and unread badge.
+function ConversationRow({ c, phone, onOpen }) {
+  const isGroup = c.type === "group";
+  const preview = c.last_message
+    ? `${c.last_message_from_me ? "You: " : isGroup && c.last_message_sender_name ? `${c.last_message_sender_name}: ` : ""}${c.last_message}`
+    : isGroup
+      ? `${c.members?.length ?? 0} members`
+      : roleLabelOf(c);
+
+  if (phone) {
+    // The head's name already carries the title ("Maria · Principal").
+    const roleLine = isGroup ? `${c.members?.length ?? 0} members` : c.role === "dean" ? "" : roleLabelOf(c);
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`flex min-h-[76px] w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left active:bg-slate-100 ${
+          c.unread_count > 0 ? "bg-blue-50/50" : ""
+        }`}
+      >
+        <span
+          className={`grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-bold ${
+            isGroup ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+          }`}
+        >
+          <AvatarContent conversation={c} iconSize={20} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className={`flex min-w-0 items-center gap-1 text-base ${c.unread_count > 0 ? "font-semibold text-slate-900" : "font-medium text-slate-800"}`}>
+              <span className="truncate">{displayNameOf(c)}</span>
+              {c.muted && <Icon name="bellOff" size={13} className="shrink-0 text-slate-400" />}
+            </p>
+            {c.last_message_at && <span className="shrink-0 text-xs text-slate-500">{c.last_message_at}</span>}
+          </div>
+          {roleLine && <p className="truncate text-xs text-slate-500">{roleLine}</p>}
+          {c.last_message && (
+            <p className={`truncate text-sm ${c.unread_count > 0 ? "font-medium text-slate-800" : "text-slate-500"}`}>{preview}</p>
+          )}
+        </div>
+        {c.unread_count > 0 && (
+          <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-blue-600 px-1.5 text-xs font-bold text-white">
+            {c.unread_count > 9 ? "9+" : c.unread_count}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50 ${
+        c.unread_count > 0 ? "bg-blue-50/50" : ""
+      }`}
+    >
+      <span
+        className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-xs font-bold ${
+          isGroup ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+        }`}
+      >
+        <AvatarContent conversation={c} iconSize={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className={`flex min-w-0 items-center gap-1 truncate text-sm ${c.unread_count > 0 ? "font-semibold text-slate-900" : "font-medium text-slate-700"}`}>
+            <span className="truncate">{displayNameOf(c)}</span>
+            {c.muted && <Icon name="bellOff" size={11} className="shrink-0 text-slate-400" />}
+          </p>
+          {c.last_message_at && <span className="shrink-0 text-[11px] text-slate-400">{c.last_message_at}</span>}
+        </div>
+        <p className="truncate text-xs text-slate-500">{preview}</p>
+      </div>
+      {c.unread_count > 0 && (
+        <span className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+          {c.unread_count > 9 ? "9+" : c.unread_count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 // Minimized down to just a round avatar bubble docked at the edge — hover
 // it to see who it is (matches Facebook's own minimized chat heads), click
 // to restore, or catch the small × that appears on hover to close it
@@ -102,7 +201,7 @@ function MinimizedBubble({ conversation, onRestore, onClose }) {
 // viewport rather than a full page, so chatting never interrupts whatever
 // screen the conversation started from. Works for both a 1:1 conversation
 // and a group (sender names above bubbles, member count in the subtitle).
-function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, onLoadEarlier, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, forwardTargets, currentUserId }) {
+function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, onLoadEarlier, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, forwardTargets, currentUserId, phone = false, onBack }) {
   const [text, setText] = useState("");
   const [showOptions, setShowOptions] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
@@ -229,8 +328,50 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
   }
 
   return (
-    <div className="relative flex h-[26rem] w-72 max-w-[calc(100vw-2rem)] flex-col border border-slate-200 bg-white shadow-2xl">
-      <div className="relative" ref={optionsRef}>
+    <div className={phone ? "relative flex h-full w-full min-w-0 flex-col bg-white" : "relative flex h-[26rem] w-72 max-w-[calc(100vw-2rem)] flex-col border border-slate-200 bg-white shadow-2xl"}>
+      <div className="relative shrink-0" ref={optionsRef}>
+        {phone ? (
+          <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-1 py-1.5">
+            <button
+              type="button"
+              onClick={onBack}
+              className="grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full text-slate-700 active:bg-slate-100"
+              aria-label="Back to chats"
+            >
+              <Icon name="arrow" size={22} className="rotate-180" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowOptions((v) => !v)}
+              className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 rounded-xl py-0.5 text-left"
+            >
+              <span
+                style={{ backgroundColor: activeColor }}
+                className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-bold text-white"
+              >
+                <AvatarContent conversation={conversation} iconSize={18} />
+              </span>
+              <div className="min-w-0">
+                <p className="flex items-center gap-1 text-base font-semibold leading-tight text-slate-900">
+                  <span className="truncate">{displayNameOf(conversation)}</span>
+                  {conversation.muted && <Icon name="bellOff" size={13} className="shrink-0 text-slate-500" />}
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {isGroup ? `${conversation.members?.length ?? 0} members` : roleLabelOf(conversation)}
+                </p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowOptions((v) => !v)}
+              className="grid h-[44px] w-[44px] shrink-0 place-items-center rounded-full text-slate-700 active:bg-slate-100"
+              aria-label="Conversation options"
+              aria-expanded={showOptions}
+            >
+              <Icon name="dots" size={20} />
+            </button>
+          </div>
+        ) : (
         <div
           onClick={onToggleMinimize}
           style={{ backgroundColor: activeColor }}
@@ -273,20 +414,21 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
             </button>
           </div>
         </div>
+        )}
 
         {showOptions && (
-          <div className="absolute left-2 top-full z-20 mt-1 w-52 rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl">
+          <div className={`absolute z-20 mt-1 rounded-xl border border-slate-200 bg-white py-1.5 shadow-xl ${phone ? "right-2 top-full w-64" : "left-2 top-full w-52"}`}>
             <button
               type="button"
               onClick={() => { onToggleMute(); setShowOptions(false); }}
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              className={`flex w-full items-center gap-2.5 px-3 text-left text-sm text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px]" : "py-2"}`}
             >
               <Icon name="bellOff" size={15} /> {conversation.muted ? "Unmute conversation" : "Mute conversation"}
             </button>
             <button
               type="button"
               onClick={() => { setShowMedia(true); setShowOptions(false); }}
-              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              className={`flex w-full items-center gap-2.5 px-3 text-left text-sm text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px]" : "py-2"}`}
             >
               <Icon name="file" size={15} /> Shared photos &amp; files
             </button>
@@ -300,7 +442,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                   onClick={() => { onSetColor(c.value); setShowOptions(false); }}
                   title={c.label}
                   aria-label={`Set chat color to ${c.label}`}
-                  className={`grid h-6 w-6 place-items-center rounded-full border-2 ${
+                  className={`grid place-items-center rounded-full border-2 ${phone ? "h-8 w-8" : "h-6 w-6"} ${
                     activeColor === c.value ? "border-slate-900" : "border-transparent"
                   }`}
                   style={{ backgroundColor: c.value }}
@@ -323,7 +465,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
       ) : showMedia ? (
         <MediaGallery messages={messages} onBack={() => setShowMedia(false)} />
       ) : (
-      <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
+      <div ref={listRef} className={`flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3 ${phone ? "overscroll-contain" : ""}`}>
         {loading ? (
           <p className="mt-8 text-center text-xs text-slate-400">Loading…</p>
         ) : messages.length === 0 ? (
@@ -359,7 +501,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                   data-msg-menu-toggle
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
-                  className={`grid h-7 w-7 place-items-center rounded-full text-slate-500 outline-none hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  className={`grid ${phone ? "h-9 w-9" : "h-7 w-7"} place-items-center rounded-full text-slate-500 outline-none hover:bg-slate-200 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-blue-500 ${
                     menuOpen ? "bg-slate-200 text-slate-600" : "opacity-70 hover:opacity-100 focus-visible:opacity-100"
                   }`}
                   aria-label="Message actions"
@@ -370,20 +512,20 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                   <div
                     ref={messageMenuRef}
                     role="menu"
-                    className="absolute top-full left-0 z-20 mt-1 w-36 rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+                    className={`absolute top-full left-0 z-20 mt-1 rounded-xl border border-slate-200 bg-white py-1 shadow-xl ${phone ? "w-44" : "w-36"}`}
                   >
-                    <button type="button" onClick={() => startReply(m)} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                    <button type="button" onClick={() => startReply(m)} className={`flex w-full items-center px-3 text-left text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
                       Reply
                     </button>
-                    <button type="button" onClick={() => { setForwardingId(m.id); setOpenMenuId(null); }} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                    <button type="button" onClick={() => { setForwardingId(m.id); setOpenMenuId(null); }} className={`flex w-full items-center px-3 text-left text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
                       Forward
                     </button>
                     {m.attachment_url && (
-                      <button type="button" onClick={() => handleSave(m)} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                      <button type="button" onClick={() => handleSave(m)} className={`flex w-full items-center px-3 text-left text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
                         Save
                       </button>
                     )}
-                    <button type="button" onClick={() => { setDetailsMessage(m); setOpenMenuId(null); }} className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50">
+                    <button type="button" onClick={() => { setDetailsMessage(m); setOpenMenuId(null); }} className={`flex w-full items-center px-3 text-left text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
                       Details
                     </button>
                   </div>
@@ -393,10 +535,10 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
             return (
               <div key={m.id} className={`group flex items-center gap-1 ${mine ? "justify-end" : "justify-start"}`}>
                 {menuButton}
-                <div className="max-w-[75%]">
+                <div className={phone ? "max-w-[82%]" : "max-w-[75%]"}>
                   {isGroup && !mine && <p className="mb-0.5 ml-1 text-[10px] font-semibold text-slate-500">{m.sender_name}</p>}
                   <div
-                    className={`break-words rounded-2xl px-3 py-1.5 text-sm ${
+                    className={`break-words rounded-2xl px-3 py-1.5 ${phone ? "text-[15px]" : "text-sm"} ${
                       mine ? "text-white" : "border border-slate-200 bg-white text-slate-800"
                     } ${m.attachment_url || m.reply_to ? "space-y-1.5" : ""} ${
                       // A one-word message ("hahaha") hugs its own text so
@@ -473,37 +615,37 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
       {attachError && (
         <p className="border-t border-red-100 bg-red-50 px-3 py-1.5 text-[11px] text-red-700">{attachError}</p>
       )}
-      <form onSubmit={handleSubmit} className="flex items-center gap-1.5 border-t border-slate-100 p-2">
+      <form onSubmit={handleSubmit} className={`flex shrink-0 items-center border-t bg-white ${phone ? "gap-1 border-slate-200 px-1.5 py-1.5" : "gap-1.5 border-slate-100 p-2"}`}>
         <input ref={fileInputRef} type="file" onChange={handleFilePick} className="hidden" />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           style={{ color: activeColor }}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full hover:bg-slate-100 disabled:opacity-40"
+          className={`grid shrink-0 place-items-center rounded-full hover:bg-slate-100 disabled:opacity-40 ${phone ? "h-[44px] w-[44px]" : "h-8 w-8"}`}
           aria-label="Attach a photo or file"
           title="Attach a photo or file"
         >
           {uploading ? (
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
           ) : (
-            <Icon name="paperclip" size={16} />
+            <Icon name="paperclip" size={phone ? 21 : 16} />
           )}
         </button>
         <input {...inputProps("message")}
           value={text}
           onChange={(e) => { setText(e.target.value); onTyping(); }}
           placeholder="Aa"
-          className="min-w-0 flex-1 rounded-full bg-slate-100 px-3.5 py-2 text-sm outline-none focus:bg-slate-200"
+          className={`min-w-0 flex-1 rounded-full bg-slate-100 outline-none focus:bg-slate-200 ${phone ? "h-[44px] px-4 text-base" : "px-3.5 py-2 text-sm"}`}
         />
         <button
           type="submit"
           disabled={!text.trim()}
           style={{ color: activeColor }}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full hover:bg-slate-100 disabled:opacity-30"
+          className={`grid shrink-0 place-items-center rounded-full hover:bg-slate-100 disabled:opacity-30 ${phone ? "h-[44px] w-[44px]" : "h-8 w-8"}`}
           aria-label="Send message"
         >
-          <Icon name="send" size={16} />
+          <Icon name="send" size={phone ? 21 : 16} />
         </button>
       </form>
 
@@ -559,7 +701,7 @@ function MediaGallery({ messages, onBack }) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
       <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-        <button type="button" onClick={onBack} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Back to conversation">
+        <button type="button" onClick={onBack} className="grid place-items-center rounded-lg p-1 text-slate-500 hover:bg-slate-100 max-sm:h-[44px] max-sm:w-[44px]" aria-label="Back to conversation">
           <Icon name="arrow" size={16} className="rotate-180" />
         </button>
         <p className="text-sm font-semibold text-slate-800">Shared photos &amp; files</p>
@@ -633,7 +775,7 @@ function ForwardPicker({ targets, error, onPick, onBack }) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-slate-50">
       <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-        <button type="button" onClick={onBack} className="rounded-lg p-1 text-slate-500 hover:bg-slate-100" aria-label="Back to conversation">
+        <button type="button" onClick={onBack} className="grid place-items-center rounded-lg p-1 text-slate-500 hover:bg-slate-100 max-sm:h-[44px] max-sm:w-[44px]" aria-label="Back to conversation">
           <Icon name="arrow" size={16} className="rotate-180" />
         </button>
         <p className="text-sm font-semibold text-slate-800">Forward to…</p>
@@ -643,7 +785,7 @@ function ForwardPicker({ targets, error, onPick, onBack }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search people or groups…"
-          className="w-full rounded-full bg-slate-100 px-3 py-1.5 text-xs outline-none focus:bg-slate-200"
+          className="w-full rounded-full bg-slate-100 px-3 py-1.5 text-xs outline-none focus:bg-slate-200 max-sm:h-[44px] max-sm:px-4 max-sm:text-base"
           autoFocus
         />
       </div>
@@ -658,7 +800,7 @@ function ForwardPicker({ targets, error, onPick, onBack }) {
               type="button"
               onClick={() => handlePick(t)}
               disabled={sendingKey === keyOf(t)}
-              className="flex w-full items-center gap-2.5 border-b border-slate-100 px-3 py-2.5 text-left hover:bg-white disabled:opacity-50"
+              className="flex w-full items-center gap-2.5 border-b border-slate-100 px-3 py-2.5 text-left hover:bg-white disabled:opacity-50 max-sm:min-h-[56px]"
             >
               <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-200 text-xs font-bold text-slate-600">
                 <AvatarContent conversation={t} iconSize={13} />
@@ -873,6 +1015,12 @@ export default function MessengerWidget({ currentUser }) {
   const [typingFrom, setTypingFrom] = useState({});
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // Phone layout (< 640px): the list and one conversation are full screens.
+  // `open` = the chat list is showing, `activeKey` = the conversation on top of it.
+  const isPhone = useIsPhone();
+  const [activeKey, setActiveKey] = useState(null);
+  const histDepthRef = useRef(0); // history entries pushed by the messenger, so Back steps list <- conversation
+  const uiRef = useRef({ isPhone: false, open: false, activeKey: null });
   const rootRef = useRef(null);
   const menuRef = useRef(null);
   const [menuPos, setMenuPos] = useState(null);
@@ -907,7 +1055,70 @@ export default function MessengerWidget({ currentUser }) {
   }, [loadConversations]);
 
   useEffect(() => {
+    uiRef.current = { isPhone, open, activeKey };
+  });
+
+  // The phone Back button (and the browser's) steps conversation -> list -> closed.
+  useEffect(() => {
+    function onPopState() {
+      if (histDepthRef.current <= 0) return;
+      histDepthRef.current -= 1;
+      const ui = uiRef.current;
+      if (ui.activeKey) {
+        setActiveKey(null);
+        setOpen(true);
+      } else if (ui.open) {
+        setOpen(false);
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  function pushLevel() {
+    histDepthRef.current += 1;
+    window.history.pushState({ messenger: histDepthRef.current }, "");
+  }
+
+  // One step back in the full-screen messenger: through history when we pushed
+  // an entry (so the browser Back and the on-screen arrow agree), else directly.
+  function stepBack() {
+    if (histDepthRef.current > 0) {
+      window.history.back();
+    } else if (uiRef.current.activeKey) {
+      setActiveKey(null);
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  }
+
+  const phoneVisible = isPhone && (open || activeKey !== null);
+
+  // The page behind a full-screen messenger must not scroll.
+  useEffect(() => {
+    if (!phoneVisible) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [phoneVisible]);
+
+  // Escape (external keyboard) steps back, unless the New group sheet is on top (it handles Escape itself).
+  useEffect(() => {
+    if (!phoneVisible || showCreateGroup) return;
+    function onKey(e) {
+      if (e.key === "Escape") stepBack();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
+  useEffect(() => {
     function handleClickOutside(event) {
+      // Full-screen on a phone: nothing is "outside", the arrow / X / Back close it.
+      if (uiRef.current.isPhone) return;
       const insideRoot = rootRef.current?.contains(event.target);
       const insideMenu = menuRef.current?.contains(event.target);
       if (!insideRoot && !insideMenu) setOpen(false);
@@ -1005,10 +1216,27 @@ export default function MessengerWidget({ currentUser }) {
     return () => Object.values(timeouts).forEach(clearTimeout);
   }, []);
 
+  function toggleList() {
+    if (isPhone) {
+      if (!open) {
+        pushLevel();
+        setOpen(true);
+      }
+      return;
+    }
+    setOpen((v) => !v);
+  }
+
   function openChat(conversation) {
-    setOpen(false);
-    setSearch("");
     const key = keyOf(conversation);
+    if (isPhone) {
+      // The list stays underneath; Back returns to it.
+      if (activeKey === null) pushLevel();
+      setActiveKey(key);
+    } else {
+      setOpen(false);
+    }
+    setSearch("");
     setOpenChats((prev) => (prev.some((c) => keyOf(c) === key) ? prev : [conversation, ...prev].slice(0, MAX_OPEN_CHATS)));
     setMinimizedIds((prev) => prev.filter((k) => k !== key));
 
@@ -1210,12 +1438,43 @@ export default function MessengerWidget({ currentUser }) {
   const dmCandidatesForGroup = useMemo(() => conversations.filter((c) => c.type === "dm" && c.role !== "dean"), [conversations]);
   const canCreateGroup = GROUP_CREATOR_ROLES.includes(currentUser?.role);
 
+  const activeChat = activeKey ? openChats.find((c) => keyOf(c) === activeKey) : null;
+
+  function renderChat(c, phone) {
+    const key = keyOf(c);
+    return (
+      <ChatWindow
+        key={key}
+        conversation={c}
+        messages={threads[key]?.messages ?? []}
+        loading={threads[key]?.loading ?? false}
+        hasMore={threads[key]?.hasMore ?? false}
+        loadingEarlier={threads[key]?.loadingEarlier ?? false}
+        onLoadEarlier={() => loadEarlier(c)}
+        isTyping={Boolean(typingFrom[key])}
+        typingName={typeof typingFrom[key] === "string" ? typingFrom[key] : null}
+        onSend={(text, replyToId) => sendMessage(c, text, replyToId)}
+        onSendFile={(file, caption, replyToId) => sendAttachment(c, file, caption, replyToId)}
+        onTyping={() => sendTyping(c)}
+        onClose={() => closeChat(key)}
+        onToggleMinimize={() => toggleMinimize(key)}
+        onToggleMute={() => updateThreadSetting(c, { muted: !c.muted })}
+        onSetColor={(color) => updateThreadSetting(c, { color })}
+        onForward={(messageId, target) => forwardMessage(c, messageId, target)}
+        forwardTargets={conversations.filter((t) => keyOf(t) !== key)}
+        currentUserId={currentUser?.id}
+        phone={phone}
+        onBack={stepBack}
+      />
+    );
+  }
+
   return (
     <>
       <div className="relative" ref={rootRef}>
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleList}
           className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 max-sm:h-11 max-sm:w-11"
           title="Messages"
           aria-label={unreadTotal > 0 ? `Messages, ${unreadTotal} unread` : "Messages"}
@@ -1231,8 +1490,53 @@ export default function MessengerWidget({ currentUser }) {
 
       </div>
 
-      {mounted && open && menuPos &&
+      {mounted && open && (isPhone || menuPos) &&
         createPortal(
+          isPhone ? (
+            <div ref={menuRef} className={`msg-screen z-[60] flex-col bg-white ${activeKey !== null ? "hidden" : "flex"}`}>
+              <div className="shrink-0 border-b border-slate-200 px-4 pb-3 pt-2">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-2xl font-bold text-slate-900">Chats</p>
+                  <div className="-mr-2 flex items-center gap-1">
+                    {canCreateGroup && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateGroup(true)}
+                        className="grid h-[44px] w-[44px] place-items-center rounded-full bg-slate-100 text-slate-700 active:bg-slate-200"
+                        aria-label="New group"
+                        title="New group"
+                      >
+                        <Icon name="plus" size={20} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={stepBack}
+                      className="grid h-[44px] w-[44px] place-items-center rounded-full text-slate-700 active:bg-slate-100"
+                      aria-label="Close chats"
+                    >
+                      <Icon name="x" size={22} />
+                    </button>
+                  </div>
+                </div>
+                <input {...inputProps("search")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search people…"
+                  className="h-[44px] w-full rounded-full border border-slate-200 bg-slate-50 px-4 text-base outline-none focus:border-blue-500 focus:bg-white"
+                />
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                {conversations.length === 0 ? (
+                  <p className="px-4 py-10 text-center text-sm text-slate-500">No one to message yet</p>
+                ) : filteredConversations.length === 0 ? (
+                  <p className="px-4 py-10 text-center text-sm text-slate-500">No matches for &quot;{search}&quot;</p>
+                ) : (
+                  filteredConversations.map((c) => <ConversationRow key={keyOf(c)} c={c} phone onOpen={() => openChat(c)} />)
+                )}
+              </div>
+            </div>
+          ) : (
           <div
             ref={menuRef}
             style={{ position: "fixed", top: menuPos.top, left: menuPos.left, width: menuPos.width }}
@@ -1264,54 +1568,23 @@ export default function MessengerWidget({ currentUser }) {
               ) : filteredConversations.length === 0 ? (
                 <p className="px-4 py-6 text-center text-sm text-slate-400">No matches for &quot;{search}&quot;</p>
               ) : (
-                filteredConversations.map((c) => {
-                  const isGroup = c.type === "group";
-                  const preview = c.last_message
-                    ? `${c.last_message_from_me ? "You: " : isGroup && c.last_message_sender_name ? `${c.last_message_sender_name}: ` : ""}${c.last_message}`
-                    : isGroup
-                      ? `${c.members?.length ?? 0} members`
-                      : roleLabelOf(c);
-                  return (
-                    <button
-                      key={keyOf(c)}
-                      type="button"
-                      onClick={() => openChat(c)}
-                      className={`flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50 ${
-                        c.unread_count > 0 ? "bg-blue-50/50" : ""
-                      }`}
-                    >
-                      <span
-                        className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-xs font-bold ${
-                          isGroup ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
-                        }`}
-                      >
-                        <AvatarContent conversation={c} iconSize={16} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className={`flex min-w-0 items-center gap-1 truncate text-sm ${c.unread_count > 0 ? "font-semibold text-slate-900" : "font-medium text-slate-700"}`}>
-                            <span className="truncate">{displayNameOf(c)}</span>
-                            {c.muted && <Icon name="bellOff" size={11} className="shrink-0 text-slate-400" />}
-                          </p>
-                          {c.last_message_at && <span className="shrink-0 text-[11px] text-slate-400">{c.last_message_at}</span>}
-                        </div>
-                        <p className="truncate text-xs text-slate-500">{preview}</p>
-                      </div>
-                      {c.unread_count > 0 && (
-                        <span className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
-                          {c.unread_count > 9 ? "9+" : c.unread_count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })
+                filteredConversations.map((c) => <ConversationRow key={keyOf(c)} c={c} phone={false} onOpen={() => openChat(c)} />)
               )}
             </div>
+          </div>
+          ),
+          document.body
+        )}
+
+      {mounted && isPhone && activeChat &&
+        createPortal(
+          <div className="msg-screen z-[60] flex flex-col bg-white">
+            {renderChat(activeChat, true)}
           </div>,
           document.body
         )}
 
-      {mounted &&
+      {mounted && !isPhone &&
         createPortal(
           <>
             {/* Minimized chats stack in their own column, growing upward as
@@ -1328,32 +1601,7 @@ export default function MessengerWidget({ currentUser }) {
             <div className="no-scrollbar kb-lift fixed bottom-0 right-4 z-50 flex max-w-[100vw] items-end gap-3 overflow-x-auto sm:right-20">
               {openChats
                 .filter((c) => !minimizedIds.includes(keyOf(c)))
-                .map((c) => {
-                  const key = keyOf(c);
-                  return (
-                    <ChatWindow
-                      key={key}
-                      conversation={c}
-                      messages={threads[key]?.messages ?? []}
-                      loading={threads[key]?.loading ?? false}
-                      hasMore={threads[key]?.hasMore ?? false}
-                      loadingEarlier={threads[key]?.loadingEarlier ?? false}
-                      onLoadEarlier={() => loadEarlier(c)}
-                      isTyping={Boolean(typingFrom[key])}
-                      typingName={typeof typingFrom[key] === "string" ? typingFrom[key] : null}
-                      onSend={(text, replyToId) => sendMessage(c, text, replyToId)}
-                      onSendFile={(file, caption, replyToId) => sendAttachment(c, file, caption, replyToId)}
-                      onTyping={() => sendTyping(c)}
-                      onClose={() => closeChat(key)}
-                      onToggleMinimize={() => toggleMinimize(key)}
-                      onToggleMute={() => updateThreadSetting(c, { muted: !c.muted })}
-                      onSetColor={(color) => updateThreadSetting(c, { color })}
-                      onForward={(messageId, target) => forwardMessage(c, messageId, target)}
-                      forwardTargets={conversations.filter((t) => keyOf(t) !== key)}
-                      currentUserId={currentUser.id}
-                    />
-                  );
-                })}
+                .map((c) => renderChat(c, false))}
             </div>
           </>,
           document.body
