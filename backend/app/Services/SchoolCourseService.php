@@ -25,6 +25,22 @@ class SchoolCourseService
     public const MSG_NOT_OFFERED = "This course isn't offered by your school. Add it in Settings → Courses offered.";
     public const MSG_NONE_YET = "Your school hasn't set up its courses yet. Set them in Settings → Courses offered first.";
 
+    /**
+     * Give a school with no offered courses the common ones (Courses::DEFAULT_OFFERED, catalog hours). Runs when a
+     * school is created, so a new school can add interns at once. A school that already has a list is left alone.
+     */
+    public static function seedDefaults(int $schoolId): void
+    {
+        if (SchoolCourse::where('school_id', $schoolId)->exists()) {
+            return;
+        }
+        $now = now();
+        DB::table('school_courses')->insertOrIgnore(array_map(fn (string $code, int $i) => [
+            'school_id' => $schoolId, 'name' => Courses::NAMES[$code], 'required_hours' => null,
+            'sort_order' => $i, 'created_at' => $now, 'updated_at' => $now,
+        ], Courses::DEFAULT_OFFERED, array_keys(Courses::DEFAULT_OFFERED)));
+    }
+
     /** Comparison key: the canonical full name, lowercase, spaces collapsed ("BSIT" and its full name match). */
     public static function key(?string $course): string
     {

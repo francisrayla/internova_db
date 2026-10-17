@@ -150,7 +150,7 @@ class SchoolCourseTest extends TestCase
         $this->assertSame(array_keys(Courses::GROUPS), collect($res->json('catalog'))->pluck('label')->all());
         $first = $res->json('catalog.0.courses.0');
         $this->assertSame(['code' => 'BSIT', 'name' => Courses::NAMES['BSIT'], 'default_hours' => 500, 'aliases' => []], $first);
-        $this->assertSame(array_map(fn ($c) => Courses::NAMES[$c], ['BSIT', 'BSBA', 'BSTM', 'BSHM', 'BSCRIM']), collect($res->json('offered'))->pluck('name')->all());
+        $this->assertSame(array_map(fn ($c) => Courses::NAMES[$c], Courses::DEFAULT_OFFERED), collect($res->json('offered'))->pluck('name')->all());
         $bsit = collect($res->json('offered'))->firstWhere('code', 'BSIT');
         $this->assertSame(1, $bsit['interns_count']); // the seeded demo intern
         $this->assertNull($bsit['required_hours']);
@@ -161,7 +161,7 @@ class SchoolCourseTest extends TestCase
     public function test_dean_reads_and_saves_the_same_list_of_their_school(): void
     {
         Sanctum::actingAs($this->dean);
-        $this->getJson('/api/dean/school-courses')->assertOk()->assertJsonCount(5, 'offered');
+        $this->getJson('/api/dean/school-courses')->assertOk()->assertJsonCount(count(Courses::DEFAULT_OFFERED), 'offered');
 
         $this->putJson('/api/dean/school-courses', ['offered' => [['name' => 'BSN', 'required_hours' => 600]]])
             ->assertOk()->assertJsonPath('offered.0.name', Courses::NAMES['BSN'])->assertJsonPath('offered.0.hours', 600);
@@ -184,7 +184,33 @@ class SchoolCourseTest extends TestCase
         $this->getJson('/api/dean/school-courses')->assertStatus(403);
         Sanctum::actingAs($this->dean);
         $this->getJson('/api/coordinator/school-courses')->assertStatus(403);
-        $this->assertCount(5, SchoolCourse::all());
+        $this->assertCount(count(Courses::DEFAULT_OFFERED), SchoolCourse::where('school_id', $this->coordinator->school_id)->get());
+    }
+
+    public function test_a_new_school_starts_with_the_common_courses_and_keeps_its_own_list(): void
+    {
+        $school = School::create(['school_code' => 'NEW-1', 'school_name' => 'New College', 'address' => 'Davao', 'contact_email' => 'n@n.test', 'contact_number' => '09170000011', 'status' => 'active']);
+        $this->assertSame(array_map(fn ($c) => Courses::NAMES[$c], Courses::DEFAULT_OFFERED), SchoolCourse::where('school_id', $school->id)->orderBy('sort_order')->pluck('name')->all());
+        $this->assertSame([null], SchoolCourse::where('school_id', $school->id)->distinct()->pluck('required_hours')->all());
+
+        // Seeding again never touches a school that already has a list (edited or emptied).
+        SchoolCourse::where('school_id', $school->id)->where('name', '!=', Courses::NAMES['BSIT'])->delete();
+        \App\Services\SchoolCourseService::seedDefaults($school->id);
+        $this->assertSame(1, SchoolCourse::where('school_id', $school->id)->count());
+    }
+
+    public function test_the_defaults_migration_fills_only_schools_without_courses(): void
+    {
+        $empty = School::create(['school_code' => 'EMPTY-1', 'school_name' => 'Empty College', 'address' => 'x', 'contact_email' => 'e@e.test', 'contact_number' => '09170000012', 'status' => 'active']);
+        SchoolCourse::where('school_id', $empty->id)->delete();
+        $own = $this->coordinator->school_id;
+        SchoolCourse::where('school_id', $own)->delete();
+        SchoolCourse::create(['school_id' => $own, 'name' => Courses::NAMES['BSN'], 'sort_order' => 0]);
+
+        (require database_path('migrations/2026_10_20_000200_default_school_courses.php'))->up();
+
+        $this->assertSame(count(Courses::DEFAULT_OFFERED), SchoolCourse::where('school_id', $empty->id)->count());
+        $this->assertSame([Courses::NAMES['BSN']], SchoolCourse::where('school_id', $own)->pluck('name')->all());
     }
 
     public function test_guests_are_refused(): void
@@ -197,11 +223,12 @@ class SchoolCourseTest extends TestCase
     {
         $other = $this->otherSchoolUser('coordinator');
         Sanctum::actingAs($other);
-        $this->getJson('/api/coordinator/school-courses')->assertOk()->assertJsonCount(0, 'offered');
+        // A new school starts with the common courses.
+        $this->getJson('/api/coordinator/school-courses')->assertOk()->assertJsonCount(count(Courses::DEFAULT_OFFERED), 'offered');
 
         $this->offer([['name' => 'BSN', 'required_hours' => null]])->assertOk();
         $this->assertSame(1, SchoolCourse::where('school_id', $other->school_id)->count());
-        $this->assertSame(5, SchoolCourse::where('school_id', $this->coordinator->school_id)->count());
+        $this->assertSame(count(Courses::DEFAULT_OFFERED), SchoolCourse::where('school_id', $this->coordinator->school_id)->count());
 
         Sanctum::actingAs($this->coordinator);
         $this->assertNotContains(Courses::NAMES['BSN'], collect($this->getJson('/api/coordinator/school-courses')->json('offered'))->pluck('name')->all());
@@ -255,7 +282,7 @@ class SchoolCourseTest extends TestCase
         $this->offer($tooMany)->assertStatus(422)->assertJsonValidationErrors('offered');
         $this->offer(array_slice($tooMany, 0, 100))->assertOk();
 
-        $this->assertSame($before - 5 + 100, SchoolCourse::count());
+        $this->assertSame($before - count(Courses::DEFAULT_OFFERED) + 100, SchoolCourse::count());
 
         // Allowed characters: letters, numbers, spaces and . , & ( ) - '
         $this->offer([['name' => "Diploma in Hotel & Restaurant (HRM), St. Mary's - Night 2"], ['name' => 'Ñandú Programa'], ['name' => 'Hours edge', 'required_hours' => 1], ['name' => 'Hours edge two', 'required_hours' => 2000]])->assertOk();
@@ -342,6 +369,7 @@ class SchoolCourseTest extends TestCase
         $other = $this->otherSchoolUser('coordinator');
         $company = Company::create(['school_id' => $other->school_id, 'company_code' => 'ACME-X', 'company_name' => 'Acme', 'address' => 'Cebu', 'contact_email' => 'a@acme.test', 'contact_number' => '09170000010', 'status' => 'active']);
         Sanctum::actingAs($other);
+        $this->offer([])->assertOk(); // the school removed every course
 
         $this->postJson('/api/coordinator/interns', $this->internBody(['company_id' => $company->id]))
             ->assertStatus(422)
@@ -477,7 +505,7 @@ class SchoolCourseTest extends TestCase
         Sanctum::actingAs($this->coordinator);
 
         $names = fn () => collect($this->getJson('/api/coordinator/course-requirements')->assertOk()->json('courses'));
-        $this->assertSame(array_map(fn ($c) => Courses::NAMES[$c], ['BSIT', 'BSBA', 'BSTM', 'BSHM', 'BSCRIM']), $names()->pluck('name')->all());
+        $this->assertSame(array_map(fn ($c) => Courses::NAMES[$c], Courses::DEFAULT_OFFERED), $names()->pluck('name')->all());
         $this->assertSame([true], $names()->pluck('offered')->unique()->values()->all());
 
         // BSIT stays offered (it has the demo intern); a configured set and an intern keep a dropped course listed.

@@ -30,7 +30,11 @@ export default function MyDocuments() {
   const [error, setError] = useState("");
   // What the intern's course requires (with each one's status) and the other types an upload may use.
   const [types, setTypes] = useState(null);
-  const [formKey, setFormKey] = useState(0); // remounts the type field when a requirement row presets it
+  // A requirement row's Upload opens the file picker straight away and sends the file for that requirement.
+  const pickerRef = useRef(null);
+  const pickTypeRef = useRef("");
+  const [rowBusy, setRowBusy] = useState("");
+  const [rowNote, setRowNote] = useState(null); // { type, tone: "ok" | "risk", text }
 
   const load = useCallback(() => {
     fetchInternData("documents")
@@ -48,6 +52,19 @@ export default function MyDocuments() {
 
   useLiveRefresh(LIVE_TYPES, load);
 
+  async function sendDocument(type, picked) {
+    const upload = await shrinkImage(picked);
+    if (upload.size > MAX_DOCUMENT_BYTES) {
+      throw new Error(`"${upload.name}" is bigger than 10MB. Choose a smaller file.`);
+    }
+    const formData = new FormData();
+    formData.append("document_type", type);
+    formData.append("file", upload);
+    const res = await apiFetch("/api/intern/documents", { method: "POST", body: formData });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.message || "Could not upload this document.");
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (submittingRef.current) return; // a double tap lands before the button is disabled
@@ -63,16 +80,7 @@ export default function MyDocuments() {
     setSaving(true);
     setError("");
     try {
-      const upload = await shrinkImage(file);
-      if (upload.size > MAX_DOCUMENT_BYTES) {
-        throw new Error(`"${upload.name}" is bigger than 10MB. Choose a smaller file.`);
-      }
-      const formData = new FormData();
-      formData.append("document_type", docType.trim());
-      formData.append("file", upload);
-      const res = await apiFetch("/api/intern/documents", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Could not upload this document.");
+      await sendDocument(docType.trim(), file);
       setDocType("");
       setFile(null);
       setShowForm(false);
@@ -86,10 +94,29 @@ export default function MyDocuments() {
   }
 
   function uploadRequirement(type) {
-    setDocType(type);
-    setFormKey((k) => k + 1);
-    setError("");
-    setShowForm(true);
+    if (submittingRef.current) return;
+    pickTypeRef.current = type;
+    setRowNote(null);
+    pickerRef.current?.click(); // must run inside the tap, or phones refuse to open the picker
+  }
+
+  async function handlePicked(e) {
+    const picked = e.target.files?.[0];
+    e.target.value = ""; // picking the same file again still fires a change
+    const type = pickTypeRef.current;
+    if (!picked || !type || submittingRef.current) return;
+    submittingRef.current = true;
+    setRowBusy(type);
+    try {
+      await sendDocument(type, picked);
+      setRowNote({ type, tone: "ok", text: `Uploaded "${picked.name}". Your coordinator will review it.` });
+      load();
+    } catch (err) {
+      setRowNote({ type, tone: "risk", text: err.message });
+    } finally {
+      submittingRef.current = false;
+      setRowBusy("");
+    }
   }
 
   const requirements = types?.requirements ?? [];
@@ -108,7 +135,7 @@ export default function MyDocuments() {
         <Section title="Upload a document">
           <form onSubmit={handleSubmit} className="grid gap-4">
             <FormField label="Document type">
-              <DocumentTypeField key={formKey} value={docType} onChange={setDocType} options={options} />
+              <DocumentTypeField value={docType} onChange={setDocType} options={options} />
             </FormField>
             <FormField label="File" hint="JPG, PNG, PDF, DOC or DOCX, up to 10MB. Photos are resized automatically.">
               <input
@@ -128,6 +155,16 @@ export default function MyDocuments() {
         </Section>
       )}
 
+      <input
+        ref={pickerRef}
+        type="file"
+        accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+        onChange={handlePicked}
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+
       {requirements.length > 0 && (
         <Section
           flush
@@ -140,11 +177,14 @@ export default function MyDocuments() {
                 key={r.document_type}
                 wrap
                 title={r.document_type}
+                sub={rowNote?.type === r.document_type ? (
+                  <span role={rowNote.tone === "risk" ? "alert" : "status"} className={rowNote.tone === "risk" ? "text-red-600" : "text-emerald-600"}>{rowNote.text}</span>
+                ) : undefined}
                 side={<Pill tone={REQUIREMENT_TONES[r.status] ?? "slate"}>{REQUIREMENT_LABELS[r.status] ?? r.status}</Pill>}
                 actions={
                   (r.status === "not_uploaded" || r.status === "rejected") ? (
-                    <Btn sm onClick={() => uploadRequirement(r.document_type)}>
-                      {r.status === "rejected" ? "Upload again" : "Upload"}
+                    <Btn sm onClick={() => uploadRequirement(r.document_type)} disabled={!!rowBusy} aria-label={`${r.status === "rejected" ? "Upload again" : "Upload"} ${r.document_type}`}>
+                      {rowBusy === r.document_type ? "Uploading…" : r.status === "rejected" ? "Upload again" : "Upload"}
                     </Btn>
                   ) : undefined
                 }

@@ -22,6 +22,12 @@ class School extends Model
         'suspended_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        // A new school starts with the common courses in Settings -> Courses offered.
+        static::created(fn (School $school) => \App\Services\SchoolCourseService::seedDefaults($school->id));
+    }
+
     public function coordinatorProfiles()
     {
         return $this->hasMany(CoordinatorProfile::class);

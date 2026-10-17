@@ -101,6 +101,9 @@ final class Courses
 
     public const DEFAULT_HOURS = 500;
 
+    /** The common courses a new school starts with in Courses offered; the school can add or remove any. */
+    public const DEFAULT_OFFERED = ['BSIT', 'BSBA', 'BSHM', 'BSTM', 'BSAIS', 'BTELED', 'BSCRIM'];
+
     /** @var array<string, string>|null normalized code => code */
     private static ?array $codeIndex = null;
 

@@ -328,10 +328,10 @@ class CourseRequirementTest extends TestCase
         $this->deleteJson('/api/coordinator/course-requirements', ['course' => self::COURSE])->assertStatus(422);
         $this->postJson('/api/coordinator/course-requirements/rename', ['from' => "Parent's Consent", 'to' => 'Hacked'])->assertStatus(422);
         // A catalog course their school does not offer yet cannot be configured; once offered, it works and is stored under their school only.
-        $this->setReqs(['Resume'], 'BSIT')->assertStatus(422);
-        \App\Models\SchoolCourse::create(['school_id' => $other->school_id, 'name' => \App\Support\Courses::NAMES['BSIT']]);
-        $this->setReqs(['Resume'], 'BSIT')->assertOk();
-        $this->assertSame($other->school_id, CourseRequirement::where('course', \App\Support\Courses::NAMES['BSIT'])->value('school_id'));
+        $this->setReqs(['Resume'], 'BSN')->assertStatus(422);
+        \App\Models\SchoolCourse::create(['school_id' => $other->school_id, 'name' => \App\Support\Courses::NAMES['BSN']]);
+        $this->setReqs(['Resume'], 'BSN')->assertOk();
+        $this->assertSame($other->school_id, CourseRequirement::where('course', \App\Support\Courses::NAMES['BSN'])->value('school_id'));
 
         $first = CourseRequirement::where('course', self::COURSE)->pluck('document_type')->all();
         $this->assertSame(['Insurance', "Parent's Consent"], $first);
