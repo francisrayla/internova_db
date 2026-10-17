@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Support\Courses;
+
 use App\Models\CourseRequirement;
 use App\Models\CourseRequirementSet;
 use App\Models\Document;
@@ -36,8 +38,7 @@ class CourseRequirementService
         'Insurance',
     ];
 
-    /** Mirrors COURSE_OPTIONS in frontend/src/lib/internOptions.js. */
-    public const KNOWN_COURSES = ['BSIT', 'BSTM', 'BSBA', 'BSHM', 'BSAIS', 'BTELED', 'BSCRIM'];
+    /** The listed programs (full names) come from App\Support\Courses, shared with the course pickers. */
 
     public const MAX_REQUIREMENTS = 30;
     public const MAX_NAME_LENGTH = 100;
@@ -65,10 +66,10 @@ class CourseRequirementService
             ->all();
 
         foreach (CourseRequirementSet::where('school_id', $school->id)->get() as $set) {
-            $me->sets[self::norm($set->course)] = ['course' => $set->course, 'types' => []];
+            $me->sets[self::courseKey($set->course)] = ['course' => Courses::canonical($set->course), 'types' => []];
         }
         foreach (CourseRequirement::where('school_id', $school->id)->orderBy('sort_order')->orderBy('id')->get() as $row) {
-            $key = self::norm($row->course);
+            $key = self::courseKey($row->course);
             if (isset($me->sets[$key])) {
                 $me->sets[$key]['types'][] = $row->document_type;
             }
@@ -81,6 +82,12 @@ class CourseRequirementService
     public static function norm(?string $value): string
     {
         return mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) $value)));
+    }
+
+    /** Comparison key for a course: "BSIT" and "Bachelor of Science in Information Technology" are the same course. */
+    public static function courseKey(?string $course): string
+    {
+        return self::norm(Courses::canonical($course));
     }
 
     /** Trimmed with inner whitespace collapsed (what gets stored). */
@@ -96,44 +103,49 @@ class CourseRequirementService
 
     public function isConfigured(?string $course): bool
     {
-        return $course !== null && self::norm($course) !== '' && isset($this->sets[self::norm($course)]);
+        return $course !== null && self::courseKey($course) !== '' && isset($this->sets[self::courseKey($course)]);
     }
 
     /** Ordered document types the course requires (the default set when not configured or no course). */
     public function typesFor(?string $course): array
     {
-        return $this->isConfigured($course) ? $this->sets[self::norm($course)]['types'] : $this->default;
+        return $this->isConfigured($course) ? $this->sets[self::courseKey($course)]['types'] : $this->default;
     }
 
     // ---------------------------------------------------------------
     // Coordinator settings
     // ---------------------------------------------------------------
 
-    /** Courses of this school with intern counts: the listed programs, any course an intern has, any configured one. */
+    /**
+     * Courses of this school with intern counts: the ones it offers (Settings -> Courses offered, in its own
+     * order), then any course that still has interns or a configured requirement set but is no longer offered
+     * (offered = false, so they can be tidied up).
+     */
     public function courses(): array
     {
-        $counts = [];
-        foreach (InternProfile::where('school_id', $this->school->id)->whereNotNull('course')->pluck('course') as $c) {
-            $c = self::tidy($c);
-            if ($c !== '') {
-                $k = self::norm($c);
-                $counts[$k] = ['name' => $counts[$k]['name'] ?? $c, 'interns' => ($counts[$k]['interns'] ?? 0) + 1];
-            }
-        }
+        $counts = SchoolCourseService::internCounts($this->school->id);
 
         $out = [];
-        foreach (self::KNOWN_COURSES as $c) {
-            $out[self::norm($c)] = ['name' => $c, 'interns_count' => $counts[self::norm($c)]['interns'] ?? 0];
+        foreach (SchoolCourseService::offered($this->school->id) as $row) {
+            $k = self::norm(Courses::canonical($row->name));
+            $out[$k] = ['name' => Courses::canonical($row->name), 'interns_count' => $counts[$k]['interns'] ?? 0, 'offered' => true];
         }
+        $leftovers = [];
         foreach ($counts as $k => $c) {
-            $out[$k] ??= ['name' => $c['name'], 'interns_count' => $c['interns']];
+            if (!isset($out[$k])) {
+                $leftovers[$k] = ['name' => $c['name'], 'interns_count' => $c['interns'], 'offered' => false];
+            }
         }
         foreach ($this->sets as $k => $s) {
-            $out[$k] ??= ['name' => $s['course'], 'interns_count' => 0];
+            if (!isset($out[$k]) && !isset($leftovers[$k])) {
+                $leftovers[$k] = ['name' => $s['course'], 'interns_count' => 0, 'offered' => false];
+            }
         }
+        uasort($leftovers, fn ($a, $b) => strcasecmp($a['name'], $b['name']));
+        $out += $leftovers;
 
         return array_values(array_map(fn ($c) => $c + [
-            'configured' => isset($this->sets[self::norm($c['name'])]),
+            'configured' => isset($this->sets[self::courseKey($c['name'])]),
             'requirements' => $this->typesFor($c['name']),
         ], $out));
     }
@@ -141,9 +153,9 @@ class CourseRequirementService
     /** Canonical spelling of a course of this school, or null when it is not one of them. */
     public function canonicalCourse(?string $course): ?string
     {
-        $k = self::norm($course);
+        $k = self::courseKey($course);
         foreach ($this->courses() as $c) {
-            if (self::norm($c['name']) === $k) {
+            if (self::courseKey($c['name']) === $k) {
                 return $c['name'];
             }
         }

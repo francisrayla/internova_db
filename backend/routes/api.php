@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CoordinatorMonitoringController;
 use App\Http\Controllers\Api\CourseRequirementController;
+use App\Http\Controllers\Api\SchoolCourseController;
 use App\Http\Controllers\Api\DeanSubscriptionController;
 use App\Http\Controllers\Api\CoordinatorSupportController;
 use App\Http\Controllers\Api\DeanController;
@@ -196,6 +197,9 @@ Route::prefix('coordinator')->middleware(['auth:sanctum', 'role:coordinator', 's
     Route::delete('/course-requirements', [CourseRequirementController::class, 'reset']);
     Route::post('/course-requirements/rename', [CourseRequirementController::class, 'rename']);
     Route::get('/document-types', [CourseRequirementController::class, 'forDeployment']);
+    // Courses offered by the school (catalog + the school's pick); shared with the Dean below.
+    Route::get('/school-courses', [SchoolCourseController::class, 'index']);
+    Route::put('/school-courses', [SchoolCourseController::class, 'update']);
 
     // Coordinator owns the rubric; the supervisor is the one who actually
     // sits with the intern and submits the evaluation (see the supervisor
@@ -276,6 +280,8 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean', 'school.active']
 
     Route::get('/school-settings', [DeanController::class, 'schoolSettings']);
     Route::patch('/school-settings', [DeanController::class, 'updateSchoolSettings']);
+    Route::get('/school-courses', [SchoolCourseController::class, 'index']);
+    Route::put('/school-courses', [SchoolCourseController::class, 'update']);
 
     // Same direct line to the platform owner coordinators have.
     Route::get('/support-tickets', [CoordinatorSupportController::class, 'index'])->withoutMiddleware('school.active');

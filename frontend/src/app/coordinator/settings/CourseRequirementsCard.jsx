@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -242,6 +243,21 @@ export default function CourseRequirementsCard() {
     return <p className="mt-6 text-sm text-slate-600">{error || "Loading…"}</p>;
   }
 
+  if (meta.courses.length === 0) {
+    return (
+      <Page>
+        <PageHeader title="Requirements per course" sentence="Pick a course, then tick the documents its interns must submit." />
+        <Section>
+          <p className="k-note is-warn">
+            <span>
+              Your school has no courses yet. <Link href="/coordinator/settings/courses" className="font-semibold underline">Pick the courses your school offers</Link> first, then set their requirements here.
+            </span>
+          </p>
+        </Section>
+      </Page>
+    );
+  }
+
   return (
     <Page>
       <PageHeader
@@ -255,11 +271,20 @@ export default function CourseRequirementsCard() {
             <Select value={course} onChange={(e) => chooseCourse(e.target.value)} disabled={busy}>
               {meta.courses.map((c) => (
                 <option key={c.name} value={c.name}>
-                  {c.name} ({c.interns_count} {c.interns_count === 1 ? "intern" : "interns"}){c.configured ? "" : " - default"}
+                  {c.name} ({c.interns_count} {c.interns_count === 1 ? "intern" : "interns"}){c.configured ? "" : " - default"}{c.offered === false ? " - not offered" : ""}
                 </option>
               ))}
             </Select>
           </FormField>
+
+          {current?.offered === false && (
+            <p className="k-note is-warn">
+              <span>
+                {course} is no longer offered by your school{current.interns_count > 0 ? `, but ${current.interns_count} ${current.interns_count === 1 ? "intern still has" : "interns still have"} it` : ""}.
+                You can still tidy its requirements here, or <Link href="/coordinator/settings/courses" className="font-semibold underline">offer it again</Link>.
+              </span>
+            </p>
+          )}
 
           {current && !current.configured && (
             <p className="k-note">
@@ -362,7 +387,7 @@ export default function CourseRequirementsCard() {
                   <option value="">Choose a course…</option>
                   {otherCourses.map((c) => (
                     <option key={c.name} value={c.name}>
-                      {c.name} ({c.requirements.length} required)
+                      {c.name} ({c.requirements.length} required){c.offered === false ? " - not offered" : ""}
                     </option>
                   ))}
                 </Select>

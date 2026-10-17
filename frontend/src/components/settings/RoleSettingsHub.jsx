@@ -9,14 +9,15 @@ const HUBS = {
   superadmin: {
     intro: "Platform-wide settings and your own account.",
     groups: [
-      { heading: "Platform", items: [{ href: "/superadmin/settings/system", icon: "gear", title: "System", description: "System name, support email and maintenance mode." }] },
+      { heading: "Platform", items: [{ href: "/superadmin/settings/system", icon: "settings", title: "System", description: "System name, support email and maintenance mode." }] },
       { heading: "Personal", items: [ACCOUNT("superadmin")] },
     ],
   },
   dean: {
     intro: "Your school's details and your account.",
     groups: [
-      { heading: "School", items: [{ href: "/dean/settings/school", icon: "building", title: "School information", description: "Name, address and contact details. Your coordinator can see them but not edit them." }] },
+      { heading: "School", items: [{ href: "/dean/settings/school", icon: "companies", title: "School information", description: "Name, address and contact details. Your coordinator can see them but not edit them." },
+        { href: "/dean/settings/courses", icon: "graduation", title: "Courses offered", description: "Pick the courses your school offers. Only these appear when interns are added or imported." }] },
       {
         heading: "Personal",
         items: [
@@ -32,7 +33,8 @@ const HUBS = {
       {
         heading: "School program",
         items: [
-          { href: "/coordinator/settings/school", icon: "building", title: "School information", description: "Your school's details. Only your school head can change them." },
+          { href: "/coordinator/settings/school", icon: "companies", title: "School information", description: "Your school's details. Only your school head can change them." },
+          { href: "/coordinator/settings/courses", icon: "graduation", title: "Courses offered", description: "Pick the courses your school offers. Only these appear when you add or import interns." },
           { href: "/coordinator/settings/narrative", icon: "file", title: "Narrative report layout", description: "Letterhead, cover page and the sections of every intern's report." },
           { href: "/coordinator/settings/requirements", icon: "list", title: "Requirements per course", description: "Choose which documents the interns of each course must submit." },
         ],

@@ -1,4 +1,4 @@
-import Icon from "@/components/Icon";
+import NavIcon from "@/components/NavIcon";
 import { DataList, DataRow, Page, PageHeader, Section } from "@/components/dash/page";
 
 /**
@@ -18,10 +18,10 @@ export default function SettingsHub({ title = "Settings", intro, groups }) {
                 key={item.href}
                 href={item.href}
                 wrap
-                lead={<span className="shrink-0 text-slate-500"><Icon name={item.icon} size={20} /></span>}
+                lead={<span className="shrink-0 text-slate-500"><NavIcon name={item.icon} size={20} /></span>}
                 title={item.title}
                 sub={item.description}
-                side={<span className="text-slate-400"><Icon name="arrow" size={16} /></span>}
+                side={<span className="text-slate-400"><NavIcon name="arrow" size={16} /></span>}
               />
             ))}
           </DataList>

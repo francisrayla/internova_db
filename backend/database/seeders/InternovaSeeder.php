@@ -173,8 +173,16 @@ class InternovaSeeder extends Seeder
 
         InternProfile::firstOrCreate(
             ['user_id' => $intern->id],
-            ['school_id' => $school->id, 'student_number' => '20240001', 'course' => 'BS Information Technology', 'year_level' => '4th Year', 'required_hours' => 480]
+            ['school_id' => $school->id, 'student_number' => '20240001', 'course' => 'Bachelor of Science in Information Technology', 'year_level' => '4th Year', 'required_hours' => 480]
         );
+
+        // The demo school offers a few courses (Settings -> Courses offered); only these can be given to new interns.
+        foreach (['BSIT', 'BSBA', 'BSTM', 'BSHM', 'BSCRIM'] as $i => $code) {
+            \App\Models\SchoolCourse::firstOrCreate(
+                ['school_id' => $school->id, 'name' => \App\Support\Courses::NAMES[$code]],
+                ['sort_order' => $i]
+            );
+        }
 
         $deployment = InternshipDeployment::firstOrCreate(
             ['intern_id' => $intern->id, 'company_id' => $company->id],

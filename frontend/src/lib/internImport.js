@@ -5,7 +5,8 @@
 // only it can know (an email that already has an account).
 
 import { clean } from "@/lib/inputRules";
-import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, normalizeCourse, normalizeYearLevel } from "@/lib/internOptions";
+import { YEAR_LEVEL_OPTIONS, normalizeYearLevel } from "@/lib/internOptions";
+import { courseProblem } from "@/lib/schoolCourses";
 
 export const IMPORT_MAX_ROWS = 200;
 // No student number: each intern enters their own when they activate
@@ -100,13 +101,13 @@ function cellText(value) {
   return String(value).trim();
 }
 
-/** Tidies one row the way each field's input rule would while typing. */
-export function cleanRow(row) {
+/** Tidies one row the way each field's input rule would while typing. `canonical` turns "BSIT" into the full course name. */
+export function cleanRow(row, canonical = (v) => String(v ?? "").trim()) {
   return {
     first_name: clean("personName", row.first_name ?? "").trim(),
     last_name: clean("personName", row.last_name ?? "").trim(),
     email: clean("email", row.email ?? "").toLowerCase(),
-    course: normalizeCourse(row.course).slice(0, 100),
+    course: canonical(row.course).slice(0, 150),
     year_level: normalizeYearLevel(row.year_level),
   };
 }
@@ -117,7 +118,7 @@ let nextKey = 1;
  * Reads an uploaded file into clean rows. Throws an Error with a
  * coordinator-friendly message when the file can't be used at all.
  */
-export async function readInternFile(file) {
+export async function readInternFile(file, canonical) {
   const name = file.name.toLowerCase();
   let table;
   if (name.endsWith(".csv")) {
@@ -160,7 +161,7 @@ export async function readInternFile(file) {
       first = first || split.first;
       last = last || split.last;
     }
-    const row = cleanRow({ first_name: first, last_name: last, email: get("email"), course: get("course"), year_level: get("year_level") });
+    const row = cleanRow({ first_name: first, last_name: last, email: get("email"), course: get("course"), year_level: get("year_level") }, canonical);
     if (row.email === SAMPLE_EMAIL) { skippedSample = true; continue; }
     rows.push({ key: nextKey++, ...row });
   }
@@ -174,8 +175,8 @@ export async function readInternFile(file) {
 
 const NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M} .'-]*$/u;
 
-/** Format and in-file duplicate checks: { [rowKey]: { field: message } }. */
-export function validateRows(rows) {
+/** Format and in-file duplicate checks: { [rowKey]: { field: message } }. `offered` = the school's courses (API list). */
+export function validateRows(rows, offered = [], canonical = (v) => String(v ?? "").trim()) {
   const count = (field) => rows.reduce((m, r) => (r[field] ? m.set(r[field], (m.get(r[field]) ?? 0) + 1) : m), new Map());
   const emailCounts = count("email");
   const errors = {};
@@ -190,38 +191,38 @@ export function validateRows(rows) {
     else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) e.email = "Enter a valid email address.";
     else if (emailCounts.get(row.email) > 1) e.email = "Listed more than once in this file.";
     if (!row.course) e.course = "Course is required.";
+    else if (courseProblem(offered, canonical, row.course)) e.course = courseProblem(offered, canonical, row.course);
     if (!YEAR_LEVEL_OPTIONS.includes(row.year_level)) e.year_level = "Use 4th Year or 5th Year.";
     if (Object.keys(e).length) errors[row.key] = e;
   }
   return errors;
 }
 
-export function isCustomCourse(course) {
-  return Boolean(course) && !COURSE_OPTIONS.includes(course);
-}
-
 /** Downloads the ready-to-fill template: an "Interns" sheet with headings
  *  and one example row, and a "How to fill" sheet explaining each column. */
-export async function downloadTemplate() {
+export async function downloadTemplate(offered = []) {
   const { default: writeExcelFile } = await import("write-excel-file/browser");
   const head = (value) => ({ value, fontWeight: "bold", backgroundColor: "#DBEAFE" });
   const example = (value) => ({ value, textColor: "#64748B" });
 
   const interns = [
     IMPORT_FIELDS.map((f) => head(FIELD_LABELS[f])),
-    [example("Juan"), example("Dela Cruz"), example(SAMPLE_EMAIL), example("BSIT"), example("4th Year")],
+    [example("Juan"), example("Dela Cruz"), example(SAMPLE_EMAIL), example(offered[0]?.code ?? offered[0]?.name ?? "BSIT"), example("4th Year")],
   ];
   const guide = [
     [head("Column"), head("Required?"), head("What to put")],
     ["First name", "Required", "Letters only, up to 50 characters."],
     ["Last name", "Required", "Letters only, up to 50 characters."],
     ["Email", "Required", "Where the intern receives the link to set their password. One per intern."],
-    ["Course", "Required", `${COURSE_OPTIONS.join(", ")} — or the full name of another program.`],
+    ["Course", "Required", offered.length
+      ? "Only a course your school offers (see the list below). The code or the full name both work; the full name is what gets saved."
+      : "Your school has not set up its courses yet. Set them in Settings, Courses offered, before importing."],
     ["Year level", "Optional", "4th Year or 5th Year. Leave blank for 4th Year."],
     [],
     ["The grey example row in the Interns sheet is skipped automatically — you can type over it or leave it."],
     [`Up to ${IMPORT_MAX_ROWS} interns per file.`],
     ["Student numbers are not needed — each intern enters their own when they activate their account."],
+    ...(offered.length ? [[], [head("Courses offered"), "", head("Code or full name")], ...offered.map((c) => ["", "", c.code ? `${c.code} - ${c.name}` : c.name])] : []),
   ];
 
   await writeExcelFile([

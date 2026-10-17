@@ -89,7 +89,13 @@ class SafeUpload
             }
         }
 
-        $sniffed = strtolower((string) $file->getMimeType());
+        // The temporary upload can vanish or be unreadable (an antivirus quarantining it, a broken
+        // transfer): refuse it like any other unsafe file instead of failing with a server error.
+        try {
+            $sniffed = strtolower((string) $file->getMimeType());
+        } catch (\Throwable) {
+            return "This file could not be read. Try again, or choose another file ({$allowedList}).";
+        }
         if (in_array($sniffed, self::FORBIDDEN_TYPES, true) || !in_array($sniffed, array_map('strtolower', self::ALLOWED[$extension][1]), true)) {
             return "This file's content does not match its type. You can send {$allowedList}.";
         }

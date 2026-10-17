@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { apiFetch } from "@/lib/apiFetch";
 import { clean, inputProps } from "@/lib/inputRules";
 import EmailField from "@/components/EmailField";
 import { emailProblem, normalizeEmail } from "@/lib/emailCheck";
-import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse } from "@/lib/internOptions";
+import { YEAR_LEVEL_OPTIONS } from "@/lib/internOptions";
+import { hoursForOffered, useSchoolCourses } from "@/lib/schoolCourses";
 import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 import { Btn, SheetFrame } from "@/components/dash/page";
 
-const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", course: "", course_other: "", year_level: "4th Year" };
+const EMPTY_ACCOUNT = { first_name: "", last_name: "", email: "", course: "", year_level: "4th Year" };
 
 /**
  * Reused from two entry points — the Interns screen (coordinator picks the
@@ -25,6 +27,7 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
   const [error, setError] = useState("");
   const [invited, setInvited] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const courses = useSchoolCourses();
 
   const activeCompanies = (companies ?? []).filter((c) => c.status === "active");
 
@@ -32,6 +35,7 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
     if (!account.first_name.trim() || !account.last_name.trim()) return "Enter the intern's full name.";
     if (!account.email.trim()) return "Enter the intern's email address.";
     if (emailProblem(account.email)) return " ";
+    if (!account.course) return "Choose the intern's course.";
     return "";
   }
 
@@ -49,19 +53,13 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
       setError("Select a company and a start date.");
       return;
     }
-    if (account.course === "Other" && !account.course_other.trim()) {
-      setError("Enter the program name.");
-      return;
-    }
     setSaving(true);
     setError("");
     try {
-      const { course_other, ...accountPayload } = account;
-      const course = account.course === "Other" ? course_other.trim() : account.course;
       const res = await apiFetch("/api/coordinator/interns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...accountPayload, email: normalizeEmail(account.email), course, ...deployment }),
+        body: JSON.stringify({ ...account, email: normalizeEmail(account.email), ...deployment }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not add intern.");
@@ -100,7 +98,7 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
         step === 1 ? (
           <>
             <Btn onClick={onClose}>Cancel</Btn>
-            <Btn variant="primary" onClick={goToStep2}>Next: Deployment</Btn>
+            <Btn variant="primary" onClick={goToStep2} disabled={courses.loading || courses.offered.length === 0}>Next: Deployment</Btn>
           </>
         ) : (
           <>
@@ -129,31 +127,37 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
               placeholder="intern@example.com"
               help="They'll get an email here to set their password and enter their own student number."
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="k-field">
-                <span className="k-label">Course</span>
-                <select
-                  value={account.course}
-                  onChange={(e) => setAccount((f) => ({ ...f, course: e.target.value }))}
-                  className="k-input"
-                >
-                  <option value="">Select course…</option>
-                  {COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  <option value="Other">Other</option>
-                </select>
-              </label>
-              <label className="k-field">
-                <span className="k-label">Year level</span>
-                <select value={account.year_level} onChange={(e) => setAccount((f) => ({ ...f, year_level: e.target.value }))} className="k-input">
-                  {YEAR_LEVEL_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
-              </label>
-            </div>
-            {account.course === "Other" && (
-              <label className="k-field">
-                <span className="k-label">Program name</span>
-                <input {...inputProps("shortText")} value={account.course_other} onChange={(e) => setAccount((f) => ({ ...f, course_other: e.target.value }))} className="k-input" placeholder="e.g. BS Marine Transportation" />
-              </label>
+            {courses.loading ? (
+              <p className="text-sm text-slate-600" role="status">Loading your school&apos;s courses…</p>
+            ) : courses.error ? (
+              <p className="k-note is-risk" role="alert">{courses.error}</p>
+            ) : courses.offered.length === 0 ? (
+              <p className="k-note is-warn">
+                <span>
+                  Your school hasn&apos;t set up its courses yet. Only the courses your school offers can be picked here.{" "}
+                  <Link href="/coordinator/settings/courses" className="font-semibold underline">Open Settings, Courses offered</Link>.
+                </span>
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="k-field">
+                  <span className="k-label">Course</span>
+                  <select
+                    value={account.course}
+                    onChange={(e) => setAccount((f) => ({ ...f, course: e.target.value }))}
+                    className="k-input"
+                  >
+                    <option value="">Select course…</option>
+                    {courses.offered.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                  </select>
+                </label>
+                <label className="k-field">
+                  <span className="k-label">Year level</span>
+                  <select value={account.year_level} onChange={(e) => setAccount((f) => ({ ...f, year_level: e.target.value }))} className="k-input">
+                    {YEAR_LEVEL_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </label>
+              </div>
             )}
 
             {error && <p className="k-note is-risk" role="alert">{error}</p>}
@@ -187,10 +191,10 @@ export default function AddInternModal({ companies, lockedCompanyId, lockedCompa
                 <div className="k-field">
                   <span className="k-label">Required hours</span>
                   <p className="k-input font-semibold" aria-readonly="true" style={{ background: "var(--ui-soft)" }}>
-                    {hoursForCourse(account.course === "Other" ? undefined : account.course)} hours
+                    {hoursForOffered(courses.offered, courses.canonical, account.course)} hours
                   </p>
                   <span className="k-hint">
-                    Fixed by {account.course === "Other" ? (account.course_other.trim() || "the intern's program") : account.course || "the intern's course"} — set on the Course step, not editable here.
+                    Set by your school for {account.course || "the intern's course"} (Settings, Courses offered) — not editable here.
                   </span>
                 </div>
               </>

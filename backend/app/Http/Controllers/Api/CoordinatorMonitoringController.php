@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Support\Courses;
+
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\Company;
@@ -31,6 +33,7 @@ use App\Services\DeploymentSummaryService;
 use App\Services\EmailDeliverability;
 use App\Services\InternMonitoringService;
 use App\Services\PlanFeatures;
+use App\Services\SchoolCourseService;
 use App\Services\NotificationService;
 use App\Support\Paging;
 use App\Support\TaskListing;
@@ -51,24 +54,6 @@ use Illuminate\Validation\Rule;
  */
 class CoordinatorMonitoringController extends Controller
 {
-    /**
-     * Required OJT hours per program — the authoritative source (not the
-     * client) so a new intern's total can never drift from what their
-     * program actually requires. BSCRIM follows a shorter practicum; every
-     * other listed program (and any free-text "Other" course) runs the
-     * default until the school confirms its own per-program figures.
-     */
-    private const COURSE_HOURS = [
-        'BSIT' => 500,
-        'BSCRIM' => 250,
-    ];
-    private const DEFAULT_COURSE_HOURS = 500;
-
-    private static function hoursForCourse(?string $course): int
-    {
-        return self::COURSE_HOURS[$course] ?? self::DEFAULT_COURSE_HOURS;
-    }
-
     private function deploymentIdsForSchool(int $schoolId): array
     {
         return InternshipDeployment::where('school_id', $schoolId)->pluck('id')->all();
@@ -308,7 +293,8 @@ class CoordinatorMonitoringController extends Controller
             $rows = $rows->filter(fn ($i) => (string) $i['company_id'] === (string) $companyId);
         }
         if ($course = $request->query('course')) {
-            $rows = $rows->filter(fn ($i) => $i['course'] === $course);
+            $course = Courses::canonical($course);
+            $rows = $rows->filter(fn ($i) => Courses::canonical($i['course']) === $course);
         }
         if (($q = mb_strtolower(trim((string) $request->query('search')))) !== '') {
             $rows = $rows->filter(function ($i) use ($q) {
@@ -1584,16 +1570,19 @@ class CoordinatorMonitoringController extends Controller
             'first_name' => ['required', 'string', 'max:50', 'regex:' . self::PERSON_NAME_PATTERN],
             'last_name' => ['required', 'string', 'max:50', 'regex:' . self::PERSON_NAME_PATTERN],
             'email' => ['required', 'bail', new CompleteEmail, Rule::unique('users', 'email')],
-            'course' => 'nullable|string|max:150',
+            'course' => 'required|string|max:150',
             'year_level' => ['nullable', 'string', Rule::in(self::IMPORT_YEAR_LEVELS)],
             'company_id' => 'required|integer',
             'start_date' => InternshipDeployment::startDateRules(),
             'end_date' => 'nullable|date|after_or_equal:start_date',
         ], InternshipDeployment::startDateMessages());
 
-        // Not client-supplied — required hours are a fixed function of the
-        // intern's course (see COURSE_HOURS above), never a free input.
-        $requiredHours = self::hoursForCourse($data['course'] ?? null);
+        // Only a course the school offers; its required hours come from the school's setting, never a free input.
+        $offered = SchoolCourseService::index($schoolId);
+        if ($problem = SchoolCourseService::problem($offered, $data['course'])) {
+            return response()->json(['success' => false, 'message' => $problem, 'errors' => ['course' => [$problem]]], 422);
+        }
+        $requiredHours = SchoolCourseService::hours($offered, $data['course']);
 
         $company = Company::where('id', $data['company_id'])->where('school_id', $schoolId)->first();
         if (!$company) {
@@ -1625,7 +1614,7 @@ class CoordinatorMonitoringController extends Controller
                 'school_id' => $schoolId,
                 // Filled in by the intern when they activate their account.
                 'student_number' => null,
-                'course' => $data['course'] ?? null,
+                'course' => Courses::canonical($data['course']),
                 'year_level' => $data['year_level'] ?? null,
                 'required_hours' => $requiredHours,
             ]);
@@ -1736,10 +1725,11 @@ class CoordinatorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => 'Everyone in this file is already in Internova — there was no one new to add.'], 422);
         }
 
-        $users = DB::transaction(function () use ($rows, $schoolId, $internRole, $company, $data, $request) {
+        $offered = SchoolCourseService::index($schoolId);
+        $users = DB::transaction(function () use ($rows, $schoolId, $internRole, $company, $data, $request, $offered) {
             $created = [];
             foreach ($rows as $row) {
-                $requiredHours = self::hoursForCourse($row['course']);
+                $requiredHours = SchoolCourseService::hours($offered, $row['course']);
 
                 $user = User::create([
                     'role_id' => $internRole->id,
@@ -1809,7 +1799,7 @@ class CoordinatorMonitoringController extends Controller
             'first_name' => $text('first_name'),
             'last_name' => $text('last_name'),
             'email' => strtolower(str_replace(' ', '', $text('email'))),
-            'course' => $text('course'),
+            'course' => (string) Courses::canonical($text('course')),
             'year_level' => $yearLevel !== '' ? $yearLevel : '4th Year',
         ];
     }
@@ -1834,6 +1824,7 @@ class CoordinatorMonitoringController extends Controller
             ->keyBy(fn ($u) => strtolower($u->email));
 
         $emailCounts = array_count_values($emails);
+        $offered = SchoolCourseService::index($schoolId);
 
         foreach ($rows as $i => $row) {
             $rowErrors = [];
@@ -1868,8 +1859,10 @@ class CoordinatorMonitoringController extends Controller
 
             if ($row['course'] === '') {
                 $rowErrors['course'] = 'Course is required.';
-            } elseif (mb_strlen($row['course']) > 100) {
-                $rowErrors['course'] = 'Course can be at most 100 characters.';
+            } elseif (mb_strlen($row['course']) > SchoolCourseService::MAX_NAME_LENGTH) {
+                $rowErrors['course'] = 'Course can be at most ' . SchoolCourseService::MAX_NAME_LENGTH . ' characters.';
+            } elseif ($problem = SchoolCourseService::problem($offered, $row['course'])) {
+                $rowErrors['course'] = $problem;
             }
 
             if (!in_array($row['year_level'], self::IMPORT_YEAR_LEVELS, true)) {

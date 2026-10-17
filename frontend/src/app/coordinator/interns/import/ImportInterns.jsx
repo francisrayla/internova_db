@@ -8,7 +8,8 @@ import { apiFetch } from "@/lib/apiFetch";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import CompanySupervisorsNote from "@/components/coordinator/CompanySupervisorsNote";
 import { clean } from "@/lib/inputRules";
-import { COURSE_OPTIONS, YEAR_LEVEL_OPTIONS, hoursForCourse, normalizeCourse } from "@/lib/internOptions";
+import { YEAR_LEVEL_OPTIONS } from "@/lib/internOptions";
+import { hoursForOffered, useSchoolCourses } from "@/lib/schoolCourses";
 import { START_DATE_HINT, startDateBounds } from "@/lib/startDateWindow";
 import {
   FIELD_LABELS,
@@ -16,7 +17,6 @@ import {
   IMPORT_MAX_ROWS,
   cleanRow,
   downloadTemplate,
-  isCustomCourse,
   readInternFile,
   validateRows,
 } from "@/lib/internImport";
@@ -57,7 +57,7 @@ function Stepper({ step }) {
   );
 }
 
-function UploadStep({ onLoaded }) {
+function UploadStep({ onLoaded, courses }) {
   const inputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
   const [reading, setReading] = useState(false);
@@ -69,7 +69,7 @@ function UploadStep({ onLoaded }) {
     setError("");
     setReading(true);
     try {
-      const result = await readInternFile(file);
+      const result = await readInternFile(file, courses.canonical);
       onLoaded({ fileName: file.name, ...result });
     } catch (err) {
       setError(err.message || "This file couldn't be read.");
@@ -82,10 +82,29 @@ function UploadStep({ onLoaded }) {
   async function handleTemplate() {
     setTemplateBusy(true);
     try {
-      await downloadTemplate();
+      await downloadTemplate(courses.offered);
     } finally {
       setTemplateBusy(false);
     }
+  }
+
+  if (courses.loading) {
+    return <p className="text-sm text-slate-600" role="status">Loading your school&apos;s courses…</p>;
+  }
+  if (courses.error) {
+    return <p role="alert" className="k-note is-risk">{courses.error}</p>;
+  }
+  if (courses.offered.length === 0) {
+    return (
+      <Section title="Set up your courses first">
+        <p className="k-note is-warn">
+          <span>
+            Your school hasn&apos;t set up its courses yet. Only the courses your school offers can be imported.{" "}
+            <Link href="/coordinator/settings/courses" className="font-semibold underline">Open Settings, Courses offered</Link>, pick them, then come back.
+          </span>
+        </p>
+      </Section>
+    );
   }
 
   return (
@@ -140,10 +159,20 @@ function UploadStep({ onLoaded }) {
               { label: "Year level", value: "Optional · 4th Year if blank" },
             ]}
           />
-          <p className="k-hint">
-            Courses: {COURSE_OPTIONS.join(", ")} — or any other program name. A single &quot;Name&quot; column written as
-            &quot;Dela Cruz, Juan&quot; works too.
-          </p>
+          <div>
+            <p className="k-hint">
+              Courses your school offers (the code or the full name works, the full name is saved):
+            </p>
+            <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto text-sm text-slate-800" aria-label="Courses your school offers">
+              {courses.offered.map((c) => (
+                <li key={c.name} className="break-words">{c.code && <span className="font-mono text-xs text-slate-600">{c.code} · </span>}{c.name}</li>
+              ))}
+            </ul>
+            <p className="k-hint mt-2">
+              A single &quot;Name&quot; column written as &quot;Dela Cruz, Juan&quot; works too. To change this list, go to{" "}
+              <Link href="/coordinator/settings/courses" className="font-semibold underline">Settings, Courses offered</Link>.
+            </p>
+          </div>
           <p className="k-note">
             <span className="flex gap-2">
               <Icon name="user" size={14} className="mt-0.5 shrink-0" />
@@ -156,7 +185,7 @@ function UploadStep({ onLoaded }) {
   );
 }
 
-function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, checking, onBack, onContinue }) {
+function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, checking, onBack, onContinue, courses }) {
   const [onlyProblemsToggle, setOnlyProblems] = useState(false);
   const problemCount = Object.keys(errors).length;
   // Interns already in this school are listed but skipped — re-uploading the
@@ -173,7 +202,7 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
   }
 
   function tidy(key) {
-    setRows((prev) => prev.map((r) => (r.key === key ? { key: r.key, ...cleanRow(r) } : r)));
+    setRows((prev) => prev.map((r) => (r.key === key ? { key: r.key, ...cleanRow(r, courses.canonical) } : r)));
   }
 
   function remove(key) {
@@ -204,6 +233,7 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
             onChange={(e) => update(row.key, field, FIELD_RULES[field] ? clean(FIELD_RULES[field], e.target.value) : e.target.value)}
             onBlur={() => tidy(row.key)}
             list={field === "course" ? "import-course-options" : undefined}
+            title={field === "course" ? row.course : undefined}
             inputMode={field === "email" ? "email" : undefined}
             className={className}
           />
@@ -267,7 +297,7 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
       </section>
 
       <datalist id="import-course-options">
-        {COURSE_OPTIONS.map((c) => <option key={c} value={c} />)}
+        {courses.offered.map((c) => <option key={c.name} value={c.name} />)}
       </datalist>
 
       {/* Phones and small tablets: one card per intern, every field labelled. */}
@@ -289,7 +319,7 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-3">
                 {IMPORT_FIELDS.map((field) => (
-                  <label key={field} className={field === "email" ? "col-span-2 block" : "block"}>
+                  <label key={field} className={field === "email" || field === "course" ? "col-span-2 block" : "block"}>
                     <span className="k-label mb-1 block">{FIELD_LABELS[field]}</span>
                     {renderField(row, field, position, rowErrors)}
                   </label>
@@ -306,11 +336,11 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
           <table className="k-table w-full min-w-[860px] table-fixed">
             <colgroup>
               <col className="w-12" />
-              <col className="w-[18%]" />
-              <col className="w-[18%]" />
-              <col className="w-[31%]" />
-              <col className="w-[15%]" />
-              <col className="w-[13%]" />
+              <col className="w-[14%]" />
+              <col className="w-[14%]" />
+              <col className="w-[22%]" />
+              <col className="w-[34%]" />
+              <col className="w-[12%]" />
               <col className="w-14" />
             </colgroup>
             <thead>
@@ -377,7 +407,7 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
   );
 }
 
-function DeployStep({ rows, companies, onBack, onImported }) {
+function DeployStep({ rows, companies, onBack, onImported, courses }) {
   const activeCompanies = companies.filter((c) => c.status === "active");
   const [form, setForm] = useState({ company_id: activeCompanies.length === 1 ? String(activeCompanies[0].id) : "", start_date: "" });
   const [saving, setSaving] = useState(false);
@@ -454,9 +484,9 @@ function DeployStep({ rows, companies, onBack, onImported }) {
               <li key={course} className="flex items-center justify-between gap-3 py-2">
                 <span className="min-w-0 break-words text-slate-800">
                   {course}
-                  {isCustomCourse(course) && <span className="ml-1.5 text-xs text-slate-600">(other program)</span>}
+                  {courses.offered.find((c) => c.name === course)?.custom && <span className="ml-1.5 text-xs text-slate-600">(own program)</span>}
                 </span>
-                <span className="shrink-0 text-xs text-slate-600">{count} · {hoursForCourse(normalizeCourse(course))} h each</span>
+                <span className="shrink-0 text-xs text-slate-600">{count} · {hoursForOffered(courses.offered, courses.canonical, course)} h each</span>
               </li>
             ))}
           </ul>
@@ -521,6 +551,7 @@ export default function ImportInterns() {
   const [companies, setCompanies] = useState([]);
   const [result, setResult] = useState(null);
   const checkRun = useRef(0);
+  const courses = useSchoolCourses();
 
   useEffect(() => {
     fetchCoordinatorData("companies").then((r) => setCompanies(r.companies ?? [])).catch(() => setCompanies([]));
@@ -559,7 +590,7 @@ export default function ImportInterns() {
 
   // Instant format checks win; the server's are shown where those pass.
   const errors = useMemo(() => {
-    const client = validateRows(rows);
+    const client = validateRows(rows, courses.offered, courses.canonical);
     const merged = {};
     for (const row of rows) {
       if (existingKeys.has(row.key)) continue;
@@ -567,7 +598,7 @@ export default function ImportInterns() {
       if (Object.keys(combined).length) merged[row.key] = combined;
     }
     return merged;
-  }, [rows, serverErrors, existingKeys]);
+  }, [rows, serverErrors, existingKeys, courses.offered, courses.canonical]);
 
   const newRows = useMemo(() => rows.filter((r) => !existingKeys.has(r.key)), [rows, existingKeys]);
 
@@ -591,6 +622,7 @@ export default function ImportInterns() {
 
       {step === 1 && (
         <UploadStep
+          courses={courses}
           onLoaded={({ fileName, skippedSample, rows: loaded }) => {
             setFile({ fileName, skippedSample });
             setServerErrors({});
@@ -609,6 +641,7 @@ export default function ImportInterns() {
           errors={errors}
           existing={existingKeys}
           checking={checking}
+          courses={courses}
           onBack={reset}
           onContinue={() => setStep(3)}
         />
@@ -618,6 +651,7 @@ export default function ImportInterns() {
         <DeployStep
           rows={newRows}
           companies={companies}
+          courses={courses}
           onBack={(rowErrors) => {
             if (rowErrors) {
               // Something changed since the review (e.g. an account was created

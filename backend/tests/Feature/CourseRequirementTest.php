@@ -21,7 +21,7 @@ class CourseRequirementTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const COURSE = 'BS Information Technology';
+    private const COURSE = 'Diploma in Culinary Arts';
 
     private const DEFAULTS = ['Endorsement Letter', 'Brgy. Clearance', 'Waiver', 'Resume', 'Certificate of Completion'];
 
@@ -30,6 +30,10 @@ class CourseRequirementTest extends TestCase
         parent::setUp();
 
         $this->seed(\Database\Seeders\InternovaSeeder::class);
+        // A program that is not one of the listed ones, so the tests cover a school's own course name.
+        InternProfile::where('user_id', User::where('email', 'intern@internova.test')->value('id'))->update(['course' => self::COURSE]);
+        // The school offers it (Settings -> Courses offered); the demo seeder already offers BSIT and a few more.
+        \App\Models\SchoolCourse::create(['school_id' => School::first()->id, 'name' => self::COURSE, 'sort_order' => 9]);
     }
 
     private function coordinator(): User
@@ -99,7 +103,7 @@ class CourseRequirementTest extends TestCase
         $this->assertSame(1, $course['interns_count']);
         // The built-in choices come with it, plus the listed programs.
         $this->assertContains('Medical Certificate', collect($res->json('choices'))->pluck('name')->all());
-        $this->assertContains('BSIT', collect($res->json('courses'))->pluck('name')->all());
+        $this->assertContains(\App\Support\Courses::NAMES['BSIT'], collect($res->json('courses'))->pluck('name')->all());
 
         // Report + progress: all five document sections, all missing, exactly like before.
         $this->assertSame(0, CourseRequirement::count());
@@ -129,7 +133,7 @@ class CourseRequirementTest extends TestCase
 
     public function test_course_names_match_ignoring_case_and_extra_spaces(): void
     {
-        InternProfile::where('user_id', $this->intern()->id)->update(['course' => '  bs information   technology ']);
+        InternProfile::where('user_id', $this->intern()->id)->update(['course' => '  diploma IN   culinary arts ']);
         CourseRequirementService::forSchool(School::first())->save(self::COURSE, ['Insurance']);
 
         $this->assertSame(1, $this->progress()['missing_documents']);
@@ -323,9 +327,11 @@ class CourseRequirementTest extends TestCase
         $this->setReqs(['Resume'])->assertStatus(422);
         $this->deleteJson('/api/coordinator/course-requirements', ['course' => self::COURSE])->assertStatus(422);
         $this->postJson('/api/coordinator/course-requirements/rename', ['from' => "Parent's Consent", 'to' => 'Hacked'])->assertStatus(422);
-        // Their own listed program works and is stored under their school only.
+        // A catalog course their school does not offer yet cannot be configured; once offered, it works and is stored under their school only.
+        $this->setReqs(['Resume'], 'BSIT')->assertStatus(422);
+        \App\Models\SchoolCourse::create(['school_id' => $other->school_id, 'name' => \App\Support\Courses::NAMES['BSIT']]);
         $this->setReqs(['Resume'], 'BSIT')->assertOk();
-        $this->assertSame($other->school_id, CourseRequirement::where('course', 'BSIT')->value('school_id'));
+        $this->assertSame($other->school_id, CourseRequirement::where('course', \App\Support\Courses::NAMES['BSIT'])->value('school_id'));
 
         $first = CourseRequirement::where('course', self::COURSE)->pluck('document_type')->all();
         $this->assertSame(['Insurance', "Parent's Consent"], $first);
@@ -365,7 +371,7 @@ class CourseRequirementTest extends TestCase
 
         // Another course reusing the custom name in other casing gets the school's spelling back.
         $this->setReqs(["PARENT'S CONSENT"], 'BSIT')->assertOk();
-        $this->assertSame("Parent's Consent", CourseRequirement::where('course', 'BSIT')->value('document_type'));
+        $this->assertSame("Parent's Consent", CourseRequirement::where('course', \App\Support\Courses::NAMES['BSIT'])->value('document_type'));
     }
 
     // ---- rename ----------------------------------------------------------------------
