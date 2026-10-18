@@ -24,6 +24,7 @@ export default function AcceptInvitePage() {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [termsError, setTermsError] = useState("");
   const [done, setDone] = useState(false);
+  const [alreadyUsed, setAlreadyUsed] = useState(false);
 
   useEffect(() => {
     fetch(`/api/invitations/${token}`)
@@ -60,9 +61,12 @@ export default function AcceptInvitePage() {
     }
 
     setSaving(true);
+    setAlreadyUsed(false);
     fetch(`/api/invitations/${token}/accept`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // Never leave the button on "Activating…" forever: give up after 30 s and let the person try again.
+      signal: AbortSignal.timeout(30000),
       body: JSON.stringify({
         password,
         password_confirmation: confirm,
@@ -72,11 +76,25 @@ export default function AcceptInvitePage() {
     })
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
+        // The link was used up — most often by the first tap that seemed to hang but went through.
+        if (res.status === 404) {
+          setAlreadyUsed(true);
+          throw new Error("This invitation link has already been used. If you just activated your account, log in with your new password.");
+        }
         if (!res.ok || !data.success) throw new Error(data.message || "Failed to activate account.");
         return data;
       })
       .then(() => setDone(true))
-      .catch((err) => setSubmitError(err.message))
+      .catch((err) => {
+        const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+        setSubmitError(
+          timedOut
+            ? "This is taking longer than usual. Check your connection, then tap Activate My Account again."
+            : err instanceof TypeError
+              ? "Could not reach Internova. Check your connection, then tap Activate My Account again."
+              : err.message
+        );
+      })
       .finally(() => setSaving(false));
   }
 
@@ -184,7 +202,14 @@ export default function AcceptInvitePage() {
           <TermsCheckbox checked={acceptTerms} onChange={(v) => { setAcceptTerms(v); if (v) setTermsError(""); }} error={termsError} />
 
           {submitError && (
-            <p className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">{submitError}</p>
+            <div role="alert" className="rounded-xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+              <p>{submitError}</p>
+              {alreadyUsed && (
+                <Link href="/login" className="mt-2 inline-flex min-h-[44px] items-center font-semibold text-blue-700 underline">
+                  Go to Login
+                </Link>
+              )}
+            </div>
           )}
 
           <button

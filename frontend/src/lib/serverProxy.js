@@ -18,6 +18,34 @@ export function clientIpHeader(request) {
   return ip ? { "X-Client-IP": ip } : {};
 }
 
+/**
+ * fetch() to the Laravel backend with a deadline. Without one, a request on a connection that the private
+ * network silently dropped waits for minutes, and the page that asked just keeps spinning ("Activating…").
+ * GET/HEAD are retried once on a network error or timeout (safe to repeat); writes never are.
+ */
+export async function backendFetch(url, init = {}, { timeoutMs = 60000 } = {}) {
+  const method = (init.method || "GET").toUpperCase();
+  const attempts = method === "GET" || method === "HEAD" ? 2 : 1;
+  let lastError;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+/** The JSON answer when the backend could not be reached in time. */
+export function backendUnavailable(err) {
+  const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+  return NextResponse.json(
+    { success: false, message: timedOut ? "The server took too long to answer. Please try again." : "Could not reach the server. Please try again." },
+    { status: timedOut ? 504 : 502 }
+  );
+}
+
 export function forwardHeaders(request, extra = {}) {
   const headers = { Accept: "application/json", ...clientIpHeader(request), ...extra };
   const auth = request.headers.get("authorization");
@@ -47,7 +75,13 @@ export function createApiProxy(prefix) {
       init.body = isMultipart ? await request.formData() : await request.text();
     }
 
-    const response = await fetch(upstream, init);
+    let response;
+    try {
+      // Uploads and Word downloads get longer than plain JSON calls.
+      response = await backendFetch(upstream, init, { timeoutMs: isMultipart || /docx|download|export/.test(path) ? 120000 : 60000 });
+    } catch (err) {
+      return backendUnavailable(err);
+    }
 
     // File downloads (e.g. the Word narrative report) pass through untouched.
     const upstreamType = response.headers.get("content-type") || "";
