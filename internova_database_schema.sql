@@ -139,13 +139,16 @@ CREATE TABLE `companies` (
   `latitude` decimal(10,7) NULL,
   `longitude` decimal(10,7) NULL,
   `allowed_radius_meters` int NULL,
+  `location_set_by` bigint unsigned NULL,
+  `location_set_at` timestamp NULL,
   `status` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT 'active',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `company_code_unique` (`company_code`),
   KEY `school_id_idx` (`school_id`),
-  CONSTRAINT `companies_school_id_foreign` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE CASCADE
+  CONSTRAINT `companies_school_id_foreign` FOREIGN KEY (`school_id`) REFERENCES `schools` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `companies_location_set_by_foreign` FOREIGN KEY (`location_set_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Supervisor Profiles

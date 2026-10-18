@@ -81,7 +81,7 @@ class AttendanceLocationTest extends TestCase
 
     // ---- anywhere is fine ----------------------------------------------------------------------
 
-    public function test_an_intern_can_clock_in_far_from_the_company_and_the_distance_is_recorded(): void
+    public function test_an_intern_can_clock_in_far_from_the_company_and_it_is_only_flagged_for_review(): void
     {
         // About 111 km from the company, a field assignment.
         $this->punch('clock-in', self::LAT + 1.0, self::LNG, ['accuracy' => 12, 'fix_age' => 3])->assertSuccessful();
@@ -89,7 +89,9 @@ class AttendanceLocationTest extends TestCase
         $a = Attendance::where('deployment_id', $this->dep->id)->firstOrFail();
         $this->assertEqualsWithDelta(111000, $a->clock_in_distance_m, 500);
         $this->assertSame(12, $a->clock_in_accuracy_m);
-        $this->assertNull($a->clock_in_location_flags);
+        // The pin is set, so far away is a warning for the supervisor (never a refusal).
+        $this->assertSame(['outside_area'], $a->clock_in_location_flags);
+        $this->assertTrue($a->red_flag);
     }
 
     public function test_a_company_without_a_map_location_is_not_blocked(): void
@@ -184,8 +186,8 @@ class AttendanceLocationTest extends TestCase
         $this->punch('clock-in', self::LAT, self::LNG, ['accuracy' => 9])->assertSuccessful();
         Carbon::setTestNow(now()->addHours(7)); // before the 8-hour automatic time-out
 
-        // 500 m away is just walking; and a time-out is never refused, only flagged.
-        $this->punch('clock-out', self::LAT + 0.0045, self::LNG, ['accuracy' => 9, 'geo_tampered' => 1])->assertSuccessful();
+        // 111 m away is inside the 200 m circle; and a time-out is never refused, only flagged.
+        $this->punch('clock-out', self::LAT + 0.0010, self::LNG, ['accuracy' => 9, 'geo_tampered' => 1])->assertSuccessful();
 
         $a = Attendance::firstOrFail();
         $this->assertNotNull($a->clock_out);

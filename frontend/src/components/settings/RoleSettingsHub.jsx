@@ -49,6 +49,7 @@ const HUBS = {
         heading: "Company",
         items: [
           { href: "/supervisor/settings/attendance", icon: "calendar", title: "Attendance format", description: "One time in and out a day, or morning and afternoon (4 entries). Applies to every intern and supervisor of your company." },
+          { href: "/supervisor/settings/location", icon: "location", title: "Company location", description: "Set where your company is on the map and how far from it interns can clock in before they are flagged for your review." },
         ],
       },
       { heading: "Personal", items: [ACCOUNT("supervisor")] },

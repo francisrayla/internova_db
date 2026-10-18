@@ -73,6 +73,8 @@ class SupervisorMonitoringController extends Controller
                 'red_flags_unchecked' => (int) (collect($queue)->firstWhere('key', 'red_flags')['count'] ?? 0),
             ],
             'queue' => $queue,
+            // The dashboard nudges the supervisor to put the company on the map (null: no company profile).
+            'company_location_set' => ($company = $this->companyFor($user)) ? $company->hasLocation() : null,
         ]);
     }
 

@@ -47,7 +47,8 @@ class Attendance extends Model
     public const ODD_HOURS_BEFORE = 5;
 
     // Location flags that count as "red" (the other location flags are only amber/grey hints).
-    public const RED_LOCATION_FLAGS = ['location_tampering', 'impossible_travel'];
+    // outside_area = further from the company's map pin than its radius; it is a warning for the supervisor, never a refusal.
+    public const RED_LOCATION_FLAGS = ['location_tampering', 'impossible_travel', 'outside_area'];
 
     // full = one time in/out for the whole day; am/pm = the two halves of a split day.
     public const FULL = 'full';
@@ -114,11 +115,39 @@ class Attendance extends Model
         if (!$this->red_flag) {
             return null;
         }
+        $reasons = [];
         if ($this->clock_in_odd_hours) {
-            return 'Red flag: clocked in at ' . LocalTime::time($this->clock_in, 'g:i A');
+            $reasons[] = 'clocked in at ' . LocalTime::time($this->clock_in, 'g:i A');
+        }
+        if ($this->outsideAreaLabel()) {
+            $reasons[] = lcfirst($this->outsideAreaLabel());
+        }
+        if (array_diff($this->redLocationFlags(), ['outside_area'])) {
+            $reasons[] = 'suspicious location';
         }
 
-        return 'Red flag: suspicious location';
+        return 'Red flag: ' . ($reasons ? implode('; ', $reasons) : 'suspicious location');
+    }
+
+    /** "Outside the company area (350 m away)" when a punch was further than the company's radius, else null. */
+    public function outsideAreaLabel(): ?string
+    {
+        $far = fn (int $m) => $m >= 1000 ? number_format($m / 1000, 1) . ' km' : "{$m} m";
+        $parts = [];
+        foreach (['clock_in' => 'time in', 'clock_out' => 'time out'] as $punch => $label) {
+            if (in_array('outside_area', $this->{"{$punch}_location_flags"} ?? [], true)) {
+                $parts[$label] = $this->{"{$punch}_distance_m"};
+            }
+        }
+        if (!$parts) {
+            return null;
+        }
+        $known = array_filter($parts, fn ($m) => $m !== null);
+        if (count($known) === 2 && count($parts) === 2) {
+            return 'Outside the company area (' . $far((int) $parts['time in']) . ' away at time in, ' . $far((int) $parts['time out']) . ' at time out)';
+        }
+
+        return 'Outside the company area' . ($known ? ' (' . $far((int) max($known)) . ' away)' : '');
     }
 
     /** Fields every attendance list shares so the badge, the checked state and the pinning read the same everywhere. */
@@ -127,6 +156,7 @@ class Attendance extends Model
         return [
             'red_flag' => (bool) $this->red_flag,
             'red_flag_text' => $this->redFlagText(),
+            'outside_area_label' => $this->outsideAreaLabel(),
             'red_flag_checked' => $this->red_flag && $this->red_flag_checked_at !== null,
             'red_flag_checked_at' => $this->red_flag_checked_at?->local()?->format('M d, h:i A'),
             'red_flag_checked_by' => $this->red_flag_checked_at ? $this->redFlagChecker?->name : null,

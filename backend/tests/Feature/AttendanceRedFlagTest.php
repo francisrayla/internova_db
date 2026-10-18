@@ -44,6 +44,8 @@ class AttendanceRedFlagTest extends TestCase
         $this->dep = InternshipDeployment::firstOrFail();
         $this->dep->update(['start_date' => '2026-09-01', 'required_hours' => 5000, 'status' => 'active']);
         Attendance::where('deployment_id', $this->dep->id)->delete();
+        // The company's pin is where the test punches happen, so the distance rule stays out of these cases.
+        Company::findOrFail($this->dep->company_id)->update(['latitude' => 13.0, 'longitude' => 121.0, 'allowed_radius_meters' => 200]);
         Notification::query()->delete();
         $this->intern = User::findOrFail($this->dep->intern_id);
         $this->supA = User::where('email', 'supervisor@internova.test')->firstOrFail();

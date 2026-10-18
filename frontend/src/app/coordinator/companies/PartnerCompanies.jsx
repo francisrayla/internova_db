@@ -10,6 +10,7 @@ import { Btn, Chip, Chips, DataList, DataRow, FilterBar, FormField, Input, Page,
 
 import { clean, inputProps } from "@/lib/inputRules";
 import EmailField from "@/components/EmailField";
+import { CompanyLocationLine } from "@/components/coordinator/CompanyLocationNote";
 import { emailProblem, normalizeEmail, serverFieldError } from "@/lib/emailCheck";
 function AddCompanyModal({ onClose, onSaved }) {
   const [form, setForm] = useState({ company_name: "", address: "", contact_email: "", contact_number: "" });
@@ -103,6 +104,7 @@ function CompanyRow({ c }) {
         <>
           <span className="flex min-w-0 items-center gap-1.5"><Icon name="location" size={14} className="shrink-0" /><span className="break-words">{location}</span></span>
           <span className="flex min-w-0 items-center gap-1.5"><Icon name="mail" size={14} className="shrink-0" /><span className="min-w-0 break-words">{contact || "No contact details yet"}</span></span>
+          <CompanyLocationLine company={c} />
           <span className="mt-0.5 block">
             <span className={sup === 0 ? "font-semibold text-amber-700" : ""}>{sup === 0 ? "No supervisors yet" : `${sup} of 2 supervisors`}</span>
             {" · "}

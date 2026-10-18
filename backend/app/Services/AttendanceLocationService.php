@@ -8,8 +8,8 @@ use Illuminate\Support\Carbon;
 
 /**
  * Checks a clock-in/out location on the server instead of trusting what the phone says. An intern may clock
- * in from anywhere (field work, a client site): there is NO distance limit, and the distance to the company
- * is only recorded for the reviewer. What is refused is a location that looks forged.
+ * in from anywhere (field work, a client site): there is NO distance limit. When the company's supervisor has
+ * set the map pin, a punch outside its radius is flagged 'outside_area' (a red flag to review), never refused. What is refused is a location that looks forged.
  *
  * A browser cannot tell a real GPS fix from a fake one, so this does what a server can:
  *  - the page tells us when it found the browser's location functions replaced by script (location_tampering);
@@ -50,7 +50,11 @@ class AttendanceLocationService
         'perfect_accuracy' => 'Unusual GPS reading',
         'weak_signal' => 'Weak GPS signal',
         'old_fix' => 'Old location fix',
+        'outside_area' => 'Outside the company area',
     ];
+
+    /** The fix's own error is forgiven when it is judged against the radius, but never by more than this (metres). */
+    public const MAX_RADIUS_TOLERANCE_M = 100;
 
     /**
      * @return array{distance_m:?int,accuracy_m:?int,flags:array<int,string>,block:?array{code:string,message:string}}
@@ -78,6 +82,13 @@ class AttendanceLocationService
         $distance = null;
         if ($company && $company->latitude !== null && $company->longitude !== null) {
             $distance = (int) round(self::metersBetween($lat, $lng, (float) $company->latitude, (float) $company->longitude));
+            // Further than the radius (plus the fix's own error, so a 60 m reading indoors is not punished) is a
+            // warning for the supervisor to review. It never refuses the punch: indoor GPS is often 50-100 m off.
+            $radius = (int) ($company->allowed_radius_meters ?: Company::DEFAULT_RADIUS_M);
+            $tolerance = min((float) ($accuracy ?? 0), self::MAX_RADIUS_TOLERANCE_M);
+            if ($distance > $radius + $tolerance) {
+                $flags[] = 'outside_area';
+            }
         }
 
         if ($tampered) {

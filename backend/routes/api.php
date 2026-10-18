@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\EmailVerificationController;
 use App\Http\Controllers\Api\SuperadminFullController;
 use App\Http\Controllers\Api\SupervisorCertificateController;
+use App\Http\Controllers\Api\SupervisorCompanyLocationController;
 use App\Http\Controllers\Api\SupervisorMonitoringController;
 use Illuminate\Support\Facades\Route;
 
@@ -298,6 +299,9 @@ Route::prefix('supervisor')->middleware(['auth:sanctum', 'role:supervisor', 'sch
     Route::get('/interns/{deploymentId}/portfolio', [SupervisorMonitoringController::class, 'internPortfolio']);
 
     // How this company records attendance (one time in/out, or morning and afternoon).
+    // The company's map pin and radius: set only by its supervisors, read-only for everyone else.
+    Route::get('/company-location', [SupervisorCompanyLocationController::class, 'show']);
+    Route::put('/company-location', [SupervisorCompanyLocationController::class, 'update']);
     Route::get('/attendance-settings', [SupervisorMonitoringController::class, 'attendanceSettings']);
     Route::put('/attendance-settings', [SupervisorMonitoringController::class, 'updateAttendanceSettings']);
     Route::get('/attendance', [SupervisorMonitoringController::class, 'attendance']);

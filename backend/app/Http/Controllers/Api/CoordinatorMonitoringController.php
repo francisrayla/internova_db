@@ -1068,7 +1068,7 @@ class CoordinatorMonitoringController extends Controller
 
         $counts = InternMonitoringService::countsByCompany($schoolId);
 
-        $companies = Company::where('school_id', $schoolId)
+        $companies = Company::with('locationSetter')->where('school_id', $schoolId)
             ->orderBy('company_name')
             ->get()
             ->map(fn (Company $c) => [
@@ -1079,6 +1079,7 @@ class CoordinatorMonitoringController extends Controller
                 'contact_email' => $c->contact_email,
                 'contact_number' => $c->contact_number,
                 'status' => $c->status,
+                ...$c->locationPayload(),
                 'active_interns_count' => $counts[$c->id]['active'] ?? 0,
                 'completed_interns_count' => $counts[$c->id]['completed'] ?? 0,
                 'supervisors_count' => ($supervisors[$c->id] ?? collect())->count(),
@@ -1159,7 +1160,7 @@ class CoordinatorMonitoringController extends Controller
     public function companyDetail(Request $request, int $id): JsonResponse
     {
         $schoolId = $request->user()->school_id;
-        $company = Company::where('id', $id)->where('school_id', $schoolId)->first();
+        $company = Company::with('locationSetter')->where('id', $id)->where('school_id', $schoolId)->first();
         if (!$company) {
             return response()->json(['success' => false, 'message' => 'Company not found.'], 404);
         }
@@ -1182,7 +1183,8 @@ class CoordinatorMonitoringController extends Controller
         }
 
         return response()->json([
-            'company' => $company,
+            // The map pin is set by the company's supervisors only; here it is read-only.
+            'company' => [...$company->toArray(), ...$company->locationPayload()],
             'transferred_out' => $transferredOut->values(),
             'supervisors' => $supervisors->values(),
             'interns' => $interns->values(),

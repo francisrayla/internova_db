@@ -18,6 +18,7 @@ import useSupervisorActions from "@/components/coordinator/useSupervisorActions"
 import { AddSupervisorModal, MAX_SUPERVISORS } from "@/components/coordinator/SupervisorModals";
 import { clean, inputProps } from "@/lib/inputRules";
 import EmailField from "@/components/EmailField";
+import CompanyLocationNote from "@/components/coordinator/CompanyLocationNote";
 import { emailProblem, normalizeEmail, serverFieldError } from "@/lib/emailCheck";
 
 function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
@@ -229,6 +230,8 @@ export default function CompanyDetail() {
           <Icon name="edit" size={15} /> Edit
         </Btn>
       </PageHeader>
+
+      <CompanyLocationNote company={company} />
 
       <div className="dash-strip" style={{ "--cols": 3 }}>
         <Stat label="Supervisors" value={`${supervisors.length} of ${MAX_SUPERVISORS}`} note={atLimit ? "Full" : "Room for more"} />

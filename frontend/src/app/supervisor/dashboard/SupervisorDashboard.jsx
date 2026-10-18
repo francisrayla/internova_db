@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import NavIcon from "@/components/NavIcon";
 import { fetchSupervisorData } from "@/lib/supervisorApi";
 import { greeting } from "@/lib/timeAgo";
 import { plural } from "@/lib/format";
@@ -75,6 +77,18 @@ export default function SupervisorDashboard() {
       </DashHeader>
 
       {error && <Notice onRetry={retry}>We couldn&apos;t load your dashboard. Check your connection and try again.</Notice>}
+
+      {!error && !loading && dashboard?.company_location_set === false && (
+        <Link href="/supervisor/settings/location" className="k-note is-warn">
+          <span className="inline-flex min-w-0 items-start gap-2">
+            <NavIcon name="location" size={16} className="mt-0.5 shrink-0" />
+            <span className="min-w-0">
+              <strong className="font-semibold">Set your company&apos;s location.</strong> Until you do, nobody is flagged for clocking in away from {company}.
+            </span>
+          </span>
+          <span className="font-semibold underline underline-offset-4 max-sm:flex max-sm:min-h-[44px] max-sm:items-center">Set location</span>
+        </Link>
+      )}
 
       {!error && (loading ? <Skel height={104} /> : <StatStrip items={figures} />)}
 
