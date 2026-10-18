@@ -103,4 +103,76 @@ class GroupTaskLeaderTest extends TestCase
         Sanctum::actingAs(User::findOrFail($this->deps->last()->intern_id));
         $this->getJson("/api/intern/tasks/{$solo->id}")->assertOk()->assertJsonPath('task.leader_id', null);
     }
+
+    // ---- choosing or replacing the leader on Edit task ------------------------
+
+    private function groupTask(): Task
+    {
+        $members = $this->deps->take(3);
+        $this->create(['deployment_ids' => $members->pluck('id')->all(), 'leader_id' => $members[1]->intern_id, 'description' => 'Keep me'])->assertOk();
+
+        return Task::firstOrFail();
+    }
+
+    private function edit(Task $task, array $payload)
+    {
+        Sanctum::actingAs($this->sup);
+
+        return $this->patchJson("/api/supervisor/tasks/{$task->id}", array_merge(['title' => $task->title, 'priority' => $task->priority], $payload));
+    }
+
+    public function test_the_supervisor_can_replace_the_leader_and_the_interns_are_told(): void
+    {
+        $task = $this->groupTask();
+        $new = $this->deps[2]->intern_id;
+
+        $this->edit($task, ['leader_id' => $new])->assertOk()->assertJsonPath('changed', ['leader_id']);
+
+        $this->assertSame($new, $task->fresh()->leader_id);
+        $this->assertSame('Keep me', $task->fresh()->description, 'a field that was not sent is kept');
+        $this->assertDatabaseHas('notifications', ['user_id' => $new, 'type' => 'task_updated']);
+        $this->assertStringContainsString('is now the task leader', (string) \Illuminate\Support\Facades\DB::table('notifications')->where('user_id', $new)->latest('id')->value('body'));
+    }
+
+    public function test_the_new_leader_must_be_an_active_intern_on_the_task(): void
+    {
+        $task = $this->groupTask();
+        $outsider = User::where('email', 'supervisor@internova.test')->value('id');
+        $this->edit($task, ['leader_id' => $outsider])->assertStatus(422)->assertJsonPath('errors.leader_id.0', 'The leader must be one of the interns on this task.');
+
+        User::whereKey($this->deps[2]->intern_id)->update(['status' => 'inactive']);
+        $this->edit($task, ['leader_id' => $this->deps[2]->intern_id])->assertStatus(422)->assertJsonPath('errors.leader_id.0', 'Choose an active intern.');
+
+        $this->assertSame($this->deps[1]->intern_id, $task->fresh()->leader_id);
+    }
+
+    public function test_a_task_without_a_usable_leader_is_flagged_until_one_is_chosen(): void
+    {
+        $task = $this->groupTask();
+        Sanctum::actingAs($this->sup);
+        $show = fn () => $this->getJson("/api/supervisor/tasks/{$task->id}")->assertOk()->json('task');
+
+        $this->assertNull($show()['leader_problem']);
+
+        Task::whereKey($task->id)->update(['leader_id' => null]); // a task made before leaders were required
+        $this->assertSame('missing', $show()['leader_problem']);
+
+        Task::whereKey($task->id)->update(['leader_id' => $this->deps[1]->intern_id]);
+        User::whereKey($this->deps[1]->intern_id)->update(['status' => 'inactive']);
+        $this->assertSame('inactive', $show()['leader_problem']);
+        $this->assertFalse(collect($show()['assignees'])->firstWhere('user_id', $this->deps[1]->intern_id)['can_lead']);
+
+        $this->edit($task, ['leader_id' => $this->deps[0]->intern_id])->assertOk();
+        $this->assertNull($show()['leader_problem']);
+        $this->assertNull(collect($this->getJson('/api/supervisor/tasks')->json('tasks'))->firstWhere('id', $task->id)['leader_problem']);
+    }
+
+    public function test_a_one_intern_task_never_gets_a_leader(): void
+    {
+        $this->create(['deployment_ids' => [$this->deps[0]->id]])->assertOk();
+        $task = Task::firstOrFail();
+
+        $this->edit($task, ['leader_id' => $this->deps[0]->intern_id])->assertOk();
+        $this->assertNull($task->fresh()->leader_id);
+    }
 }

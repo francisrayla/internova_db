@@ -25,11 +25,15 @@ export default function EditTaskModal({ task, apiBase, onClose, onSaved }) {
   const today = manilaToday();
   const original = task.due_date_raw ?? "";
   const minDue = original && original > today ? original : today;
+  // A group task's leader can be chosen or replaced, from its interns whose accounts are active.
+  const leaderChoices = task.is_group ? (task.assignees ?? []).filter((a) => a.can_lead !== false) : [];
+  const currentLeaderOk = leaderChoices.some((a) => a.user_id === task.leader_id);
   const [form, setForm] = useState({
     title: task.title ?? "",
     description: task.description ?? "",
     priority: task.priority ?? "medium",
     due_date: task.due_date_raw ?? "",
+    leader_id: currentLeaderOk ? String(task.leader_id) : "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -46,13 +50,18 @@ export default function EditTaskModal({ task, apiBase, onClose, onSaved }) {
       setError(dueProblem);
       return;
     }
+    if (task.is_group && !form.leader_id) {
+      setError("Choose a task leader.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
+      const { leader_id, ...rest } = form;
       const res = await apiFetch(`${apiBase}/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, due_date: form.due_date || null }),
+        body: JSON.stringify({ ...rest, due_date: form.due_date || null, ...(task.is_group ? { leader_id: Number(leader_id) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
@@ -88,6 +97,20 @@ export default function EditTaskModal({ task, apiBase, onClose, onSaved }) {
         <FormField label="Description">
           <Textarea {...inputProps("longText")} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
         </FormField>
+        {task.is_group && (
+          <FormField
+            label="Task leader"
+            hint={leaderChoices.length ? "The leader submits the whole task once every subtask is done." : undefined}
+            error={!leaderChoices.length ? "None of the interns on this task has an active account, so no one can lead it." : undefined}
+          >
+            <Select value={form.leader_id} onChange={(e) => setForm((f) => ({ ...f, leader_id: e.target.value }))} aria-invalid={!form.leader_id}>
+              <option value="">Choose a leader…</option>
+              {leaderChoices.map((a) => (
+                <option key={a.user_id} value={String(a.user_id)}>{a.name}</option>
+              ))}
+            </Select>
+          </FormField>
+        )}
         <div className="grid grid-cols-1 items-start gap-4">
           <FormField label="Priority">
             <Select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>

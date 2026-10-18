@@ -600,6 +600,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                   <p className="mt-1 text-sm text-slate-500">
                     Leader: <span className="font-medium text-slate-700">{task.assignees.find((a) => a.user_id === task.leader_id)?.name ?? "—"}</span>
                     {task.is_leader && <Pill tone="blue" size="sm" className="ml-1.5">You</Pill>}
+                    {task.leader_problem === "inactive" && <Pill tone="amber" size="sm" className="ml-1.5">Inactive</Pill>}
                   </p>
                 )}
                 <div className="mt-2"><DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} /></div>
@@ -614,7 +615,18 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                 )}
               </div>
             </div>
-            {task.description && <p className="mt-4 text-sm text-slate-600">{task.description}</p>}
+            {/* A group task only moves on through its leader: without an active one nobody can submit it. */}
+            {canEditTask && task.leader_problem && task.can_edit !== false && (
+              <div className="k-note is-warn mt-3 flex-wrap items-center justify-between gap-3" role="alert">
+                <span className="min-w-0">
+                  {task.leader_problem === "inactive"
+                    ? "The task leader's account is no longer active, so nobody can submit this task. Choose a new task leader."
+                    : "This group task has no leader, so nobody can submit it. Choose a task leader."}
+                </span>
+                <Btn sm variant="primary" onClick={() => setEditing(true)} className="max-sm:w-full max-sm:min-h-[44px]">Choose a new task leader</Btn>
+              </div>
+            )}
+            {task.description &&<p className="mt-4 text-sm text-slate-600">{task.description}</p>}
 
             {task.subtask_total > 0 && task.subtask_done < task.subtask_total && task.status !== "completed" && (
               canManageSubtasks && canChangeStatus ? (

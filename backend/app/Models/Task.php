@@ -40,6 +40,25 @@ class Task extends Model
         return $this->hasMany(TaskAssignee::class);
     }
 
+    /**
+     * Why a group task cannot move on, or null when it can: 'missing' (no leader, e.g. a task made before leaders
+     * were required) or 'inactive' (the leader's account is no longer active, so nobody can submit the task).
+     * Uses the loaded assignees.user relation; a one-intern task never needs a leader.
+     */
+    public function leaderProblem(): ?string
+    {
+        $assignees = $this->assignees;
+        if ($assignees->count() < 2 || $this->status === 'completed') {
+            return null;
+        }
+        $leader = $assignees->firstWhere('user_id', $this->leader_id)?->user;
+        if (!$this->leader_id || !$leader) {
+            return 'missing';
+        }
+
+        return $leader->status === 'active' ? null : 'inactive';
+    }
+
     public function subtasks()
     {
         return $this->hasMany(Subtask::class);

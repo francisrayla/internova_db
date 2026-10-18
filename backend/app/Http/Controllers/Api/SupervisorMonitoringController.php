@@ -157,6 +157,8 @@ class SupervisorMonitoringController extends Controller
             'deployment_id' => $a->deployment_id,
             'user_id' => $a->user_id,
             'name' => trim("{$a->user?->first_name} {$a->user?->last_name}") ?: $a->user?->name,
+            // Only an active intern can lead a group task (an inactive one cannot sign in to submit it).
+            'can_lead' => $a->user?->status === 'active',
         ]);
 
         return [
@@ -165,6 +167,8 @@ class SupervisorMonitoringController extends Controller
             'assignees' => $assignees,
             'is_group' => $assignees->count() > 1,
             'leader_id' => $t->leader_id,
+            // 'missing' | 'inactive' | null: the supervisor is asked to choose a (new) leader.
+            'leader_problem' => $t->leaderProblem(),
             'title' => $t->title,
             'description' => $t->description,
             'priority' => $t->priority,
@@ -340,10 +344,28 @@ class SupervisorMonitoringController extends Controller
             'description' => 'nullable|string|max:2000',
             'priority' => 'required|string|in:low,medium,high',
             'due_date' => 'nullable|date',
+            'leader_id' => 'nullable|integer',
         ]);
-        // A missing due_date key keeps the stored date; an explicit null/empty clears it.
+        // A missing due_date key keeps the stored date; an explicit null/empty clears it. Same for the description.
         if (!$request->has('due_date')) {
             $data['due_date'] = $task->due_date?->format('Y-m-d');
+        }
+        if (!$request->has('description')) {
+            $data['description'] = $task->description;
+        }
+
+        // The leader of a group task can be chosen or replaced here, from the task's own active interns.
+        $task->loadMissing('assignees.user');
+        $leaderId = $task->leader_id;
+        if ($task->assignees->count() > 1 && $request->filled('leader_id') && (int) $data['leader_id'] !== (int) $task->leader_id) {
+            $chosen = $task->assignees->firstWhere('user_id', (int) $data['leader_id'])?->user;
+            if (!$chosen) {
+                return response()->json(['success' => false, 'message' => 'The task leader must be one of the interns on this task.', 'errors' => ['leader_id' => ['The leader must be one of the interns on this task.']]], 422);
+            }
+            if ($chosen->status !== 'active') {
+                return response()->json(['success' => false, 'message' => 'Choose an intern whose account is active. An inactive intern cannot sign in to submit the task.', 'errors' => ['leader_id' => ['Choose an active intern.']]], 422);
+            }
+            $leaderId = $chosen->id;
         }
         if ($problem = $this->dueDateEditProblem($task, $data['due_date'] ?? null)) {
             return response()->json(['success' => false, 'message' => $problem, 'errors' => ['due_date' => [$problem]]], 422);
@@ -356,12 +378,14 @@ class SupervisorMonitoringController extends Controller
             'description' => $task->description,
             'priority' => $task->priority,
             'due_date' => $task->due_date?->format('Y-m-d'),
+            'leader_id' => $task->leader_id,
         ];
         $after = [
             'title' => $data['title'],
             'description' => $data['description'],
             'priority' => $data['priority'],
             'due_date' => !empty($data['due_date']) ? Carbon::parse($data['due_date'])->format('Y-m-d') : null,
+            'leader_id' => $leaderId,
         ];
         $changed = array_keys(array_filter($after, fn ($v, $k) => $v !== $before[$k], ARRAY_FILTER_USE_BOTH));
         if (empty($changed)) {
@@ -370,12 +394,17 @@ class SupervisorMonitoringController extends Controller
 
         $task->update($after);
 
-        $labels = ['title' => 'title', 'description' => 'description', 'priority' => 'priority', 'due_date' => 'due date'];
+        $labels = ['title' => 'title', 'description' => 'description', 'priority' => 'priority', 'due_date' => 'due date', 'leader_id' => 'task leader'];
         $changedText = implode(', ', array_map(fn ($k) => $labels[$k], $changed));
         $dueCleared = in_array('due_date', $changed, true) && $after['due_date'] === null;
         $notifyText = $dueCleared
             ? "\"{$task->title}\": the supervisor removed the due date" . (count($changed) > 1 ? ' and changed the ' . implode(', ', array_map(fn ($k) => $labels[$k], array_values(array_diff($changed, ['due_date'])))) . '.' : '. This task has no due date now.')
             : "\"{$task->title}\": the supervisor changed the {$changedText}.";
+        if ($changed === ['leader_id']) {
+            $leaderName = $task->assignees->firstWhere('user_id', $leaderId)?->user;
+            $leaderName = trim("{$leaderName?->first_name} {$leaderName?->last_name}") ?: $leaderName?->name;
+            $notifyText = "\"{$task->title}\": {$leaderName} is now the task leader and submits the task once the subtasks are done.";
+        }
 
         ActivityLogService::record(
             module: 'Tasks',
