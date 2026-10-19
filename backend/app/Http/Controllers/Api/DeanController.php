@@ -319,10 +319,14 @@ class DeanController extends Controller
             return response()->json(['success' => false, 'message' => 'School not found.'], 404);
         }
 
+        // A mistyped domain ("gmial.com") is refused with a "Did you mean ...?"; an address saved earlier stays accepted as-is.
+        $request->merge(['contact_email' => CompleteEmail::normalize($request->input('contact_email'))]);
+        $emailChanged = $request->input('contact_email') !== strtolower((string) $school->contact_email);
+
         $data = $request->validate([
             'school_name'    => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'address'        => 'required|string|max:500',
-            'contact_email'  => 'required|email|max:255',
+            'contact_email'  => $emailChanged ? ['required', 'bail', 'max:255', new CompleteEmail] : 'required|email|max:255',
             'contact_number' => ['required', 'string', 'regex:/^[0-9]{11}$/'],
         ], ['school_name.regex' => 'School name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE]);
 

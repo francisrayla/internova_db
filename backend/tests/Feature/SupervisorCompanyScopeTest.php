@@ -204,11 +204,14 @@ class SupervisorCompanyScopeTest extends TestCase
         $this->patchJson("/api/coordinator/interns/{$created->id}", ['required_hours' => 300, 'start_date' => '2026-10-02', 'supervisor_id' => $this->supA->id])->assertOk();
         $this->assertNull($created->fresh()->supervisor_id);
 
-        // Both supervisors count the same interns at their company.
+        // Both supervisors count the same interns at their company: the seeded intern is active, the new one
+        // has not set up the account yet (invited), so it is shown as pending, not as an active intern.
         $rows = collect($this->getJson('/api/coordinator/supervisors')->json('supervisors'))->where('company_id', $this->dep->company_id)->values();
         $this->assertCount(2, $rows);
-        $this->assertSame(2, $rows[0]['interns_count']);
-        $this->assertSame(2, $rows[1]['interns_count']);
+        $this->assertSame(1, $rows[0]['interns_count']);
+        $this->assertSame(1, $rows[1]['interns_count']);
+        $this->assertSame(1, $rows[0]['pending_interns_count']);
+        $this->assertSame(1, $rows[1]['pending_interns_count']);
     }
 
     public function test_narrative_report_lists_the_companys_supervisors(): void

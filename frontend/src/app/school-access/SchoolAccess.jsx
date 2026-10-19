@@ -102,9 +102,12 @@ export default function SchoolAccess() {
 
   return (
     <StatusScreen icon={copy.icon} tone={copy.tone} eyebrow="School access" title={copy.title} text={copy.text(headTitle(user))} detail={note || `Signed in as ${user.email}${name}`}>
-      <Btn variant="primary" block onClick={() => recheck(user)} disabled={checking}>{checking ? "Checking…" : "Check again"}</Btn>
-      {user.role === "dean" ? <Btn block href="/dean/billing">Open billing</Btn> : null}
-      <Btn block onClick={logout}>Log out</Btn>
+      {/* Auto-width buttons that never wrap their label: side by side on wider screens, stacked on phones. */}
+      <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center">
+        <Btn variant="primary" className="w-full sm:w-auto" onClick={() => recheck(user)} disabled={checking}>{checking ? "Checking…" : "Check again"}</Btn>
+        {user.role === "dean" ? <Btn className="w-full sm:w-auto" href="/dean/billing">Open billing</Btn> : null}
+        <Btn className="w-full sm:w-auto" onClick={logout}>Log out</Btn>
+      </div>
     </StatusScreen>
   );
 }

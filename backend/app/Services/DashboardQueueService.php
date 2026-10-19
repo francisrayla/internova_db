@@ -250,9 +250,16 @@ class DashboardQueueService
         }
 
         // 4. Things the supervisor or coordinator sent back.
-        $rejectedDocs = Document::where('deployment_id', $d->id)->where('status', 'rejected')->count();
+        // A document counts as sent back only until a newer file of the same type is uploaded (re-uploading
+        // makes a new row and leaves the rejected one in the history).
+        $docs = Document::where('deployment_id', $d->id)->orderBy('id')->get(['id', 'document_type', 'status', 'remarks']);
+        $openRejected = $docs->where('status', 'rejected')->filter(fn (Document $doc) => !$docs->contains(
+            fn (Document $later) => $later->id > $doc->id && strcasecmp(trim($later->document_type), trim($doc->document_type)) === 0 && in_array($later->status, ['pending', 'approved'], true)
+        ));
+        $rejectedDocs = $openRejected->count();
+        $withRemarks = $openRejected->contains(fn (Document $doc) => trim((string) $doc->remarks) !== '');
         $items[] = self::item('rejected_documents', 'amber', $rejectedDocs, $rejectedDocs . ' ' . self::plural($rejectedDocs, 'document was', 'documents were') . ' sent back',
-            'Read the remarks and upload a corrected file.', '/intern/documents');
+            $withRemarks ? 'Read the remarks and upload a corrected file.' : 'Upload a corrected file.', '/intern/documents');
         $rejectedActivities = DailyActivity::where('deployment_id', $d->id)->where('status', DailyActivity::REJECTED)->count();
         $items[] = self::item('rejected_activities', 'amber', $rejectedActivities, $rejectedActivities . ' narrative ' . self::plural($rejectedActivities, 'entry was', 'entries were') . ' sent back',
             'Edit them and send them again.', '/intern/activities');

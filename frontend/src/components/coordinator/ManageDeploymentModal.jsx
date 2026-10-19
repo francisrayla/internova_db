@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { fetchCoordinatorData } from "@/lib/coordinatorApi";
 import { apiFetch } from "@/lib/apiFetch";
-import { clampOnBlur } from "@/lib/clampNumber";
 import { cleanNumber } from "@/lib/inputRules";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { Btn, FormField, Input, Select, SheetFrame } from "@/components/dash/page";
@@ -36,8 +35,13 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
   const otherActiveCompanies = companies.filter((c) => c.status === "active" && String(c.id) !== String(currentCompanyId));
   const newCompany = companies.find((c) => String(c.id) === String(reassignForm.company_id));
 
+  // Typed numbers are never changed silently: out of range shows an error and blocks Save.
+  const hoursNumber = Number(hoursForm.required_hours);
+  const hoursInvalid = !Number.isInteger(hoursNumber) || hoursNumber < 1 || hoursNumber > 2000;
+
   async function handleUpdateHours(e) {
     e.preventDefault();
+    if (hoursInvalid) return;
     setSavingHours(true);
     setHoursError("");
     try {
@@ -56,10 +60,28 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
     }
   }
 
+  // A move takes effect at once: its date is from the later of the start and the last move, up to today.
+  const today = todayLocalDate();
+  const earliestMove = [intern.start_date_raw, intern.moved_on].filter(Boolean).sort().at(-1) || "";
+  const shortDate = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const moveDate = reassignForm.transferred_on;
+  const moveDateProblem = !moveDate
+    ? ""
+    : moveDate > today
+      ? "The move date cannot be in the future. Pick today or an earlier day."
+      : earliestMove && moveDate < earliestMove
+        ? `Pick ${shortDate(earliestMove)} or later${intern.moved_on && earliestMove === intern.moved_on ? " (the last move)" : " (the start of the internship)"}.`
+        : "";
+  const finishedInternship = ["completed", "inactive"].includes(intern.status) || intern.display_status === "completed";
+
   function askReassign(e) {
     e.preventDefault();
     if (!reassignForm.company_id || !reassignForm.transferred_on) {
       setReassignError("Select a company and the date they move.");
+      return;
+    }
+    if (moveDateProblem) {
+      setReassignError(moveDateProblem);
       return;
     }
     setReassignError("");
@@ -103,14 +125,14 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
           </div>
           <CompanySupervisorsNote companyId={currentCompanyId} companyName={intern.company_name} />
           <div className="grid gap-3 sm:grid-cols-2">
-            <FormField label="Required hours">
+            <FormField label="Required hours" error={hoursInvalid ? "Enter 1 to 2000 hours" : undefined}>
               <Input
                 type="text"
                 inputMode="numeric"
                 autoComplete="off"
                 value={hoursForm.required_hours}
-                onChange={(e) => setHoursForm((f) => ({ ...f, required_hours: cleanNumber(e.target.value, { max: 2000 }) }))}
-                onBlur={(e) => setHoursForm((f) => ({ ...f, required_hours: clampOnBlur(e.target.value, 1, 2000) }))}
+                aria-invalid={hoursInvalid}
+                onChange={(e) => setHoursForm((f) => ({ ...f, required_hours: cleanNumber(e.target.value, { maxDigits: 5 }) }))}
               />
             </FormField>
             <FormField label="Start date" hint={START_DATE_HINT}>
@@ -119,7 +141,7 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
           </div>
           {hoursError && <p className="k-note is-risk" role="alert">{hoursError}</p>}
           <div className="flex justify-end">
-            <Btn variant="primary" type="submit" disabled={savingHours} className="max-sm:w-full">{savingHours ? "Saving…" : "Save"}</Btn>
+            <Btn variant="primary" type="submit" disabled={savingHours || hoursInvalid} className="max-sm:w-full">{savingHours ? "Saving…" : "Save"}</Btn>
           </div>
         </form>
 
@@ -128,7 +150,9 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
             <h3 className="text-sm font-semibold text-slate-900">Reassign to a different company</h3>
             <p className="k-hint mt-0.5">Same deployment, new company. Their hours, attendance, journal and tasks stay with them and still count toward the total ({intern.hours_completed ?? 0} of {intern.required_hours} h so far). The move is saved in their deployment history.</p>
           </div>
-          {otherActiveCompanies.length === 0 ? (
+          {finishedInternship ? (
+            <p className="k-note is-warn">This internship is {intern.status === "inactive" ? "inactive" : "completed"}, so the intern stays at {intern.company_name}.</p>
+          ) : otherActiveCompanies.length === 0 ? (
             <p className="k-note is-warn">No other active partner companies yet.</p>
           ) : (
             <>
@@ -139,14 +163,14 @@ export default function ManageDeploymentModal({ intern, currentCompanyId, onClos
                 </Select>
               </FormField>
               <CompanySupervisorsNote companyId={reassignForm.company_id} companyName={newCompany?.company_name} />
-              <FormField label="Moves on">
-                <Input type="date" value={reassignForm.transferred_on} min={intern.start_date_raw ?? undefined} onChange={(e) => setReassignForm((f) => ({ ...f, transferred_on: e.target.value }))} />
+              <FormField label="Moves on" error={moveDateProblem || undefined} hint={!moveDateProblem ? (earliestMove ? `From ${shortDate(earliestMove)} to today.` : "Today or an earlier day.") : undefined}>
+                <Input type="date" value={reassignForm.transferred_on} min={earliestMove || undefined} max={today} aria-invalid={!!moveDateProblem || undefined} onChange={(e) => setReassignForm((f) => ({ ...f, transferred_on: e.target.value }))} />
               </FormField>
             </>
           )}
           {reassignError && <p className="k-note is-risk" role="alert">{reassignError}</p>}
           <div className="flex justify-end">
-            <Btn type="submit" disabled={reassigning || otherActiveCompanies.length === 0} className="max-sm:w-full">
+            <Btn type="submit" disabled={reassigning || otherActiveCompanies.length === 0 || finishedInternship || !!moveDateProblem} className="max-sm:w-full">
               {reassigning ? "Reassigning…" : "Reassign"}
             </Btn>
           </div>

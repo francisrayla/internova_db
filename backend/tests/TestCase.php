@@ -20,7 +20,8 @@ abstract class TestCase extends BaseTestCase
         $connection = $app['config']->get('database.default');
         $database = $app['config']->get("database.connections.{$connection}.database");
 
-        if ($database !== 'internova_testing') {
+        // internova_testing, or a parallel copy of it (internova_testing_a, _b, …); never a real database.
+        if (!preg_match('/^internova_testing(_[a-z0-9]+)?$/', (string) $database)) {
             throw new RuntimeException("Tests must run on the internova_testing database, not [{$connection}:{$database}].");
         }
 

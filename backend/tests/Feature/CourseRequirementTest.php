@@ -374,6 +374,22 @@ class CourseRequirementTest extends TestCase
         $this->assertSame("Parent's Consent", CourseRequirement::where('course', \App\Support\Courses::NAMES['BSIT'])->value('document_type'));
     }
 
+    public function test_a_custom_course_name_up_to_150_characters_can_be_set_and_reset(): void
+    {
+        Sanctum::actingAs($this->coordinator());
+        $long = substr('Bachelor of Science in Hospitality Management Major in ' . str_repeat('Culinary Operations ', 10), 0, 139) . 'X';
+        $this->assertSame(140, strlen($long));
+        \App\Models\SchoolCourse::create(['school_id' => School::first()->id, 'name' => $long, 'sort_order' => 10]);
+
+        $this->setReqs(['Resume'], $long)->assertOk();
+        $this->assertSame(1, CourseRequirement::where('course', $long)->count());
+        $this->deleteJson('/api/coordinator/course-requirements', ['course' => $long])->assertOk();
+        $this->assertSame(0, CourseRequirement::where('course', $long)->count());
+
+        // The field itself stops at 150.
+        $this->setReqs(['Resume'], str_repeat('x', 151))->assertStatus(422)->assertJsonValidationErrors('course');
+    }
+
     // ---- rename ----------------------------------------------------------------------
 
     public function test_rename_a_custom_requirement_moves_its_uploads_and_refuses_built_ins_and_clashes(): void

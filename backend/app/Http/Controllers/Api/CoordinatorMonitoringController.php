@@ -37,6 +37,7 @@ use App\Services\SchoolCourseService;
 use App\Services\NotificationService;
 use App\Support\Paging;
 use App\Support\TaskListing;
+use App\Support\UploadMessages;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -759,7 +760,7 @@ class CoordinatorMonitoringController extends Controller
             'deployment_id' => 'required|integer',
             'document_type' => 'required|string|max:100',
             'file' => 'required|file|mimes:jpg,jpeg,png,pdf,doc,docx|max:10240',
-        ]);
+        ], UploadMessages::for('file', 'JPG, PNG, PDF, DOC or DOCX', 10));
 
         $deployment = $this->deploymentForSchool($data['deployment_id'], $schoolId);
         if (!$deployment) {
@@ -1081,6 +1082,7 @@ class CoordinatorMonitoringController extends Controller
                 'status' => $c->status,
                 ...$c->locationPayload(),
                 'active_interns_count' => $counts[$c->id]['active'] ?? 0,
+                'pending_interns_count' => $counts[$c->id]['pending'] ?? 0,
                 'completed_interns_count' => $counts[$c->id]['completed'] ?? 0,
                 'supervisors_count' => ($supervisors[$c->id] ?? collect())->count(),
                 'supervisor_names' => ($supervisors[$c->id] ?? collect())
@@ -1088,6 +1090,28 @@ class CoordinatorMonitoringController extends Controller
             ]);
 
         return response()->json(['companies' => $companies]);
+    }
+
+    /** Company names compare without case and extra spaces: "Acme  Corp" and "acme corp" are the same company. */
+    private static function companyNameKey(?string $name): string
+    {
+        return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', (string) $name)));
+    }
+
+    /** Two companies of one school may not share a name (the company pickers would be ambiguous). */
+    private function assertCompanyNameFree(int $schoolId, string $name, ?int $exceptId = null): void
+    {
+        $key = self::companyNameKey($name);
+        $taken = Company::where('school_id', $schoolId)
+            ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->pluck('company_name')
+            ->contains(fn ($existing) => self::companyNameKey($existing) === $key);
+
+        if ($taken) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'company_name' => 'A company named "' . trim((string) preg_replace('/\s+/u', ' ', $name)) . '" already exists in your school. Use a different name, for example add the branch.',
+            ]);
+        }
     }
 
     public function storeCompany(Request $request): JsonResponse
@@ -1101,6 +1125,8 @@ class CoordinatorMonitoringController extends Controller
             'contact_email' => ['nullable', 'bail', new CompleteEmail],
             'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
         ], ['company_name.regex' => 'Company name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE]);
+
+        $this->assertCompanyNameFree($schoolId, $data['company_name']);
 
         do {
             $code = 'CMP-' . strtoupper(Str::random(6));
@@ -1138,6 +1164,11 @@ class CoordinatorMonitoringController extends Controller
             'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'status' => 'sometimes|required|string|in:active,inactive',
         ], ['company_name.regex' => 'Company name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE]);
+
+        // Only a changed name is checked, so an older duplicate never blocks editing the other details.
+        if (isset($data['company_name']) && self::companyNameKey($data['company_name']) !== self::companyNameKey($company->company_name)) {
+            $this->assertCompanyNameFree($schoolId, $data['company_name'], $company->id);
+        }
 
         $company->update($data);
 
@@ -1316,6 +1347,7 @@ class CoordinatorMonitoringController extends Controller
                 'email_bounced' => $bounced,
                 'status' => $status,
                 'interns_count' => (int) ($byStatus['active'] ?? 0),
+                'pending_interns_count' => (int) ($byStatus['pending'] ?? 0),
                 'completed_interns_count' => (int) ($byStatus['completed'] ?? 0),
                 'last_active_at' => $u?->last_login_at?->toIso8601String(),
             ];
@@ -2052,9 +2084,24 @@ class CoordinatorMonitoringController extends Controller
         }
 
 
-        $movedOn = Carbon::parse($data['transferred_on'] ?? \App\Support\LocalTime::today())->startOfDay();
+        // A finished or inactive internship stays where it ended.
+        if (in_array($deployment->status, ['completed', 'inactive'], true) || $deployment->isFinished()) {
+            $why = $deployment->status === 'inactive' ? 'is inactive' : 'is completed';
+            return response()->json(['success' => false, 'message' => "This internship {$why}, so the intern cannot be moved to another company."], 422);
+        }
+
+        // A move takes effect at once, so its date is between the later of the start and the last move, and today.
+        $today = Carbon::parse(\App\Support\LocalTime::today())->startOfDay();
+        $movedOn = Carbon::parse($data['transferred_on'] ?? $today)->startOfDay();
+        if ($movedOn->gt($today)) {
+            return response()->json(['success' => false, 'message' => 'The move date cannot be in the future. The move takes effect right away, so pick today or an earlier day.', 'errors' => ['transferred_on' => ['Pick today or an earlier day.']]], 422);
+        }
         if ($deployment->start_date && $movedOn->lt($deployment->start_date)) {
-            return response()->json(['success' => false, 'message' => 'The move date cannot be before the deployment started (' . $deployment->start_date->format('M j, Y') . ').'], 422);
+            return response()->json(['success' => false, 'message' => 'The move date cannot be before the deployment started (' . $deployment->start_date->format('M j, Y') . ').', 'errors' => ['transferred_on' => ['Too early.']]], 422);
+        }
+        $lastMove = DeploymentTransfer::where('deployment_id', $deployment->id)->max('transferred_on');
+        if ($lastMove && $movedOn->lt(Carbon::parse($lastMove)->startOfDay())) {
+            return response()->json(['success' => false, 'message' => 'The move date cannot be before the intern\'s last move (' . Carbon::parse($lastMove)->format('M j, Y') . ').', 'errors' => ['transferred_on' => ['Too early.']]], 422);
         }
 
         $oldCompanyName = $deployment->company?->company_name;

@@ -273,7 +273,7 @@ class DeanMonitoringController extends Controller
         } elseif ($subscription->end_date) {
             $days = (int) $today->diffInDays($subscription->end_date, false);
             if ($days <= self::SUBSCRIPTION_WARN_DAYS) {
-                $add('subscription_ending', $days <= 3 ? 'red' : 'amber', 'Subscription ends in ' . self::daysText(max(0, $days)), 'Renew in Billing so interns and staff are not interrupted.', '/dean/billing');
+                $add('subscription_ending', $days <= 3 ? 'red' : 'amber', 'Subscription ends in ' . self::daysText(max(0, $days)), 'Your plan stays active until then. Once the term ends, renew it in Billing so interns and staff are not interrupted.', '/dean/billing');
             }
         }
 
@@ -589,7 +589,7 @@ class DeanMonitoringController extends Controller
     {
         return match ($key) {
             'name' => mb_strtolower((string) ($r['intern_name'] ?? '')),
-            'group' => (($i = array_search($r['status_group'] ?? null, ['at_risk', 'needs_attention', 'on_track', 'completed'], true)) === false) ? 9 : $i,
+            'group' => (($i = array_search($r['status_group'] ?? null, InternMonitoringService::GROUPS, true)) === false) ? 9 : $i,
             'company' => mb_strtolower((string) ($r['company_name'] ?? '')),
             'hours' => $r['hours_progress_pct'] ?? null,
             'finish' => $r['projection']['finish_date'] ?? null,

@@ -18,3 +18,14 @@ export function headTitle(user) {
 export function headTitleOf(value) {
   return HEAD_TITLES.includes(value) ? value : DEFAULT_HEAD_TITLE;
 }
+
+/**
+ * How to address the head in a greeting: "<Title> <last name>" ("Principal Reyes"). Words of the name that are
+ * themselves part of a head title ("School", "Head", "Dean", "Principal") are ignored, so a head whose name is
+ * "School Head" is greeted "School Head", never "School Head Head". No usable name gives just the title.
+ */
+export function headAddress(title, fullName) {
+  const titleWords = new Set(HEAD_TITLES.flatMap((t) => t.toLowerCase().split(" ")));
+  const words = String(fullName ?? "").trim().split(/\s+/).filter((w) => w && !titleWords.has(w.toLowerCase()));
+  return words.length ? `${title} ${words[words.length - 1]}` : title;
+}

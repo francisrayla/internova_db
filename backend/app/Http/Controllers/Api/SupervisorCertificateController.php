@@ -47,6 +47,14 @@ class SupervisorCertificateController extends Controller
             ->all();
     }
 
+    /** Done with the internship: marked completed, or the approved hours reach the required hours. */
+    private function finished(InternshipDeployment $d, float $hours): bool
+    {
+        $required = (int) $d->required_hours;
+
+        return $d->status === 'completed' || ($required > 0 && $hours >= $required);
+    }
+
     /** The template (or null), the markers it understands, and the interns a certificate can be made for. */
     public function show(Request $request): JsonResponse
     {
@@ -81,6 +89,8 @@ class SupervisorCertificateController extends Controller
                 'status' => $d->status,
                 'hours' => $hours[$d->id] ?? 0,
                 'required_hours' => (int) $d->required_hours,
+                // A certificate is only for an intern who is done: marked completed or the required hours rendered.
+                'finished' => $this->finished($d, $hours[$d->id] ?? 0),
                 'start_date' => $d->start_date?->toDateString(),
                 'end_date' => $d->end_date?->toDateString(),
             ])->sortBy('name')->values(),
@@ -163,9 +173,23 @@ class SupervisorCertificateController extends Controller
             return response()->json(['success' => false, 'message' => 'Upload a certificate template first.'], 422);
         }
 
+        // Only for an intern who has finished, and never with more hours than were really rendered.
+        $rendered = (float) ($this->hoursByDeployment([$deployment->id])[$deployment->id] ?? 0);
+        $required = (int) $deployment->required_hours;
+        if (!$this->finished($deployment, $rendered)) {
+            $who = $this->fullName($deployment->intern);
+            $short = rtrim(rtrim(number_format($rendered, 1, '.', ''), '0'), '.');
+            return response()->json(['success' => false, 'message' => "{$who} has rendered {$short} of {$required} hours. A certificate can be made once the required hours are completed.", 'errors' => ['deployment_id' => ['This intern has not finished the required hours yet.']]], 422);
+        }
+        $maxHours = max($rendered, (float) $required);
+        if (isset($data['hours']) && (float) $data['hours'] > $maxHours + 0.05) {
+            $cap = rtrim(rtrim(number_format($maxHours, 1, '.', ''), '0'), '.');
+            return response()->json(['success' => false, 'message' => "The hours cannot be more than the {$cap} hours on record.", 'errors' => ['hours' => ["At most {$cap} hours."]]], 422);
+        }
+
         $profile = InternProfile::where('user_id', $deployment->intern_id)->first();
         $date = fn (?string $d) => $d ? Carbon::parse($d)->format('F j, Y') : '';
-        $hours = $data['hours'] ?? ($this->hoursByDeployment([$deployment->id])[$deployment->id] ?? 0);
+        $hours = $data['hours'] ?? $rendered;
         $name = trim($data['name']);
 
         $file = CertificateService::fill($templatePath, [

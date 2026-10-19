@@ -7,6 +7,7 @@ use App\Models\Attendance;
 use App\Support\LocalTime;
 use App\Support\Paging;
 use App\Support\TaskListing;
+use App\Support\UploadMessages;
 use App\Models\DailyActivity;
 use App\Models\Document;
 use App\Models\Evaluation;
@@ -378,7 +379,7 @@ class InternMonitoringController extends Controller
             $request->validate([
                 'proofs' => 'required|array|min:1',
                 'proofs.*' => 'file|mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx,ppt,pptx|max:15360',
-            ]);
+            ], UploadMessages::for('proofs.*', 'JPG, PNG, PDF, Word, Excel or PowerPoint', 15, 'proof file') + ['proofs.required' => 'Attach at least one proof file.']);
             $this->storeProofFiles($request, $task->id, null, $internId);
         }
 
@@ -491,7 +492,7 @@ class InternMonitoringController extends Controller
             $request->validate([
                 'proofs' => 'required|array|min:1',
                 'proofs.*' => 'file|mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx,ppt,pptx|max:15360',
-            ]);
+            ], UploadMessages::for('proofs.*', 'JPG, PNG, PDF, Word, Excel or PowerPoint', 15, 'proof file') + ['proofs.required' => 'Attach at least one proof file.']);
             $this->storeProofFiles($request, null, $subtask->id, $internId);
         }
 
@@ -942,6 +943,8 @@ class InternMonitoringController extends Controller
 
         return response()->json([
             'activities' => collect($page->items())->map(fn (DailyActivity $a) => $this->mapActivity($a)),
+            // First day an entry can be dated (the form's date picker minimum).
+            'starts_on' => $this->currentDeploymentFor($internId)?->start_date?->toDateString(),
             ...Paging::meta($page),
         ]);
     }
@@ -1033,7 +1036,14 @@ class InternMonitoringController extends Controller
             'photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
             'source_task_id' => 'nullable|integer',
             'source_subtask_id' => 'nullable|integer',
-        ]);
+        ], UploadMessages::for('photo', 'JPG, PNG, WEBP or GIF', 10, 'photo'));
+
+        // Nor can it describe a day before the internship started.
+        if (!$deployment->hasStartedOn($data['activity_date'] ?? null)) {
+            $message = "The activity date cannot be before your internship started on {$deployment->start_date->format('F j, Y')}.";
+
+            return response()->json(['success' => false, 'message' => $message, 'errors' => ['activity_date' => [$message]]], 422);
+        }
 
         // Only accepted if it genuinely belongs to this intern — a stray id
         // from the client never gets to attach itself to someone else's task.
@@ -1187,7 +1197,7 @@ class InternMonitoringController extends Controller
         $data = $request->validate([
             'document_type' => 'required|string|max:100',
             'file' => 'required|file|mimes:jpg,jpeg,png,pdf,doc,docx|max:10240',
-        ]);
+        ], UploadMessages::for('file', 'JPG, PNG, PDF, DOC or DOCX', 10));
 
         $schoolId = $request->user()->school_id;
         $path = $request->file('file')->store("documents/{$schoolId}", 'public');
@@ -1280,7 +1290,7 @@ class InternMonitoringController extends Controller
             'description' => 'nullable|string|max:2000',
             'project_url' => 'nullable|url|starts_with:http://,https://|max:255',
             'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,gif|max:10240',
-        ]);
+        ], UploadMessages::for('image', 'JPG, PNG, WEBP or GIF', 10, 'image'));
 
         $imagePath = null;
         if ($request->hasFile('image')) {

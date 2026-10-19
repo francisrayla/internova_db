@@ -1,6 +1,6 @@
 # Activities (intern narrative entries / supervisor approval)
-last_commit: e79c6eb
-updated: 2026-10-10
+last_commit: ba3df00 + uncommitted
+updated: 2026-10-19
 
 ## Map (where the code lives)
 - frontend/src/app/intern/activities/DailyActivities.jsx (494) — intern writes/edits entries, suggestions, polish narrative; shows status (edits to recorded -> pending). page.jsx wrapper.
@@ -17,6 +17,8 @@ updated: 2026-10-10
 - Supervisor activities list/review/approve-all use visibleToSupervisor (either supervisor can approve; reviewed_by keeps who did). (see coordinator-monitoring log for the shared rule)
 - PAGING (2026-10-10, uncommitted): supervisor GET /activities and intern GET /activities are server-paged (page, per_page<=50, default 20; total/has_more/last_page; supervisor adds pending_total); POST /supervisor/activities/approve accepts all_pending(+intern_id) so "Approve all pending (N)" covers every page. Screens use LoadMore (components/Pagination.jsx). Tests: PaginationActivitiesTest. Details in the pagination log.
 
+- BATCH C (2026-10-19, uncommitted): supervisor reviewActivity (SupervisorMonitoringController ~L1687) requires `review_remarks` (required_if status rejected, max 500; remarks appended to the intern notification); supervisor InternActivities.jsx has a RejectSheet (required Reason textarea, SheetFrame) and shows 'Your remarks'; intern DailyActivities already shows 'Supervisor remarks'. InternMonitoringController::storeActivity refuses activity_date before the deployment start_date (422 + errors.activity_date, via InternshipDeployment::hasStartedOn), activities() returns `starts_on`, form date min = starts_on. Photo upload uses UploadMessages (app/Support/UploadMessages.php). Tests: ActivityReviewAndDatesTest (5).
+
 ## How it works
 Intern posts entries (pending). Auto summaries from attendance are "recorded" (no sign-off); if intern edits one it becomes pending. Supervisor can only decide pending entries: approve/reject with remarks, or approve all pending in one call. Only approved/recorded flow into the narrative report (commit cef02dc).
 
@@ -26,8 +28,8 @@ Intern posts entries (pending). Auto summaries from attendance are "recorded" (n
 - Manual: intern adds entry -> supervisor sees pending -> approve all -> intern gets notification, report includes it; edit a recorded summary -> becomes pending; reject -> omitted from report.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-19 ba3df00 + uncommitted — bugs #15/#24: reject needs a reason (shown to intern), no entry dated before the internship start — result: ActivityReviewAndDatesTest 5/5, browser 390 dark + 1440 sheet, intern sees 'Supervisor remarks', date min 2026-07-31
 - 2026-10-10 8c21eaf + uncommitted — QA supervisor pass: after a failed Approve/Reject/Approve all (entry already decided) the list reloads and the error stays visible; no 'No activity entries' next to a load error; approve-all across 3 pages verified (44 approved, other company untouched) — result: API 25/25, UI ok
 - 2026-10-10 8c21eaf + uncommitted — intern QA: POST /intern/activities refuses a future activity_date (before_or_equal Manila today; the form already had max=today); paging 20/page verified 45 rows -> 20/20/5 no duplicates; edit refused for approved/rejected (422); photo svg/html refused — result: InternQaFixesTest
 - 2026-10-10 8c21eaf + uncommitted — activities lists paged on the server (Load more); Approve all pending covers every page (all_pending) — result: PaginationActivitiesTest 5/5, headless 1440+390 light/dark ok
 - 2026-10-06 5a24cfb + uncommitted — activity_date default + suggestions (completed_at) use the Manila day (LocalTime)
-- 2026-10-06 5a24cfb + uncommitted — supervisor scoping moved from deployments.supervisor_id to company (both supervisors identical powers) — result: pass (backend 80/80, build ok)

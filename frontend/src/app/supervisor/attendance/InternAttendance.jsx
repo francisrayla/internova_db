@@ -183,6 +183,7 @@ export default function InternAttendance() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [rejecting, setRejecting] = useState(null); // record waiting for "yes, reject it"
+  const [approving, setApproving] = useState(null); // rejected record waiting for "yes, approve it after all"
   const [checking, setChecking] = useState(null); // red-flag record waiting for "yes, mark as checked"
   const [deleteReason, setDeleteReason] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -402,6 +403,9 @@ export default function InternAttendance() {
                         <Btn sm variant="danger-quiet" onClick={() => setRejecting(r)} disabled={busyId === r.id}>Reject</Btn>
                       </>
                     )}
+                    {r.status === "rejected" && (
+                      <Btn sm className="text-emerald-700" onClick={() => setApproving(r)} disabled={busyId === r.id}>Approve</Btn>
+                    )}
                     <span className="ml-auto sm:ml-0">
                       <ActionMenu
                         label={`Attendance actions for ${r.intern_name}, ${r.attendance_date}`}
@@ -430,6 +434,17 @@ export default function InternAttendance() {
         onCancel={() => setRejecting(null)}
       >
         <p>{rejecting?.intern_name}&apos;s attendance on {rejecting?.attendance_date} will be marked as rejected and the intern is told.</p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!approving}
+        tone="primary"
+        title="Approve this attendance?"
+        confirmLabel="Approve attendance"
+        onConfirm={() => { const record = approving; setApproving(null); review(record.id, "approved"); }}
+        onCancel={() => setApproving(null)}
+      >
+        <p>{approving?.intern_name}&apos;s attendance on {approving?.attendance_date} was rejected. Approving it counts its hours and the intern is told.</p>
       </ConfirmDialog>
 
       <ConfirmDialog

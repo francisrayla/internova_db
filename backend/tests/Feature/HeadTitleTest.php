@@ -39,7 +39,7 @@ class HeadTitleTest extends TestCase
     {
         return $this->postJson('/api/inquiries', [
             'school_name' => 'New College', 'contact_person' => 'Pat Head', 'position' => $position,
-            'email' => 'pat@newcollege.test', 'phone' => '09171234567', 'message' => 'Hello',
+            'email' => 'pat.newcollege@gmail.com', 'phone' => '09171234567', 'message' => 'Hello',
             'password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true, 'accept_terms' => true,
         ]);
     }
@@ -56,7 +56,7 @@ class HeadTitleTest extends TestCase
     {
         $this->register('Janitor')->assertStatus(422)->assertJsonValidationErrors('position');
         $this->register('School Head')->assertCreated();
-        $this->assertSame('School Head', PlanInquiry::where('email', 'pat@newcollege.test')->value('position'));
+        $this->assertSame('School Head', PlanInquiry::where('email', 'pat.newcollege@gmail.com')->value('position'));
     }
 
     public function test_session_payload_gives_the_title_to_the_dean_and_to_the_coordinator(): void

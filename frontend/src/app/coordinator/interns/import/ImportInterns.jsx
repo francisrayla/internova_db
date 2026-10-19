@@ -393,8 +393,8 @@ function ReviewStep({ fileName, skippedSample, rows, setRows, errors, existing, 
               Remove {problemCount} row{problemCount === 1 ? "" : "s"} with problems
             </Btn>
           )}
-          <Btn variant="primary" onClick={onContinue} disabled={problemCount > 0 || newCount === 0 || checking}>
-            Continue with {newCount} new intern{newCount === 1 ? "" : "s"}
+          <Btn variant="primary" onClick={onContinue} disabled={problemCount > 0 || readyCount === 0 || checking}>
+            Continue with {readyCount} new intern{readyCount === 1 ? "" : "s"}
           </Btn>
         </div>
       </div>

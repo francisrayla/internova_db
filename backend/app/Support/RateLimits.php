@@ -56,11 +56,13 @@ class RateLimits
             self::limit(Limit::perMinute(60), 'invite-ip:'.self::clientIp($r), 'Too many attempts from this network.'),
         ]);
 
-        // The public inquiry form creates an account and sends a code: slow, with a platform-wide ceiling.
+        // The public inquiry form creates an account and sends a code. This middleware only guards against raw
+        // flooding (generous, counts every attempt, even rejected ones). The strict "registrations per hour"
+        // limits count only registrations that actually went through: see inquiryBlocked()/inquiryRegistered(),
+        // so a few typing mistakes never lock a school out.
         RateLimiter::for('inquiry', fn (Request $r) => [
-            self::limit(Limit::perHour(3), 'inquiry-email:'.self::email($r), 'This e-mail address has already been used to send several requests.'),
-            self::limit(Limit::perHour(10), 'inquiry-ip:'.self::clientIp($r), 'Too many requests were sent from this network.'),
-            self::limit(Limit::perHour(100), 'inquiry-all', 'We are receiving a lot of requests right now.'),
+            self::limit(Limit::perHour(30), 'inquiry-raw-email:'.self::email($r), 'Too many attempts were made with this e-mail address.'),
+            self::limit(Limit::perHour(60), 'inquiry-raw-ip:'.self::clientIp($r), 'Too many requests were sent from this network.'),
         ]);
 
         // Ceiling for the whole API (the throttleApi() group middleware): generous, only stops runaway loops.
@@ -73,6 +75,36 @@ class RateLimits
                 'You are doing that too fast.'
             );
         });
+    }
+
+    /** Registrations that succeeded, per window: [key, max, window seconds, reason]. */
+    private static function inquiryRules(Request $request): array
+    {
+        return [
+            ['inquiry-ok-email:'.self::email($request), 3, 3600, 'This e-mail address has already been used to send several requests.'],
+            ['inquiry-ok-ip:'.self::clientIp($request), 10, 3600, 'Too many requests were sent from this network.'],
+            ['inquiry-ok-all', 100, 3600, 'We are receiving a lot of requests right now.'],
+        ];
+    }
+
+    /** Call after the form validated, before creating anything: a 429 response when this visitor already registered too many times. */
+    public static function inquiryBlocked(Request $request): ?\Illuminate\Http\JsonResponse
+    {
+        foreach (self::inquiryRules($request) as [$key, $max, $window, $reason]) {
+            if (RateLimiter::tooManyAttempts($key, $max)) {
+                return self::tooManyResponse($reason, RateLimiter::availableIn($key));
+            }
+        }
+
+        return null;
+    }
+
+    /** Call once a registration really went through. */
+    public static function inquiryRegistered(Request $request): void
+    {
+        foreach (self::inquiryRules($request) as [$key, , $window]) {
+            RateLimiter::hit($key, $window);
+        }
     }
 
     /** The visitor's address as the Next.js proxy saw it, else the connecting address. */
@@ -97,17 +129,22 @@ class RateLimits
     private static function limit(Limit $limit, string $key, string $reason): Limit
     {
         return $limit->by($key)->response(function (Request $request, array $headers) use ($reason) {
-            $seconds = max(1, (int) ($headers['Retry-After'] ?? 60));
-            $hours = (int) ceil($seconds / 3600);
-            $wait = $seconds >= 3600 ? $hours.($hours === 1 ? ' hour' : ' hours')
-                : ($seconds >= 90 ? ceil($seconds / 60).' minutes' : $seconds.' seconds');
-
-            return response()->json([
-                'success'     => false,
-                'code'        => 'too_many_requests',
-                'message'     => "{$reason} Please wait about {$wait} and try again.",
-                'retry_after' => $seconds,
-            ], 429, $headers);
+            return self::tooManyResponse($reason, (int) ($headers['Retry-After'] ?? 60), $headers);
         });
+    }
+
+    private static function tooManyResponse(string $reason, int $seconds, array $headers = []): \Illuminate\Http\JsonResponse
+    {
+        $seconds = max(1, $seconds);
+        $hours = (int) ceil($seconds / 3600);
+        $wait = $seconds >= 3600 ? $hours.($hours === 1 ? ' hour' : ' hours')
+            : ($seconds >= 90 ? ceil($seconds / 60).' minutes' : $seconds.' seconds');
+
+        return response()->json([
+            'success'     => false,
+            'code'        => 'too_many_requests',
+            'message'     => "{$reason} Please wait about {$wait} and try again.",
+            'retry_after' => $seconds,
+        ], 429, $headers);
     }
 }

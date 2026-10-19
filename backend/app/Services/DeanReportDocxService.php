@@ -68,6 +68,7 @@ class DeanReportDocxService
             ['Needs attention', $g['needs_attention'], 'One problem to look at (no recent clock-in, behind on hours, missing documents or evaluation due).'],
             ['On track', $g['on_track'], 'No problems found.'],
             ['Completed', $g['completed'], 'Deployment completed or the required hours are already met.'],
+            ['Not set up yet', $g['not_set_up'], 'Deployed, but the intern has not set up the account yet, so there is nothing to track.'],
         ], [2600, 1400, 10400]);
 
         // Interns

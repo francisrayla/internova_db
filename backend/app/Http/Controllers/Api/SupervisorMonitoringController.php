@@ -1070,26 +1070,28 @@ class SupervisorMonitoringController extends Controller
 
     /**
      * Keeps the system-drafted daily summary honest after attendance changed. Only an unedited draft
-     * (is_auto_generated and still "recorded") is removed; an entry the intern wrote or edited stays. When the
-     * day still has finished attendance the draft is written again from the new times, otherwise it stays gone.
+     * (is_auto_generated and still "recorded") is touched; an entry the intern wrote or edited stays exactly
+     * as they left it. While the day still has finished attendance the draft text is rewritten in place from
+     * the new times (right away, no queue involved, so it never shows the old times); otherwise it is removed.
      */
     private function refreshDailySummary(InternshipDeployment $deployment, string $date): void
     {
-        $removed = DailyActivity::where('deployment_id', $deployment->id)
+        $drafts = DailyActivity::where('deployment_id', $deployment->id)
             ->whereDate('activity_date', $date)
             ->where('is_auto_generated', true)
             ->where('status', DailyActivity::RECORDED)
-            ->delete();
-        if (!$removed) {
+            ->get();
+        if ($drafts->isEmpty()) {
             return;
         }
 
-        $left = Attendance::where('deployment_id', $deployment->id)->whereDate('attendance_date', $date)
-            ->whereNotNull('clock_in')->whereNotNull('clock_out')
-            ->orderByDesc('id')->first();
-        if ($left) {
-            // After the commit, so the worker already sees the old draft gone.
-            \App\Jobs\GenerateNarrativeForAttendance::dispatch($left->id)->afterCommit();
+        $facts = \App\Jobs\GenerateNarrativeForAttendance::dayFacts($deployment, $date);
+        foreach ($drafts as $draft) {
+            if ($facts['clock_in'] && $facts['clock_out']) {
+                $draft->update(['description' => \App\Jobs\GenerateNarrativeForAttendance::plainNarrative($facts['items'], $facts['clock_in'], $facts['clock_out'])]);
+            } else {
+                $draft->delete();
+            }
         }
     }
 
@@ -1687,7 +1689,11 @@ class SupervisorMonitoringController extends Controller
         $supervisorId = $request->user()->id;
         $data = $request->validate([
             'status' => 'required|string|in:approved,rejected',
-            'review_remarks' => 'nullable|string|max:500',
+            // A rejection has to say why, or the intern cannot fix the entry.
+            'review_remarks' => 'required_if:status,rejected|nullable|string|max:500',
+        ], [
+            'review_remarks.required_if' => 'Write the reason for rejecting this entry so the intern knows what to fix.',
+            'review_remarks.max' => 'The reason can be at most 500 characters.',
         ]);
 
         $activity = DailyActivity::whereIn('deployment_id', $this->deploymentIdsForSupervisor($request->user()))->find($id);
@@ -1714,7 +1720,7 @@ class SupervisorMonitoringController extends Controller
                 $activity->deployment->school_id,
                 'activity_reviewed',
                 $data['status'] === 'approved' ? 'Activity log approved' : 'Activity log rejected',
-                "\"{$activity->title}\" was {$data['status']}.",
+                "\"{$activity->title}\" was {$data['status']}." . ($data['status'] === 'rejected' ? " Reason: {$data['review_remarks']}" : ''),
                 '/intern/activities'
             );
         }

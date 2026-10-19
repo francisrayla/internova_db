@@ -109,6 +109,7 @@ function CompanyRow({ c }) {
             <span className={sup === 0 ? "font-semibold text-amber-700" : ""}>{sup === 0 ? "No supervisors yet" : `${sup} of 2 supervisors`}</span>
             {" · "}
             <span className="font-semibold text-slate-900">{c.active_interns_count}</span> active intern{c.active_interns_count === 1 ? "" : "s"}
+            {c.pending_interns_count > 0 && <span className="text-slate-500"> · {c.pending_interns_count} pending</span>}
           </span>
         </>
       }

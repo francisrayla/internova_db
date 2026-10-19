@@ -78,7 +78,9 @@ function NavBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
-        <Logo size={34} />
+        {/* Under 380px the name would push Log In / Get Started off the screen, so only the mark shows there. */}
+        <span className="min-[380px]:hidden" role="img" aria-label="InterNova"><Logo size={34} wordmark={false} /></span>
+        <span className="hidden min-[380px]:block"><Logo size={34} /></span>
         <nav className="hidden items-center gap-8 text-sm font-medium text-slate-600 md:flex">
           <a href="#features" className="hover:text-blue-700">Features</a>
           <a href="#how-it-works" className="hover:text-blue-700">How it Works</a>

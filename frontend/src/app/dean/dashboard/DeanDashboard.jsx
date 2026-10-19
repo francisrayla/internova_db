@@ -7,11 +7,11 @@ import { formatDate, greeting, timeAgo } from "@/lib/timeAgo";
 import DownloadDocxButton from "@/components/narrative-report/DownloadDocxButton";
 import { GROUPS, GROUP_ORDER } from "@/components/dean/monitoring";
 import { plural } from "@/lib/format";
-import { headTitle } from "@/lib/headTitle";
+import { headAddress, headTitle } from "@/lib/headTitle";
 import { Card, Col, Cols, DashHeader, DashPage, InitialsAvatar, Notice, ProgressRow, SegmentedBar, Skel, StatusChip, TextLink } from "@/components/dash";
 
-// Same four groups as the Interns page; the bar colours say the same thing as the Pill tones there.
-const GROUP_TONE = { red: "risk", amber: "warn", green: "ok", blue: "info" };
+// Same five groups as the Interns page; the bar colours say the same thing as the Pill tones there.
+const GROUP_TONE = { red: "risk", amber: "warn", green: "ok", blue: "info", slate: "muted" };
 
 const SUBSCRIPTION_LABELS = {
   active: { label: "Active", tone: "ok" },
@@ -51,7 +51,7 @@ export default function DeanDashboard() {
 
   useEffect(load, [load]);
 
-  const lastName = (data?.dean?.name ?? user?.name ?? "").trim().split(/\s+/).slice(-1)[0];
+  const address = headAddress(headTitle(user), data?.dean?.name ?? user?.name);
   const today = formatDate(new Date().toISOString(), { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const schoolName = data?.school?.name ?? user?.school_name;
 
@@ -63,7 +63,7 @@ export default function DeanDashboard() {
   return (
     <DashPage>
       <DashHeader
-        title={`${greeting()}, ${headTitle(user)} ${lastName}`}
+        title={`${greeting()}, ${address}`}
         sentence={schoolName ? `Here's how ${schoolName} is doing today.` : "Here's how your school is doing today."}
         meta={today}
       >

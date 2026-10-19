@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { apiFetch } from "@/lib/apiFetch";
+import { apiFetch, loginPath } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
@@ -54,7 +54,7 @@ export default function SupervisorLayout({ children }) {
     }
 
     if (!stored || stored.role !== "supervisor") {
-      router.replace("/login");
+      router.replace(loginPath());
       return;
     }
 

@@ -175,4 +175,33 @@ class NotificationAttentionTest extends TestCase
         $this->assertContains('clock_in', $keys);       // still the intern's own list
         $this->assertNotContains('inquiries', $keys);   // never the super admin's
     }
+
+    public function test_a_sent_back_document_stops_counting_once_a_new_file_is_uploaded(): void
+    {
+        $doc = fn (string $type, string $status, ?string $remarks = null) => Document::create([
+            'deployment_id' => $this->dep->id, 'uploaded_by' => $this->dep->intern_id, 'document_type' => $type,
+            'file_name' => 'f.pdf', 'file_path' => 'x/f.pdf', 'status' => $status, 'remarks' => $remarks,
+        ]);
+        $this->as('intern');
+
+        $doc('Endorsement Letter', 'rejected', 'Blurry scan, please upload again.');
+        $doc('Waiver', 'rejected');
+        $item = $this->items()->get('rejected_documents');
+        $this->assertSame(2, $item['count']);
+        $this->assertSame('Read the remarks and upload a corrected file.', $item['detail']);
+
+        // Re-uploaded (pending review): that one no longer counts.
+        $doc('endorsement letter ', 'pending');
+        $item = $this->items()->get('rejected_documents');
+        $this->assertSame(1, $item['count']);
+        $this->assertSame('Upload a corrected file.', $item['detail'], 'the one left has no remarks');
+
+        // The new file is approved, and the other one is fixed too: nothing is sent back any more.
+        $doc('Waiver', 'approved');
+        $this->assertNull($this->items()->get('rejected_documents'));
+
+        // A re-upload that is rejected again counts again.
+        $doc('Waiver', 'rejected', 'Wrong page.');
+        $this->assertSame(1, $this->items()->get('rejected_documents')['count']);
+    }
 }

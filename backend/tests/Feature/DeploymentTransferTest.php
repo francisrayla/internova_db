@@ -35,6 +35,8 @@ class DeploymentTransferTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Fixed "today": a move date can be at most today, and these tests move on 2026-10-20.
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-10-21 09:00:00'));
         Mail::fake();
         $this->seed(\Database\Seeders\InternovaSeeder::class);
         $this->dep = InternshipDeployment::firstOrFail();
@@ -302,5 +304,32 @@ class DeploymentTransferTest extends TestCase
         $this->oldStyleReassignment(Carbon::parse('2026-10-06 09:00:00'), log: true, closeAtSameTime: false);
         $this->assertSame('merged', DeploymentMergeBackfill::run()[0]['action']);
         $this->assertSame(1, InternshipDeployment::count());
+    }
+
+    public function test_the_move_date_is_between_the_last_move_and_today(): void
+    {
+        Sanctum::actingAs($this->coordinator());
+        $this->reassign(['transferred_on' => '2026-10-22'])->assertStatus(422)->assertJsonValidationErrors('transferred_on');
+        $this->reassign(['transferred_on' => '2031-01-01'])->assertStatus(422);
+        $this->assertSame(0, DeploymentTransfer::count());
+
+        $this->reassign(['transferred_on' => '2026-10-15'])->assertOk();
+
+        // Moving back to the first company cannot be dated before that move.
+        $back = fn (string $on) => $this->postJson("/api/coordinator/interns/{$this->dep->id}/reassign", ['company_id' => $this->abc->id, 'transferred_on' => $on]);
+        $back('2026-10-14')->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'last move (Oct 15, 2026)'));
+        $back('2026-10-21')->assertOk();
+        $this->assertSame(2, DeploymentTransfer::count());
+    }
+
+    public function test_a_completed_or_inactive_internship_is_not_moved(): void
+    {
+        Sanctum::actingAs($this->coordinator());
+        $this->dep->update(['status' => 'completed']);
+        $this->reassign()->assertStatus(422)->assertJsonPath('message', 'This internship is completed, so the intern cannot be moved to another company.');
+
+        $this->dep->update(['status' => 'inactive']);
+        $this->reassign()->assertStatus(422)->assertJsonPath('message', 'This internship is inactive, so the intern cannot be moved to another company.');
+        $this->assertSame(0, DeploymentTransfer::count());
     }
 }

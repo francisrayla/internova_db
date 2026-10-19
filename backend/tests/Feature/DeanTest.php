@@ -56,11 +56,11 @@ class DeanTest extends TestCase
 
         $this->postJson('/api/inquiries', [
             'school_name' => 'New College', 'contact_person' => 'Pat Principal', 'position' => 'Principal',
-            'email' => 'pat@newcollege.test', 'phone' => '09171234567', 'message' => 'Hello',
+            'email' => 'pat.newcollege@gmail.com', 'phone' => '09171234567', 'message' => 'Hello',
             'password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true,
         ])->assertCreated();
 
-        $user = $this->user('pat@newcollege.test');
+        $user = $this->user('pat.newcollege@gmail.com');
         $this->assertSame('dean', $user->roles->name);
         $this->assertSame('pending_approval', $user->status);
 
@@ -83,7 +83,7 @@ class DeanTest extends TestCase
         $this->assertDatabaseHas('notifications', ['audience_role' => 'dean', 'user_id' => $user->id, 'type' => 'offer_sent']);
 
         $row = collect($this->getJson('/api/superadmin/schools')->json('schools'))->firstWhere('name', 'New College');
-        $this->assertSame('pat@newcollege.test', $row['dean_email']);
+        $this->assertSame('pat.newcollege@gmail.com', $row['dean_email']);
         $this->assertSame('active', $row['dean_setup']);
     }
 
@@ -202,7 +202,7 @@ class DeanTest extends TestCase
 
     public function test_school_settings_are_editable_by_the_dean_only(): void
     {
-        $payload = ['school_name' => 'Renamed College', 'address' => 'Pasig', 'contact_email' => 'new@abctech.edu', 'contact_number' => '09175550000'];
+        $payload = ['school_name' => 'Renamed College', 'address' => 'Pasig', 'contact_email' => 'new.abctech@gmail.com', 'contact_number' => '09175550000'];
 
         Sanctum::actingAs($this->user('coordinator@internova.test'));
         $this->patchJson('/api/coordinator/school-settings', $payload)->assertStatus(405);

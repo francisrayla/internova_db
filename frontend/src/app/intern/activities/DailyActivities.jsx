@@ -39,6 +39,7 @@ export default function DailyActivities() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [startsOn, setStartsOn] = useState(""); // first day an entry can be dated
   const requestRef = useRef(0);
   const submittingRef = useRef(false);
   const [showForm, setShowForm] = useState(false);
@@ -72,6 +73,7 @@ export default function DailyActivities() {
         setPage(nextPage);
         setHasMore(Boolean(a.has_more));
         setTotal(a.total ?? rows.length);
+        if (nextPage === 1) setStartsOn(a.starts_on ?? "");
       })
       .catch(() => {
         if (request !== requestRef.current || nextPage > 1) return;
@@ -230,6 +232,11 @@ export default function DailyActivities() {
       setError("Give this entry a short title.");
       return;
     }
+    if (startsOn && form.activity_date && form.activity_date < startsOn) {
+      const label = new Date(`${startsOn}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      setError(`The date cannot be before your internship started on ${label}.`);
+      return;
+    }
     submittingRef.current = true;
     setSaving(true);
     setError("");
@@ -290,6 +297,7 @@ export default function DailyActivities() {
               <Input
                 type="date"
                 value={form.activity_date}
+                min={startsOn || undefined}
                 max={todayISO()}
                 onChange={(e) => setForm((f) => ({ ...f, activity_date: e.target.value }))}
               />

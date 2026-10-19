@@ -188,6 +188,7 @@ export default function MyPortfolio() {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not add this item.");
       setPortfolio((prev) => (prev ? { ...prev, items: [data.item, ...prev.items] } : prev));
+      loadNarrative(); // the report checklist counts work samples too
       setItemForm({ title: "", description: "", project_url: "" });
       setItemImage(null);
       setShowItemForm(false);
@@ -226,6 +227,7 @@ export default function MyPortfolio() {
         throw new Error(data.message || "Could not remove this work sample. Please try again.");
       }
       setPortfolio((prev) => (prev ? { ...prev, items: prev.items.filter((i) => i.id !== item.id) } : prev));
+      loadNarrative(); // removing the last sample un-ticks "Samples of work done" in the checklist
       setDeleting(null);
     } catch (err) {
       setDeleteError(err.message || "Could not remove this work sample. Please try again.");

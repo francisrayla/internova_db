@@ -7,6 +7,7 @@ import Logo from "@/components/Logo";
 import PasswordInput from "@/components/PasswordInput";
 import { readStoredUser, resolveDashboardPath, resolveLandingPath } from "@/lib/roleDashboard";
 import { clearOfflineCaches } from "@/lib/offlineCache";
+import { clearSessionEnded, sessionWasEnded } from "@/lib/apiFetch";
 
 import { clean, inputProps } from "@/lib/inputRules";
 export default function Login() {
@@ -28,7 +29,7 @@ export default function Login() {
       if (cancelled) return;
       if (landingPath) router.replace(landingPath);
       else {
-        if (new URLSearchParams(window.location.search).get("reason") === "expired") {
+        if (new URLSearchParams(window.location.search).get("reason") === "expired" || sessionWasEnded()) {
           setNotice("Your session has ended, so we signed you out to keep your account safe. Please sign in again.");
         }
         setCheckingSession(false);
@@ -78,6 +79,7 @@ export default function Login() {
         await clearOfflineCaches();
         localStorage.setItem("internova_user", JSON.stringify(user));
         localStorage.setItem("internova_token", token);
+        clearSessionEnded();
 
         router.push(resolveDashboardPath(user) ?? "/");
       })

@@ -125,6 +125,28 @@ class CertificateTest extends TestCase
         $this->assertSame(0, CertificateTemplate::count());
     }
 
+    public function test_no_certificate_before_the_required_hours_and_no_inflated_hours(): void
+    {
+        $this->upload($this->pptx([['{{NAME}} {{HOURS}}']]))->assertOk();
+        Attendance::create(['deployment_id' => $this->dep->id, 'attendance_date' => '2026-09-01', 'clock_in' => '2026-09-01 00:00:00', 'clock_out' => '2026-09-01 08:00:00', 'status' => 'approved']);
+        $this->dep->update(['required_hours' => 500, 'status' => 'active']);
+        Sanctum::actingAs($this->sup);
+        $go = fn (array $extra = []) => $this->post('/api/supervisor/certificates/generate', ['deployment_id' => $this->dep->id, 'name' => 'Rina Santos'] + $extra, ['Accept' => 'application/json']);
+
+        $go()->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'has rendered 8 of 500 hours'));
+        $this->assertFalse(collect($this->getJson('/api/supervisor/certificates')->json('interns'))->firstWhere('deployment_id', $this->dep->id)['finished']);
+
+        $this->dep->update(['required_hours' => 8]); // the 8 approved hours now finish it
+        $this->assertTrue(collect($this->getJson('/api/supervisor/certificates')->json('interns'))->firstWhere('deployment_id', $this->dep->id)['finished']);
+        $go(['hours' => 500])->assertStatus(422)->assertJsonValidationErrors('hours');
+        $go(['hours' => 8])->assertOk();
+
+        $this->dep->update(['required_hours' => 500, 'status' => 'completed']); // marked completed (e.g. a waiver)
+        $go()->assertOk();
+        $go(['hours' => 500])->assertOk();
+        $go(['hours' => 501])->assertStatus(422);
+    }
+
     public function test_a_name_with_markup_or_symbols_is_refused(): void
     {
         $this->upload($this->pptx([['{{NAME}}']]))->assertOk();
@@ -138,6 +160,7 @@ class CertificateTest extends TestCase
         Attendance::create(['deployment_id' => $this->dep->id, 'attendance_date' => '2026-09-01', 'clock_in' => '2026-09-01 00:00:00', 'clock_out' => '2026-09-01 09:00:00', 'status' => 'approved']);
 
         Sanctum::actingAs($this->sup);
+        $this->dep->update(['required_hours' => 9]); // the 9 approved hours below finish the internship
         // Characters XML must escape still reach the slide: '&' in the company name (allowed there), an apostrophe in the name.
         Company::whereKey($this->dep->company_id)->update(['company_name' => 'Cruz & Sons (Main)']);
         $res = $this->post('/api/supervisor/certificates/generate', ['deployment_id' => $this->dep->id, 'name' => "Maria O'Neil-Cruz"], ['Accept' => 'application/json'])->assertOk();
@@ -153,6 +176,7 @@ class CertificateTest extends TestCase
     public function test_the_sample_template_produces_a_complete_certificate(): void
     {
         $this->upload($this->sample)->assertOk();
+        $this->dep->update(['status' => 'completed', 'required_hours' => 486]);
 
         Sanctum::actingAs($this->sup);
         $res = $this->post('/api/supervisor/certificates/generate', [

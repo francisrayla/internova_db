@@ -5,11 +5,14 @@ import { apiFetch, fetchApiData } from "@/lib/apiFetch";
 import { FEEDBACK_READ_EVENT } from "@/components/FeedbackUnreadWatcher";
 import FeedbackThread from "@/components/dean/FeedbackThread";
 import { EmptyState, ErrorNote, SkeletonList } from "@/components/dean/ui";
+import { useCurrentUser } from "@/lib/UserContext";
+import { headTitle } from "@/lib/headTitle";
 import { Btn, FormField, GroupTitle, Textarea } from "@/components/dash/page";
 
 const MAX = 2000;
 
 export default function FeedbackTab({ coordinator, onSent }) {
+  const { user } = useCurrentUser();
   const [items, setItems] = useState(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,7 +74,7 @@ export default function FeedbackTab({ coordinator, onSent }) {
           <div className="min-w-0">
             <h2>Send feedback to your coordinator</h2>
             <p>
-              Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;Dean Feedback&quot;. They can acknowledge it and reply, and you can mark a conversation resolved when it is dealt with.
+              Share praise, concerns or things to follow up on. They&apos;ll get a notification and can read it under &quot;{headTitle(user)} Feedback&quot;. They can acknowledge it and reply, and you can mark a conversation resolved when it is dealt with.
             </p>
           </div>
         </div>

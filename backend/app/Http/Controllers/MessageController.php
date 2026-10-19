@@ -14,6 +14,7 @@ use App\Models\MessageThreadSetting;
 use App\Models\SupervisorProfile;
 use App\Models\User;
 use App\Services\SchoolStaff;
+use App\Support\ChatTime;
 use App\Support\HeadTitle;
 use App\Support\SafeUpload;
 use Illuminate\Http\JsonResponse;
@@ -95,6 +96,21 @@ class MessageController extends Controller
     }
 
     /**
+     * Who can be added to a group right now: the eligible contacts whose account is set up and active.
+     * Someone who never accepted the invitation (pending_activation) or was deactivated cannot read anything,
+     * so they are not offered; a conversation that already exists stays readable (see contacts()).
+     */
+    private function messageableContacts(User $user)
+    {
+        return $this->eligibleContacts($user)->filter(fn (User $u) => $u->status === 'active')->values();
+    }
+
+    private function canReceiveMessages(int $contactId): bool
+    {
+        return User::where('id', $contactId)->where('status', 'active')->exists();
+    }
+
+    /**
      * Every mute/color choice the current viewer has made, keyed the same
      * way the frontend keys its own conversation state ("dm-3", "group-7")
      * so a single lookup per list-render is all mapContact/mapGroup need —
@@ -157,7 +173,7 @@ class MessageController extends Controller
             'attachment_size' => $m->attachment_size,
             'reply_to' => $this->mapReplySnippet($m->replyTo),
             'read_at' => $m->read_at?->local()?->format('M d, Y g:i A'),
-            'created_at' => $m->created_at->local()->format('g:i A'),
+            'created_at' => ChatTime::label($m->created_at),
             'created_at_full' => $m->created_at->local()->format('M d, Y g:i A'),
         ];
     }
@@ -175,7 +191,7 @@ class MessageController extends Controller
             'attachment_size' => $m->attachment_size,
             'reply_to' => $this->mapReplySnippet($m->replyTo),
             'is_system' => (bool) $m->is_system,
-            'created_at' => $m->created_at->local()->format('g:i A'),
+            'created_at' => ChatTime::label($m->created_at),
             'created_at_full' => $m->created_at->local()->format('M d, Y g:i A'),
         ];
     }
@@ -224,7 +240,7 @@ class MessageController extends Controller
             },
             'avatar_url' => $contact->avatar_url,
             'last_message' => $this->previewLabel($lastMessage),
-            'last_message_at' => $lastMessage?->created_at?->local()?->format('g:i A'),
+            'last_message_at' => ChatTime::label($lastMessage?->created_at),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? 0,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
             'unread_count' => $unreadCount,
@@ -237,7 +253,12 @@ class MessageController extends Controller
     {
         $me = $request->user();
         $settings = $this->settingsFor($me);
+        // People who are not active (invitation not accepted, deactivated) are only listed when a conversation
+        // with them already exists, so its history stays readable.
+        $withHistory = Message::where('sender_id', $me->id)->pluck('receiver_id')
+            ->merge(Message::where('receiver_id', $me->id)->pluck('sender_id'))->unique();
         $contacts = $this->eligibleContacts($me)
+            ->filter(fn (User $c) => $c->status === 'active' || $withHistory->contains($c->id))
             ->map(fn (User $c) => $this->mapContact($me, $c, $settings))
             ->sortByDesc('last_message_at_sort')
             ->values();
@@ -349,6 +370,9 @@ class MessageController extends Controller
         if (!$this->isEligibleContact($me, (int) $data['receiver_id'])) {
             return response()->json(['success' => false, 'message' => 'You can\'t message this person.'], 403);
         }
+        if (!$this->canReceiveMessages((int) $data['receiver_id'])) {
+            return response()->json(['success' => false, 'message' => 'This person has not set up an active account yet, so they cannot receive messages.'], 422);
+        }
 
         // Only a message actually in this same thread can be quoted — never
         // trust a client-submitted id from a different conversation.
@@ -430,6 +454,9 @@ class MessageController extends Controller
         if ($data['target_type'] === 'dm') {
             if (!$this->isEligibleContact($me, (int) $data['target_id'])) {
                 return response()->json(['success' => false, 'message' => 'You can\'t message this person.'], 403);
+            }
+            if (!$this->canReceiveMessages((int) $data['target_id'])) {
+                return response()->json(['success' => false, 'message' => 'This person has not set up an active account yet, so they cannot receive messages.'], 422);
             }
 
             $message = Message::create(array_merge($payload, [
@@ -532,7 +559,7 @@ class MessageController extends Controller
                 'avatar_url' => $m->user?->avatar_url,
             ])->values(),
             'last_message' => $this->previewLabel(groupMessage: $lastMessage),
-            'last_message_at' => $lastMessage?->created_at?->local()?->format('g:i A'),
+            'last_message_at' => ChatTime::label($lastMessage?->created_at),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? $g->created_at->timestamp,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
             'last_message_sender_name' => $lastMessage ? (trim("{$lastMessage->sender?->first_name} {$lastMessage->sender?->last_name}") ?: $lastMessage->sender?->name) : null,
@@ -572,7 +599,7 @@ class MessageController extends Controller
         // Only people this coordinator/supervisor could already 1:1 message
         // can be added — no smuggling in someone outside that scope.
         // The school head is a 1:1 contact only, never a group member.
-        $eligibleIds = $this->eligibleContacts($me)->filter(fn (User $u) => $u->roles?->name !== 'dean')->pluck('id');
+        $eligibleIds = $this->messageableContacts($me)->filter(fn (User $u) => $u->roles?->name !== 'dean')->pluck('id');
         $memberIds = collect($data['member_ids'])->unique()->filter(fn ($id) => $eligibleIds->contains($id));
         if ($memberIds->isEmpty()) {
             return response()->json(['success' => false, 'message' => 'Select at least one valid person.'], 422);

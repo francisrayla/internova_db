@@ -49,7 +49,7 @@ class CourseRequirementController extends Controller
     public function update(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'course' => 'required|string|max:100',
+            'course' => 'required|string|max:150',
             'requirements' => 'present|array|max:' . CourseRequirementService::MAX_REQUIREMENTS,
             'requirements.*' => 'required|string|max:' . CourseRequirementService::MAX_NAME_LENGTH,
         ], [
@@ -91,7 +91,7 @@ class CourseRequirementController extends Controller
     /** Back to the system default for one course. */
     public function reset(Request $request): JsonResponse
     {
-        $data = $request->validate(['course' => 'required|string|max:100']);
+        $data = $request->validate(['course' => 'required|string|max:150']);
 
         $svc = $this->service($request);
         $course = $svc->canonicalCourse($data['course']);

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Attendance;
 use App\Models\DailyActivity;
+use App\Models\InternshipDeployment;
 use App\Models\Subtask;
 use App\Models\Task;
 use App\Services\NarrativeAiService;
@@ -49,24 +50,9 @@ class GenerateNarrativeForAttendance implements ShouldQueue
         if ($dayRows->contains(fn ($r) => $r->clock_in && !$r->clock_out && $date === \App\Support\LocalTime::today())) {
             return;
         }
-        $closed = $dayRows->filter(fn ($r) => $r->clock_in && $r->clock_out);
 
         $internId = $deployment->intern_id;
-
-        $taskTitles = Task::whereHas('assignees', fn ($q) => $q->where('user_id', $internId))
-            ->where('status', 'completed')
-            ->where(fn ($q) => \App\Support\LocalTime::whereLocalDate($q, 'completed_at', $date))
-            ->pluck('title');
-
-        $subtaskTitles = Subtask::whereHas('task.assignees', fn ($q) => $q->where('user_id', $internId))
-            ->where('status', 'completed')
-            ->where(fn ($q) => \App\Support\LocalTime::whereLocalDate($q, 'completed_at', $date))
-            ->pluck('title');
-
-        $items = $taskTitles->merge($subtaskTitles)->values()->all();
-
-        $clockIn = $closed->min('clock_in')?->local()?->format('h:i A');
-        $clockOut = $closed->max('clock_out')?->local()?->format('h:i A');
+        ['items' => $items, 'clock_in' => $clockIn, 'clock_out' => $clockOut] = self::dayFacts($deployment, $date);
 
         // AI Narrative Writing is a Premium feature — a Basic-plan school
         // still gets the backfilled narrative, just built from the plain
@@ -76,9 +62,7 @@ class GenerateNarrativeForAttendance implements ShouldQueue
             : null;
 
         if (!$narrative) {
-            $narrative = $items === []
-                ? "Reported for on-the-job training" . ($clockIn && $clockOut ? " from {$clockIn} to {$clockOut}." : '.') . ' No specific tasks were marked completed on this date.'
-                : "Reported for on-the-job training" . ($clockIn && $clockOut ? " from {$clockIn} to {$clockOut}." : '.') . ' Completed: ' . implode(', ', $items) . '.';
+            $narrative = self::plainNarrative($items, $clockIn, $clockOut);
         }
 
         // Re-check right before writing — the narrow window while the AI
@@ -99,5 +83,44 @@ class GenerateNarrativeForAttendance implements ShouldQueue
             'status' => DailyActivity::RECORDED,
             'is_auto_generated' => true,
         ]);
+    }
+
+    /**
+     * What a day's summary is built from: the titles of the tasks/subtasks finished that Manila day, and the first
+     * time in / last time out of its finished attendance ('h:i A', or null when no shift of the day is closed).
+     *
+     * @return array{items: array<int, string>, clock_in: ?string, clock_out: ?string}
+     */
+    public static function dayFacts(InternshipDeployment $deployment, string $date): array
+    {
+        $internId = $deployment->intern_id;
+        $closed = Attendance::where('deployment_id', $deployment->id)->whereDate('attendance_date', $date)->get()
+            ->filter(fn ($r) => $r->clock_in && $r->clock_out);
+
+        $taskTitles = Task::whereHas('assignees', fn ($q) => $q->where('user_id', $internId))
+            ->where('status', 'completed')
+            ->where(fn ($q) => \App\Support\LocalTime::whereLocalDate($q, 'completed_at', $date))
+            ->pluck('title');
+
+        $subtaskTitles = Subtask::whereHas('task.assignees', fn ($q) => $q->where('user_id', $internId))
+            ->where('status', 'completed')
+            ->where(fn ($q) => \App\Support\LocalTime::whereLocalDate($q, 'completed_at', $date))
+            ->pluck('title');
+
+        return [
+            'items' => $taskTitles->merge($subtaskTitles)->values()->all(),
+            'clock_in' => $closed->min('clock_in')?->local()?->format('h:i A'),
+            'clock_out' => $closed->max('clock_out')?->local()?->format('h:i A'),
+        ];
+    }
+
+    /** The template text (no AI): used when AI is off or fails, and when a correction rewrites a draft in place. */
+    public static function plainNarrative(array $items, ?string $clockIn, ?string $clockOut): string
+    {
+        $head = 'Reported for on-the-job training' . ($clockIn && $clockOut ? " from {$clockIn} to {$clockOut}." : '.');
+
+        return $items === []
+            ? $head . ' No specific tasks were marked completed on this date.'
+            : $head . ' Completed: ' . implode(', ', $items) . '.';
     }
 }

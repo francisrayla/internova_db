@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { apiFetch } from "@/lib/apiFetch";
+import { apiFetch, loginPath } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
@@ -39,7 +39,7 @@ export default function SuperadminLayout({ children }) {
     // No real session at all, or a token for some other role — either way this
     // isn't a Super Admin, so don't render any admin screen or data for them.
     if (!stored || stored.role !== "super_admin") {
-      router.replace("/login");
+      router.replace(loginPath());
       return;
     }
 

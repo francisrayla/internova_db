@@ -195,22 +195,58 @@ class AttendanceCorrectionTest extends TestCase
         $this->assertFalse($unchecked->contains('id', $c->id));
     }
 
-    public function test_the_drafted_summary_is_written_again_but_the_interns_own_entry_is_kept(): void
+    public function test_the_drafted_summary_is_rewritten_with_the_new_times_but_the_interns_own_entry_is_kept(): void
     {
         $a = $this->shift();
         $draft = $this->draft();
         Sanctum::actingAs($this->sup);
 
+        // Straight away (no queue): the same entry now quotes the corrected times, never the old ones.
         $this->correct($a, '09:00', '12:00')->assertOk();
-        $this->assertNull(DailyActivity::find($draft->id));
-        Queue::assertPushed(GenerateNarrativeForAttendance::class, fn ($j) => true);
+        $draft->refresh();
+        $this->assertSame(DailyActivity::RECORDED, $draft->status);
+        $this->assertTrue($draft->is_auto_generated);
+        $this->assertStringContainsString('from 09:00 AM to 12:00 PM', $draft->description);
+        $this->assertStringNotContainsString('08:00 AM', $draft->description);
+        $this->assertStringNotContainsString('04:00 PM', $draft->description);
+        Queue::assertNothingPushed();
+
+        // A second correction rewrites it again.
+        $this->correct($a, '09:00', '12:40')->assertOk();
+        $this->assertStringContainsString('from 09:00 AM to 12:40 PM', $draft->fresh()->description);
 
         // An entry the intern wrote (or edited, which turns it into pending) is never removed.
         Queue::fake();
         $own = $this->draft('2026-10-13', ['title' => 'My day', 'status' => DailyActivity::PENDING, 'is_auto_generated' => false]);
         $this->correct($a, '09:00', '11:00')->assertOk();
         $this->assertNotNull(DailyActivity::find($own->id));
+        $this->assertSame('Reported for on-the-job training from 08:00 AM to 04:00 PM.', $own->fresh()->description);
         Queue::assertNothingPushed();
+    }
+
+    // ---- reject -> approve again --------------------------------------------------------------
+
+    public function test_a_rejected_attendance_can_be_approved_again_and_the_intern_is_told(): void
+    {
+        $a = $this->shift(['status' => 'pending']);
+        Sanctum::actingAs($this->sup);
+
+        $this->patchJson("/api/supervisor/attendance/{$a->id}", ['status' => 'rejected'])->assertOk();
+        $this->assertSame('rejected', $a->fresh()->status);
+        $this->assertSame(0.0, round($this->dep->approvedHours(), 1));
+
+        Notification::query()->delete();
+        $this->patchJson("/api/supervisor/attendance/{$a->id}", ['status' => 'approved'])->assertOk();
+        $this->assertSame('approved', $a->fresh()->status);
+        $this->assertSame(8.0, round($this->dep->approvedHours(), 1));
+        $n = Notification::where('user_id', $this->intern->id)->where('type', 'attendance_reviewed')->get();
+        $this->assertCount(1, $n);
+        $this->assertSame('Attendance approved', $n[0]->title);
+        $this->assertTrue(ActivityLog::where('action', 'Approved attendance')->exists());
+
+        // The list tells the screen which button to offer.
+        $row = collect($this->getJson('/api/supervisor/attendance')->json('records'))->firstWhere('id', $a->id);
+        $this->assertSame('approved', $row['status']);
     }
 
     // ---- permissions --------------------------------------------------------------------------
@@ -327,8 +363,8 @@ class AttendanceCorrectionTest extends TestCase
 
         $this->deleteJson("/api/supervisor/attendance/{$am->id}")->assertOk();
 
-        $this->assertNull(DailyActivity::find($draft->id));
-        Queue::assertPushed(GenerateNarrativeForAttendance::class, 1);
+        $this->assertStringContainsString('from 01:00 PM to 05:00 PM', $draft->fresh()->description);
+        Queue::assertNothingPushed();
         $this->assertNotNull(Attendance::find($pm->id));
     }
 

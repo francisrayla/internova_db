@@ -22,7 +22,7 @@ function readView() {
 }
 
 // Colour of the figure for each status group (soft text colours, see dash-fig-value in page.css).
-const STRIP_TONE = { red: "is-risk", amber: "is-warn", green: "is-ok", blue: "is-info" };
+const STRIP_TONE = { red: "is-risk", amber: "is-warn", green: "is-ok", blue: "is-info", slate: "" };
 
 const PER_PAGE = 18;
 

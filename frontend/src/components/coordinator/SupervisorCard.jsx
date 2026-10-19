@@ -16,7 +16,8 @@ export const SUPERVISOR_STATUS = {
 /** One supervisor: who they are, whether they can sign in, who they supervise and when they last signed in. */
 export default function SupervisorCard({ supervisor: s, menuItems, showCompany = true }) {
   const status = SUPERVISOR_STATUS[s.status] ?? SUPERVISOR_STATUS.active;
-  const count = s.interns_count ?? 0;
+  const count = s.interns_count ?? 0; // active accounts only, like the company page
+  const pending = s.pending_interns_count ?? 0;
   const lastActive =
     s.status === "pending" || s.status === "bounced"
       ? "Has not signed in yet"
@@ -54,6 +55,7 @@ export default function SupervisorCard({ supervisor: s, menuItems, showCompany =
             ) : (
               <span>No active interns</span>
             )}
+            {pending > 0 && <span>{pending} pending</span>}
             <span>{lastActive}</span>
           </span>
           {s.status === "bounced" && (

@@ -27,6 +27,8 @@ use Illuminate\Support\Facades\DB;
  *                      - 2 or more flags
  *   needs_attention  exactly 1 flag
  *   on_track         no flags
+ *   not_set_up       still active but the intern never set up the account (users.status pending_activation);
+ *                    they cannot clock in yet, so they are neither on track nor at risk and are counted apart
  * FLAGS: no_clock_in (3+ working days), behind_hours (hours% more than 20 points
  * under working-days-elapsed%, once 15% has passed), missing_documents,
  * evaluation_due (see rows()).
@@ -44,12 +46,13 @@ class InternMonitoringService
     public const PACE_WINDOW_DAYS = 21;                 // "recent pace" = last 3 weeks
     public const MIN_DAYS_FOR_PROJECTION = 2;           // attendance days needed for a projection
 
-    public const GROUPS = ['at_risk', 'needs_attention', 'on_track', 'completed'];
+    public const GROUPS = ['at_risk', 'needs_attention', 'on_track', 'completed', 'not_set_up'];
     public const GROUP_LABELS = [
         'at_risk' => 'At risk',
         'needs_attention' => 'Needs attention',
         'on_track' => 'On track',
         'completed' => 'Completed',
+        'not_set_up' => 'Not set up yet',
     ];
 
     public static function nameOf(?User $u): ?string
@@ -178,7 +181,7 @@ class InternMonitoringService
     }
 
     /** @return array{group:string,label:string,reasons:array<int,string>} */
-    public static function classify(string $status, bool $hoursMet, array $flags, int $missedWorkingDays, array $projection): array
+    public static function classify(string $status, bool $hoursMet, array $flags, int $missedWorkingDays, array $projection, bool $accountPending = false): array
     {
         $result = fn (string $g, array $reasons = []) => ['group' => $g, 'label' => self::GROUP_LABELS[$g] ?? 'Not active', 'reasons' => $reasons];
 
@@ -187,6 +190,9 @@ class InternMonitoringService
         }
         if ($status === 'completed' || $hoursMet) {
             return $result('completed');
+        }
+        if ($accountPending) {
+            return $result('not_set_up', ['Has not set up the account yet']);
         }
 
         $reasons = [];
@@ -343,7 +349,7 @@ class InternMonitoringService
             }
 
             $projection = self::project($d->status, $d->start_date, $d->end_date, $required, $hours, $dayHours, $today);
-            $group = self::classify($d->status, $hoursMet, $flags, $missed, $projection);
+            $group = self::classify($d->status, $hoursMet, $flags, $missed, $projection, $d->intern?->status === 'pending_activation');
             $cal = self::calendar(($isFinished && $d->status !== 'inactive') ? 'completed' : $d->status, $d->start_date, $d->end_date, $byDate, $today, $calStart);
             $profile = $profiles->get($d->intern_id);
             $t = $tasks->get($d->id);
@@ -402,7 +408,7 @@ class InternMonitoringService
         })->values();
 
         // At risk first, then needs attention, on track, completed; most flags first within a group.
-        $order = array_flip(['at_risk', 'needs_attention', 'on_track', 'completed', 'inactive']);
+        $order = array_flip(['at_risk', 'needs_attention', 'on_track', 'completed', 'not_set_up', 'inactive']);
 
         return $rows->sort(function ($a, $b) use ($order) {
             return [$order[$a['status_group']] ?? 9, -count($a['flags']), strtolower((string) $a['intern_name'])]
@@ -410,7 +416,7 @@ class InternMonitoringService
         })->values();
     }
 
-    /** @return array{at_risk:int,needs_attention:int,on_track:int,completed:int,total:int} */
+    /** @return array{at_risk:int,needs_attention:int,on_track:int,completed:int,not_set_up:int,total:int} */
     public static function groupCounts(Collection $rows): array
     {
         $counts = array_fill_keys(self::GROUPS, 0);
@@ -427,7 +433,7 @@ class InternMonitoringService
      * Interns per company on the SAME definitions as every tile: active = still working with an account,
      * completed = finished (hours rendered or marked completed).
      *
-     * @return array<int, array{active:int,completed:int}>  keyed by company id
+     * @return array<int, array{active:int,pending:int,completed:int}>  keyed by company id
      */
     public static function countsByCompany(int $schoolId): array
     {
@@ -438,10 +444,11 @@ class InternMonitoringService
 
     /**
      * Same counts from rows you already have (rows() or the coordinator's internRows), without another pass.
-     * active = deployed there and not finished (an intern whose invitation is still pending is deployed too).
+     * active = deployed there, not finished, with a set-up account (same as the company page's "Active interns");
+     * pending = deployed there but the intern has not set up the account yet; completed = finished.
      *
      * @param  iterable<array>  $rows
-     * @return array<int, array{active:int,completed:int}>
+     * @return array<int, array{active:int,pending:int,completed:int}>
      */
     public static function countsFrom(iterable $rows): array
     {
@@ -450,8 +457,12 @@ class InternMonitoringService
             if ($r['display_status'] === 'inactive' || !$r['company_id']) {
                 continue;
             }
-            $out[$r['company_id']] ??= ['active' => 0, 'completed' => 0];
-            $out[$r['company_id']][$r['display_status'] === 'completed' ? 'completed' : 'active']++;
+            $out[$r['company_id']] ??= ['active' => 0, 'pending' => 0, 'completed' => 0];
+            $out[$r['company_id']][match ($r['display_status']) {
+                'completed' => 'completed',
+                'invitation_pending' => 'pending',
+                default => 'active',
+            }]++;
         }
 
         return $out;

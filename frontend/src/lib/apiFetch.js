@@ -4,6 +4,9 @@ import { clearOfflineCaches } from "@/lib/offlineCache";
 
 const TOKEN_KEY = "internova_token";
 const USER_KEY = "internova_user";
+// Set when the server ended the session (401), so whichever screen sends the user to /login next -
+// apiFetch below or a layout that finds the stored user gone - shows the same "session ended" notice.
+const ENDED_KEY = "internova_session_ended";
 
 function getToken() {
   if (typeof window === "undefined") return null;
@@ -16,11 +19,38 @@ function getToken() {
 
 const SCHOOL_GATE_CODES = ["school_suspended", "subscription_expired", "subscription_unpaid"];
 
+/** Where a layout sends someone who has no stored session: /login, with the expired notice when the server just ended it. */
+export function loginPath() {
+  try {
+    return sessionStorage.getItem(ENDED_KEY) ? "/login?reason=expired" : "/login";
+  } catch {
+    return "/login";
+  }
+}
+
+/** True when this tab's session was ended by the server (revoked, expired). */
+export function sessionWasEnded() {
+  return loginPath() !== "/login";
+}
+
+/** Forget the ended-session note (after signing in again). */
+export function clearSessionEnded() {
+  try {
+    sessionStorage.removeItem(ENDED_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 /** Clears the stored session and sends the user to /login (with a note on why, when we know). */
 function endSession(reason) {
+  // Several requests are usually in flight when a token dies. The first 401 clears the token, so the
+  // later ones carry none and would send the user to a bare /login: keep the reason of the first.
+  if (!reason && sessionWasEnded()) reason = "expired";
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    if (reason === "expired") sessionStorage.setItem(ENDED_KEY, "1");
   } catch {
     // ignore
   }

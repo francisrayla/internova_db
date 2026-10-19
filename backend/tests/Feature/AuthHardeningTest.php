@@ -130,30 +130,62 @@ class AuthHardeningTest extends TestCase
         $this->postJson("/api/invitations/{$other}/accept", ['password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true])->assertStatus(429);
     }
 
-    public function test_public_inquiry_form_is_throttled_per_email(): void
+    private function registration(string $email): array
     {
-        $payload = fn (string $email) => [
+        return [
             'school_name' => 'Flood College', 'contact_person' => 'Pat', 'position' => 'Dean',
             'email' => $email, 'phone' => '09171234567', 'message' => 'Hello',
             'password' => 'password123', 'password_confirmation' => 'password123', 'accept_terms' => true,
         ];
-
-        // Invalid requests (bad e-mail format) still count: that is exactly what a bot sends.
-        for ($i = 0; $i < 3; $i++) {
-            $this->postJson('/api/inquiries', $payload('nope'))->assertStatus(422);
-        }
-        $this->postJson('/api/inquiries', $payload('nope'))->assertStatus(429)->assertJsonPath('code', 'too_many_requests');
-
-        // A different address from the same client still gets through (until the per-IP ceiling).
-        $this->postJson('/api/inquiries', $payload('real@gmail.com'))->assertCreated();
     }
 
-    public function test_inquiry_form_has_a_per_ip_ceiling(): void
+    public function test_registration_mistakes_do_not_count_towards_the_hourly_limit(): void
     {
-        for ($i = 1; $i <= 10; $i++) {
+        // Three failed attempts (bad e-mail, missing terms, weak password) must not lock the school out.
+        $this->postJson('/api/inquiries', $this->registration('nope'))->assertStatus(422);
+        $this->postJson('/api/inquiries', ['accept_terms' => false] + $this->registration('real@gmail.com'))->assertStatus(422);
+        $this->postJson('/api/inquiries', ['password' => 'short', 'password_confirmation' => 'short'] + $this->registration('real@gmail.com'))->assertStatus(422);
+
+        $this->postJson('/api/inquiries', $this->registration('real@gmail.com'))->assertCreated();
+    }
+
+    public function test_registrations_that_succeed_are_limited_per_email(): void
+    {
+        // The account is removed between tries (the e-mail would otherwise already be taken), so only the limiter can refuse.
+        for ($i = 0; $i < 3; $i++) {
+            $this->postJson('/api/inquiries', $this->registration('again@gmail.com'))->assertCreated();
+            \App\Models\PlanInquiry::query()->delete();
+            User::where('email', 'again@gmail.com')->delete();
+        }
+
+        $this->postJson('/api/inquiries', $this->registration('again@gmail.com'))
+            ->assertStatus(429)->assertJsonPath('code', 'too_many_requests');
+
+        // A different address from the same client still gets through (until the per-IP success limit).
+        $this->postJson('/api/inquiries', $this->registration('other@gmail.com'))->assertCreated();
+    }
+
+    public function test_inquiry_form_still_has_a_raw_flood_guard(): void
+    {
+        // Mistakes are free, but not unlimited: 30 raw attempts per e-mail and 60 per network per hour.
+        for ($i = 0; $i < 30; $i++) {
+            $this->postJson('/api/inquiries', ['email' => 'same@gmail.com'])->assertStatus(422);
+        }
+        $this->postJson('/api/inquiries', ['email' => 'same@gmail.com'])->assertStatus(429)->assertJsonPath('code', 'too_many_requests');
+
+        \Illuminate\Support\Facades\RateLimiter::clear('inquiry-raw-email:same@gmail.com');
+        for ($i = 1; $i <= 30; $i++) {
             $this->postJson('/api/inquiries', ['email' => "bot{$i}@gmail.com"])->assertStatus(422);
         }
-        $this->postJson('/api/inquiries', ['email' => 'bot11@gmail.com'])->assertStatus(429);
+        $this->postJson('/api/inquiries', ['email' => 'bot31@gmail.com'])->assertStatus(429);
+    }
+
+    public function test_registrations_that_succeed_are_limited_per_network(): void
+    {
+        for ($i = 1; $i <= 10; $i++) {
+            $this->postJson('/api/inquiries', $this->registration("school{$i}@gmail.com"))->assertCreated();
+        }
+        $this->postJson('/api/inquiries', $this->registration('school11@gmail.com'))->assertStatus(429);
     }
 
     public function test_change_password_cannot_be_used_to_guess_the_current_password(): void

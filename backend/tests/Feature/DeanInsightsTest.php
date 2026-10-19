@@ -108,7 +108,7 @@ class DeanInsightsTest extends TestCase
         Sanctum::actingAs($this->dean());
         $res = $this->getJson('/api/dean/interns')->assertOk();
         $this->assertSame(['at_risk', 'on_track', 'completed'], collect($res->json('interns'))->pluck('status_group')->all());
-        $this->assertSame(['at_risk' => 1, 'needs_attention' => 0, 'on_track' => 1, 'completed' => 1, 'total' => 3], $res->json('summary'));
+        $this->assertSame(['at_risk' => 1, 'needs_attention' => 0, 'on_track' => 1, 'completed' => 1, 'not_set_up' => 0, 'total' => 3], $res->json('summary'));
         $this->assertSame('At risk', $res->json('interns.0.status_group_label'));
         $this->assertNotEmpty($res->json('interns.0.status_reasons'));
 

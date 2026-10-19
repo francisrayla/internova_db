@@ -1,6 +1,6 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: 3c11df6
-updated: 2026-10-15
+last_commit: ba3df00 + uncommitted
+updated: 2026-10-19
 
 ## Map (where the code lives)
 - Phase 1 (account/billing): migration 2026_10_06_000000 (role dean only if roles has rows, dean_profiles); Models/DeanProfile.php; Services/SchoolStaff.php (roleId, dean, coordinator = the single seat, accountState pending|active|inactive); Services/AccountInvitationService.php; Controllers/Api/DeanController.php (dashboard, coordinator, invite/resend/updateEmail/deactivate, school settings); DeanSubscriptionController.php (billing, renamed from Coordinator*); Middleware/EnsureDeanOfSchool (`dean.school`); SuperadminFullController (inviteDean etc.); NotificationService::toSchoolDean; seeder dean@internova.test/password; tests/Feature/DeanTest.php.
@@ -22,6 +22,8 @@ updated: 2026-10-15
 
 - HEAD TITLE (2026-10-15, 182fb09): the head's displayed title (Dean / Principal / School Head, picked on /inquiry) is stored in dean_profiles.position (copied from plan_inquiries.position on convert; no new column). backend/app/Support/HeadTitle.php = OPTIONS, normalize(), forSchool(id), forDean(user) (falls back to the inquiry answer before the school exists); session payload `head_title` for EVERY user of the school (+ dean_position for the dean); storeInquiry/inviteDean validate Rule::in(OPTIONS); PATCH /api/dean/head-title (DeanController::updateHeadTitle) used by components/dean/HeadTitleCard.jsx on /dean/settings/school; superadmin schools() adds dean_title; migration 2026_10_19_000000_normalize_dean_head_titles (data-only, down no-op). Frontend: lib/headTitle.js (HEAD_TITLES, headTitle(user), headTitleOf(value)); role key, routes and DB role stay 'dean'. Tests: tests/Feature/HeadTitleTest.php (7).
 
+- BATCH B (2026-10-19, uncommitted): 5th status group 'not_set_up' ("Not set up yet", slate) = active deployment whose intern is users.status pending_activation (InternMonitoringService::classify 6th arg $accountPending; GROUPS/GROUP_LABELS; excluded from on_track/at_risk/needs_attention counts; shown in Dean overview bar/legend, Interns strip, docx table, weekly email, group sort). Greeting: lib/headTitle.js headAddress(title, name) ignores name words that are part of a head title ("School Head" -> "Good evening, School Head"). FeedbackTab hint uses headTitle(user). Overview alert 'subscription_ending' text now says renew once the term ends (renew endpoint only works after expiry; no early-renew path). Tests: DeanNotSetUpGroupTest.
+
 ## How it works
 - One Dean + one coordinator per school. Dean pays/edits settings, invites/deactivates the coordinator (see Phase 1 rules in git history/code), and monitors read-only.
 - Intern flags (internRows): no_clock_in = active, started, >=3 completed working days (Mon-Fri, excluding today) since last clock-in (or start date); behind_hours = active, time-elapsed% >= 15 and hours% < elapsed% - 20; missing_documents = narrative document sections missing and (completed or elapsed >= 50%); evaluation_due = active, no evaluation, end date within 14 days or passed.
@@ -40,8 +42,8 @@ updated: 2026-10-15
 - Frontend: `npx eslint <touched>` (pre-existing set-state-in-effect errors in coordinator/layout.jsx, billing, AppShell); build from a scratch copy: tar copy of frontend minus node_modules/.next, mklink /J node_modules, `npx next build --webpack`, remove junction then copy.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-19 ba3df00 + uncommitted - Batch B bugs #9 #18 #29 #30 (see BATCH B in Map) - result: DeanNotSetUpGroupTest 5/5, eslint clean
 - 2026-10-15 eec7a93 + 3c11df6 — Dean can chat 1:1 with the school's coordinator (and reverse): dean layout mounts MessengerWidget, rules in messaging.md — result: DeanCoordinatorChatTest 5/5
 - 2026-10-15 ab8c629 + 182fb09 — Head title: top bar caption, greeting, profile Role, coordinator nav 'X Feedback' + page/empty text, FeedbackThread, subscription-status, school-access, school info hint, notifications/emails/activity text to the coordinator (FeedbackThreadService, CoordinatorFeedbackController, EnsureSchoolAccess) use the chosen title — result: HeadTitleTest 7/7, DeanTest 7/7, eslint only old set-state-in-effect errors; shots dean light/dark 1440/390 ok
 - 2026-10-15 de02557 — Prod bug: a new school with no coordinator crashed /dean/overview and the bell (buildAlerts() typed $brief as array but coordinatorBrief() returns null without a coordinator); now ?array — result: DeanQaFixesTest 7/7 (new no-coordinator test fails without the fix), suite 452/452, deployed backend
 - 2026-10-10 8c21eaf + uncommitted � QA pass: GET /dean/interns now takes sort/dir (whole filtered list, InternTable controlled by DeanInterns, SORT_KEYS in DeanMonitoringController), intern detail returns `totals` + 'Showing the latest N of M' note (lists stay capped 31/40/60), route params id/deploymentId/taskId/subtaskId/userId are numeric-only (AppServiceProvider, /abc is 404 not 500), Load more dedupes (ActivityTab, InternsTab), page past the end steps back, gated Dean menu hides Settings, 429 on change-password shows a sentence � result: DeanQaFixesTest 5/5 on private DB :3322
-- 2026-10-10 8c21eaf + uncommitted — S4: bank details, plan prices and the Test-mode flag moved to lib/billingConstants.js (NEXT_PUBLIC_PAYMONGO_LIVE=true hides test wording), corrupt localStorage user no longer crashes billing, account page uses SettingsScreen (one h1), WeeklyEmailPreference retry — result: shots, eslint only the old billing error

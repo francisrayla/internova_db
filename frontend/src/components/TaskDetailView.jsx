@@ -18,6 +18,7 @@ import { manilaToday } from "@/lib/dueDateUrgency";
 
 import { inputProps } from "@/lib/inputRules";
 const STATUS_TONES = { pending: "slate", in_progress: "blue", completed: "green" };
+const STATUS_LABELS = { pending: "Pending", in_progress: "Ongoing", completed: "Done" };
 const PRIORITY_TONES = { low: "slate", medium: "amber", high: "red" };
 
 function StatusSelect({ value, onChange, disabled }) {
@@ -377,14 +378,11 @@ function ProofGallery({ proofs, onPreview }) {
 function SelectedSubtaskPanel({ subtask, onComment, onDelete, canManage, onPreviewProof }) {
   return (
     <div className="mt-4 border-t border-[var(--ui-line)] pt-4">
+      {/* The row above already shows the title, who it is for and the due date; only what is new is shown here. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="break-words font-semibold text-slate-900">{subtask.title}</h3>
+          <h3 className="text-sm font-semibold text-slate-600">Selected subtask</h3>
           {subtask.description && <p className="mt-1 whitespace-pre-line break-words text-sm text-slate-600">{subtask.description}</p>}
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <p className="text-sm text-slate-600">{subtask.assignees?.length > 0 ? subtask.assignees.map((a) => a.name).join(", ") : "Unassigned"}</p>
-            <DueDateBadge dueDateRaw={subtask.due_date_raw} status={subtask.status} />
-          </div>
         </div>
         {canManage && (
           <Btn sm variant="danger-quiet" onClick={onDelete} className="shrink-0">
@@ -420,8 +418,10 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   const [previewProof, setPreviewProof] = useState(null);
   const [editing, setEditing] = useState(false);
 
-  function load() {
-    setLoading(true);
+  // The first load shows the skeleton; reloads after an action (done, comment, edit) refresh the data quietly,
+  // so the page keeps its content and scroll position.
+  function load(quiet = false) {
+    if (!quiet) setLoading(true);
     fetchTask(taskId)
       .then((r) => setTask(r.task))
       .catch((e) => setError(e.message))
@@ -471,10 +471,10 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message);
-      load();
+      load(true);
     } catch (err) {
       setError(err.message);
-      load();
+      load(true);
     }
   }
 
@@ -487,7 +487,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.message || "Could not mark this as done.");
     setCompletingTarget(null);
-    load();
+    load(true);
   }
 
   async function completeWithoutProof(type, id) {
@@ -496,10 +496,10 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
       const res = await apiFetch(endpoint, { method: "POST", body: new FormData() });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Could not mark this as done.");
-      load();
+      load(true);
     } catch (err) {
       setError(err.message);
-      load();
+      load(true);
     }
   }
 
@@ -511,7 +511,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.message);
-    load();
+    load(true);
   }
 
   async function addSubtaskComment(subtaskId, text) {
@@ -522,7 +522,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.message);
-    load();
+    load(true);
   }
 
   async function addSubtask(form) {
@@ -533,7 +533,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.message || "Could not add subtask.");
-    load();
+    load(true);
   }
 
   async function deleteSubtask(subtaskId) {
@@ -544,7 +544,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
       return;
     }
     setSelectedSubtaskId(null);
-    load();
+    load(true);
   }
 
   async function submitRating(rating, comments) {
@@ -606,7 +606,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
                 <div className="mt-2"><DueDateBadge dueDateRaw={task.due_date_raw} status={task.status} /></div>
               </div>
               <div className="flex items-center gap-2">
-                <Pill tone={STATUS_TONES[task.status] ?? "slate"} className="shrink-0 whitespace-nowrap capitalize">{task.status.replace("_", " ")}</Pill>
+                <Pill tone={STATUS_TONES[task.status] ?? "slate"} className="shrink-0 whitespace-nowrap capitalize">{STATUS_LABELS[task.status] ?? task.status}</Pill>
                 {canChangeStatus && task.subtask_total === 0 && canManageSubtasks && <StatusSelect value={task.status} onChange={updateTaskStatus} />}
                 {canEditTask && task.can_edit !== false && (
                   <Btn sm onClick={() => setEditing(true)}>
@@ -746,7 +746,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
       {previewProof && <ProofPreviewModal proof={previewProof} onClose={() => setPreviewProof(null)} />}
 
       {editing && task && (
-        <EditTaskModal task={task} apiBase={apiBase} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />
+        <EditTaskModal task={task} apiBase={apiBase} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(true); }} />
       )}
     </div>
   );

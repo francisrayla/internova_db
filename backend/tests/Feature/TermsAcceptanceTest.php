@@ -26,7 +26,7 @@ class TermsAcceptanceTest extends TestCase
     {
         return array_merge([
             'school_name' => 'Terms College', 'contact_person' => 'Pat Dean', 'position' => 'Dean',
-            'email' => 'pat@termscollege.test', 'phone' => '09171234567', 'message' => 'Hello',
+            'email' => 'pat.terms@gmail.com', 'phone' => '09171234567', 'message' => 'Hello',
             'password' => 'password123', 'password_confirmation' => 'password123',
         ], $over);
     }
@@ -48,15 +48,15 @@ class TermsAcceptanceTest extends TestCase
             ->assertJsonPath('errors.accept_terms.0', 'You need to agree to the Terms and Conditions and the Privacy Notice to register.');
         $this->postJson('/api/inquiries', $this->registration(['accept_terms' => false]))->assertStatus(422);
 
-        $this->assertNull(User::where('email', 'pat@termscollege.test')->first());
-        $this->assertSame(0, PlanInquiry::where('email', 'pat@termscollege.test')->count());
+        $this->assertNull(User::where('email', 'pat.terms@gmail.com')->first());
+        $this->assertSame(0, PlanInquiry::where('email', 'pat.terms@gmail.com')->count());
     }
 
     public function test_registration_stores_the_acceptance_and_version_on_user_and_inquiry(): void
     {
         $this->postJson('/api/inquiries', $this->registration(['accept_terms' => true]))->assertCreated();
 
-        $user = User::where('email', 'pat@termscollege.test')->firstOrFail();
+        $user = User::where('email', 'pat.terms@gmail.com')->firstOrFail();
         $inquiry = PlanInquiry::where('user_id', $user->id)->firstOrFail();
 
         $this->assertNotNull($user->terms_accepted_at);
@@ -69,7 +69,7 @@ class TermsAcceptanceTest extends TestCase
     {
         SubscriptionPlan::firstOrCreate(['name' => 'Basic'], ['description' => 'Basic', 'price' => 999, 'billing_cycle' => 'monthly', 'is_active' => true]);
         $this->postJson('/api/inquiries', $this->registration(['accept_terms' => true]))->assertCreated();
-        $user = User::where('email', 'pat@termscollege.test')->firstOrFail();
+        $user = User::where('email', 'pat.terms@gmail.com')->firstOrFail();
         $inquiry = PlanInquiry::where('user_id', $user->id)->firstOrFail();
 
         // Simulate an older row where only the inquiry recorded the acceptance.

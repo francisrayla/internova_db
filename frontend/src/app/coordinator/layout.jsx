@@ -10,7 +10,7 @@ import SubscriptionNotice from "@/components/SubscriptionNotice";
 import FeedbackUnreadWatcher from "@/components/FeedbackUnreadWatcher";
 import { UserContext } from "@/lib/UserContext";
 import { headTitle } from "@/lib/headTitle";
-import { apiFetch } from "@/lib/apiFetch";
+import { apiFetch, loginPath } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import ShellSkeleton from "@/components/ui/ShellSkeleton";
 
@@ -102,7 +102,7 @@ export default function CoordinatorLayout({ children }) {
     }
 
     if (!stored || stored.role !== "coordinator") {
-      router.replace("/login");
+      router.replace(loginPath());
       return;
     }
 

@@ -162,7 +162,10 @@ export default function Certificates() {
 
   const template = data?.template;
   const selected = data?.interns.find((i) => String(i.deployment_id) === String(form.deployment_id));
-  const short = selected && selected.required_hours > 0 && selected.hours < selected.required_hours;
+  // The most hours a certificate may state: what was rendered, or the required hours for an intern marked completed.
+  const maxHours = selected ? Math.max(Number(selected.hours) || 0, Number(selected.required_hours) || 0) : 0;
+  const tooManyHours = selected && form.hours !== "" && Number(form.hours) > maxHours + 0.05;
+  const unfinished = (data?.interns ?? []).filter((i) => i.finished === false);
 
   return (
     <Page className="max-w-4xl">
@@ -247,16 +250,16 @@ export default function Certificates() {
                     <Select value={form.deployment_id} onChange={(e) => pickIntern(e.target.value)}>
                       <option value="">Choose an intern…</option>
                       {data.interns.map((i) => (
-                        <option key={i.deployment_id} value={i.deployment_id}>
-                          {i.name} · {i.hours}/{i.required_hours} hours{i.status === "completed" ? " · completed" : ""}
+                        <option key={i.deployment_id} value={i.deployment_id} disabled={i.finished === false}>
+                          {i.name} · {i.hours}/{i.required_hours} hours{i.status === "completed" ? " · completed" : i.finished === false ? " · not finished" : ""}
                         </option>
                       ))}
                     </Select>
                   </FormField>
 
-                  {short && (
-                    <p className="k-note is-warn">
-                      {selected.name} has {selected.hours} of {selected.required_hours} required hours. You can still make the certificate.
+                  {unfinished.length > 0 && (
+                    <p className="k-hint">
+                      A certificate can be made once an intern has finished the required hours. Not finished yet: {unfinished.map((i) => `${i.name} (${i.hours} of ${i.required_hours} h)`).join(", ")}.
                     </p>
                   )}
 
@@ -272,8 +275,8 @@ export default function Certificates() {
                   <details className="rounded-xl bg-slate-50 px-4 py-3 text-sm">
                     <summary className="cursor-pointer font-semibold text-slate-900 max-sm:flex max-sm:min-h-[44px] max-sm:items-center">Other details (already filled in)</summary>
                     <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <FormField label="Hours rendered">
-                        <Input type="number" min="0" step="0.1" value={form.hours} onChange={(e) => setForm((f) => ({ ...f, hours: e.target.value }))} />
+                      <FormField label="Hours rendered" error={tooManyHours ? `At most ${maxHours} hours, the hours on record.` : undefined} hint={selected && !tooManyHours ? `Up to ${maxHours} hours.` : undefined}>
+                        <Input type="number" min="0" max={selected ? maxHours : undefined} step="0.1" value={form.hours} aria-invalid={tooManyHours || undefined} onChange={(e) => setForm((f) => ({ ...f, hours: e.target.value }))} />
                       </FormField>
                       <FormField label="Signed by">
                         <Input value={form.signatory} {...inputProps("signName")} onChange={(e) => setForm((f) => ({ ...f, signatory: clean("signName", e.target.value) }))} />
@@ -292,7 +295,7 @@ export default function Certificates() {
                 </fieldset>
 
                 <div className="flex justify-end">
-                  <Btn variant="primary" type="submit" disabled={!template || generating} className="max-sm:w-full">
+                  <Btn variant="primary" type="submit" disabled={!template || generating || tooManyHours} className="max-sm:w-full">
                     {generating ? "Making it…" : "Generate PowerPoint"}
                   </Btn>
                 </div>

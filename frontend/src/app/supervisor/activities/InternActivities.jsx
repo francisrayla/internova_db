@@ -8,7 +8,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { LoadMore } from "@/components/Pagination";
 import { Banner, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
-import { Btn, FilterBar, Page, PageHeader, Section, Select } from "@/components/dash/page";
+import { Btn, FilterBar, FormField, Page, PageHeader, Section, Select, SheetFrame, Textarea } from "@/components/dash/page";
 
 const STATUS_TONES = {
   approved: "green",
@@ -16,6 +16,39 @@ const STATUS_TONES = {
   rejected: "red",
   recorded: "slate",
 };
+
+// Why an entry is rejected (required): the intern reads it under the entry to know what to fix.
+function RejectSheet({ entry, onCancel, onReject }) {
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState("");
+  return (
+    <SheetFrame
+      title="Reject this entry?"
+      description={`${entry.title} · ${entry.intern_name}`}
+      onClose={onCancel}
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!reason.trim()) {
+          setProblem("Write why you are rejecting this entry.");
+          return;
+        }
+        onReject(reason.trim());
+      }}
+      footer={
+        <>
+          <Btn onClick={onCancel}>Cancel</Btn>
+          <Btn variant="danger" type="submit">Reject entry</Btn>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600">It will not go into the narrative report, and the intern will see it as rejected.</p>
+      <FormField label="Reason" required hint={`The intern sees this under the entry. ${reason.length}/500`} error={problem}>
+        <Textarea rows={3} maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); setProblem(""); }} autoFocus />
+      </FormField>
+    </SheetFrame>
+  );
+}
 
 export default function InternActivities() {
   const [activities, setActivities] = useState([]);
@@ -105,7 +138,7 @@ export default function InternActivities() {
     }
   }
 
-  async function review(id, status) {
+  async function review(id, status, remarks = "") {
     setNotice("");
     setError("");
     setBusyId(id);
@@ -113,7 +146,7 @@ export default function InternActivities() {
       const res = await apiFetch(`/api/supervisor/activities/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(status === "rejected" ? { status, review_remarks: remarks } : { status }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message);
@@ -183,6 +216,9 @@ export default function InternActivities() {
                       {a.status === "recorded" && (
                         <p className="mt-1.5 text-xs text-slate-500">Recorded automatically from attendance — no approval needed.</p>
                       )}
+                      {a.review_remarks && (
+                        <p className="mt-1.5 text-xs text-slate-600"><span className="font-semibold">Your remarks:</span> {a.review_remarks}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2 max-sm:mt-1">
@@ -204,15 +240,13 @@ export default function InternActivities() {
       <ConfirmDialog open={confirmApprove} title={`Approve all ${pendingTotal} pending ${pendingTotal === 1 ? "entry" : "entries"}?`} tone="primary" confirmLabel="Approve all" onConfirm={approveAll} onCancel={() => setConfirmApprove(false)}>
         <p>Approved entries go into the interns&apos; narrative reports.</p>
       </ConfirmDialog>
-      <ConfirmDialog
-        open={!!rejecting}
-        title="Reject this entry?"
-        confirmLabel="Reject entry"
-        onConfirm={() => { const entry = rejecting; setRejecting(null); review(entry.id, "rejected"); }}
-        onCancel={() => setRejecting(null)}
-      >
-        <p>&ldquo;{rejecting?.title}&rdquo; by {rejecting?.intern_name} will not go into their narrative report. The intern will see it as rejected.</p>
-      </ConfirmDialog>
+      {rejecting && (
+        <RejectSheet
+          entry={rejecting}
+          onCancel={() => setRejecting(null)}
+          onReject={(reason) => { const entry = rejecting; setRejecting(null); review(entry.id, "rejected", reason); }}
+        />
+      )}
     </Page>
   );
 }

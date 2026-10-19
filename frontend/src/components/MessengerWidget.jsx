@@ -580,6 +580,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                     )}
                     {m.message && <div>{m.message}</div>}
                   </div>
+                  {m.created_at && <p className={`mt-0.5 px-1 text-[10px] text-slate-400 ${mine ? "text-right" : ""}`}>{m.created_at}</p>}
                 </div>
               </div>
             );

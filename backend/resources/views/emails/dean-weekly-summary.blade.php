@@ -39,6 +39,7 @@
           <tr><td>Needs attention</td><td class="num">{{ $summary['groups']['needs_attention'] }}</td></tr>
           <tr><td>On track</td><td class="num">{{ $summary['groups']['on_track'] }}</td></tr>
           <tr><td>Completed</td><td class="num">{{ $summary['groups']['completed'] }}</td></tr>
+          <tr><td>Not set up yet</td><td class="num">{{ $summary['groups']['not_set_up'] }}</td></tr>
         </table>
         @if(count($summary['at_risk_names']))
           <p style="margin-top:12px;font-size:14px;">At risk: {{ implode(', ', $summary['at_risk_names']) }}</p>

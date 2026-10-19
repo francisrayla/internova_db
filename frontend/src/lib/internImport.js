@@ -4,7 +4,6 @@
 // show up instantly; the server still re-checks everything, plus the ones
 // only it can know (an email that already has an account).
 
-import { clean } from "@/lib/inputRules";
 import { YEAR_LEVEL_OPTIONS, normalizeYearLevel } from "@/lib/internOptions";
 import { courseProblem } from "@/lib/schoolCourses";
 
@@ -101,11 +100,18 @@ function cellText(value) {
   return String(value).trim();
 }
 
+// Same tidying as the personName input rule, except digits stay: "Juan2" must be flagged by validateRows (the server
+// refuses it too), never silently turned into "Juan" and imported under a name the file does not have.
+const NAME_FILE_CHARS = /[^\p{L}\p{M}\p{N}\s.'-]/gu;
+function tidyName(value) {
+  return String(value ?? "").replace(NAME_FILE_CHARS, "").replace(/\s{2,}/g, " ").replace(/^\s+/, "").slice(0, 50).trim();
+}
+
 /** Tidies one row the way each field's input rule would while typing. `canonical` turns "BSIT" into the full course name. */
 export function cleanRow(row, canonical = (v) => String(v ?? "").trim()) {
   return {
-    first_name: clean("personName", row.first_name ?? "").trim(),
-    last_name: clean("personName", row.last_name ?? "").trim(),
+    first_name: tidyName(row.first_name),
+    last_name: tidyName(row.last_name),
     // Only spaces are dropped from a file's email: a stray character is flagged for fixing, never silently removed
     // (removing it could turn a wrong address into someone else's).
     email: String(row.email ?? "").replace(/\s/g, "").slice(0, 100).toLowerCase(),

@@ -3,6 +3,7 @@
 namespace App\Events;
 
 use App\Models\GroupMessage;
+use App\Support\ChatTime;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -52,7 +53,7 @@ class GroupMessageSent implements ShouldBroadcastNow
                 'sender_name' => trim("{$replyTo->sender?->first_name} {$replyTo->sender?->last_name}") ?: $replyTo->sender?->name,
                 'preview' => $replyTo->message !== '' ? $replyTo->message : ($replyTo->attachment_path ? (str_starts_with((string) $replyTo->attachment_type, 'image/') ? '📷 Photo' : '📎 ' . ($replyTo->attachment_name ?? 'File')) : null),
             ] : null,
-            'created_at' => $this->message->created_at->local()->format('g:i A'),
+            'created_at' => ChatTime::label($this->message->created_at),
         ];
     }
 }

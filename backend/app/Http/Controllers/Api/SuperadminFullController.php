@@ -185,6 +185,9 @@ class SuperadminFullController extends Controller
      */
     public function storeInquiry(Request $request): JsonResponse
     {
+        // Lowercase and no spaces, so what CompleteEmail checks is what gets saved.
+        $request->merge(['email' => \App\Rules\CompleteEmail::normalize($request->input('email'))]);
+
         $data = $request->validate([
             'school_name'           => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'school_type'           => 'nullable|string|max:255',
@@ -192,7 +195,7 @@ class SuperadminFullController extends Controller
             'website'               => 'nullable|string|max:255',
             'contact_person'        => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::PERSON_NAME],
             'position'              => ['nullable', 'string', Rule::in(\App\Support\HeadTitle::OPTIONS)],
-            'email'                 => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
+            'email'                 => ['required', 'bail', 'max:255', new \App\Rules\CompleteEmail, Rule::unique('users', 'email')],
             'phone'                 => ['required', 'string', 'regex:/^[0-9]{11}$/'],
             'intern_range'          => 'nullable|string|max:50',
             'expected_coordinators' => 'nullable|integer|min:0|max:500',
@@ -206,6 +209,11 @@ class SuperadminFullController extends Controller
             'school_name.regex' => 'School name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE,
             'contact_person.regex' => 'Full name: ' . \App\Support\TextRules::PERSON_NAME_MESSAGE,
         ]);
+
+        // Only registrations that went through count towards the hourly limits, never typing mistakes (RateLimits).
+        if ($blocked = \App\Support\RateLimits::inquiryBlocked($request)) {
+            return $blocked;
+        }
 
         $deanRole = Role::where('name', 'dean')->first();
         if (!$deanRole) {
@@ -246,6 +254,8 @@ class SuperadminFullController extends Controller
 
             return [$inquiry, $user];
         });
+
+        \App\Support\RateLimits::inquiryRegistered($request);
 
         EmailVerificationController::sendCode($user);
 

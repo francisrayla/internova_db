@@ -9,7 +9,7 @@ import ProfileMenu from "@/components/ProfileMenu";
 import ThemeToggle from "@/components/ThemeToggle";
 import { UserContext } from "@/lib/UserContext";
 import { headTitle } from "@/lib/headTitle";
-import { apiFetch } from "@/lib/apiFetch";
+import { apiFetch, loginPath } from "@/lib/apiFetch";
 import { clearOfflineCaches } from "@/lib/offlineCache";
 import { readStoredUser } from "@/lib/roleDashboard";
 import ShellSkeleton from "@/components/ui/ShellSkeleton";
@@ -89,7 +89,7 @@ export default function DeanLayout({ children }) {
     const stored = readStoredUser();
 
     if (!stored || stored.role !== "dean") {
-      router.replace("/login");
+      router.replace(loginPath());
       return;
     }
 

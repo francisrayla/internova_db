@@ -9,9 +9,10 @@ export const GROUPS = {
   needs_attention: { label: "Needs attention", tone: "amber", help: "One thing to look at" },
   on_track: { label: "On track", tone: "green", help: "No problems found" },
   completed: { label: "Completed", tone: "blue", help: "Finished or hours met" },
+  not_set_up: { label: "Not set up yet", tone: "slate", help: "Has not set up the account" },
 };
 
-export const GROUP_ORDER = ["at_risk", "needs_attention", "on_track", "completed"];
+export const GROUP_ORDER = ["at_risk", "needs_attention", "on_track", "completed", "not_set_up"];
 
 export function GroupPill({ group, label }) {
   const g = GROUPS[group];
