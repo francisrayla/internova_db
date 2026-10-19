@@ -103,7 +103,7 @@ function EditCompanyModal({ company, onClose, onSaved, onDeleted }) {
       </ConfirmDialog>
       <div className="space-y-4">
         <FormField label="Company name">
-          <Input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} />
+          <Input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: clean("orgName", e.target.value) }))} />
         </FormField>
         <FormField label="Address">
           <Input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />

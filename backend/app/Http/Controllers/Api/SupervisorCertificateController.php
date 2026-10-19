@@ -144,14 +144,14 @@ class SupervisorCertificateController extends Controller
         $company = $this->company($request);
         $data = $request->validate([
             'deployment_id' => 'required|integer',
-            'name' => 'required|string|max:120',
+            'name' => ['required', 'string', 'max:120', 'regex:' . \App\Support\TextRules::SIGN_NAME],
             'uppercase' => 'nullable|boolean',
             'hours' => 'nullable|numeric|min:0|max:5000',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date',
             'date_issued' => 'nullable|date',
-            'signatory' => 'nullable|string|max:120',
-        ]);
+            'signatory' => ['nullable', 'string', 'max:120', 'regex:' . \App\Support\TextRules::SIGN_NAME],
+        ], ['name.regex' => 'Name: ' . \App\Support\TextRules::SIGN_NAME_MESSAGE, 'signatory.regex' => 'Signatory: ' . \App\Support\TextRules::SIGN_NAME_MESSAGE]);
 
         $deployment = InternshipDeployment::with(['intern', 'school'])->visibleToSupervisor($request->user())->find($data['deployment_id']);
         if (!$company || !$deployment) {

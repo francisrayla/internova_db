@@ -11,7 +11,7 @@ import { Btn, Chip, Chips, DataList, EmptyState, FilterBar, FormField, Input, Ke
 import SaToast, { useSaToast } from "../SaToast";
 import { LoadMore } from "@/components/Pagination";
 
-import { inputProps } from "@/lib/inputRules";
+import { clean, inputProps } from "@/lib/inputRules";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 // List price per plan + billing period comes from the Plans page data (GET superadmin/plans-features);
 // the shared constants are only the fallback while it loads or if it fails. Super Admin can still apply a discount below.
@@ -154,11 +154,11 @@ function guessPlanFromInterest(interestedPlan) {
 // on the prefilled inquiry values) so a field can never hold more than the
 // backend accepts. Mirrors the rules in convertInquiryToSchool().
 const CONVERT_LIMITS = {
-  school_name:    { maxLength: 150 },
+  school_name:    { maxLength: 150, filter: (v) => clean("orgName", v) },
   // Codes are identifiers: uppercase letters, digits and hyphens only.
   school_code:    { maxLength: 30, filter: (v) => v.toUpperCase().replace(/\s+/g, "-").replace(/[^A-Z0-9-]/g, "").replace(/-{2,}/g, "-").slice(0, 30) },
   address:        { maxLength: 255 },
-  contact_email:  { maxLength: 100, filter: (v) => v.replace(/\s/g, "").slice(0, 100) },
+  contact_email:  { maxLength: 100, filter: (v) => clean("email", v) },
   // PH mobile number, same format as the registration form: 11 digits.
   contact_number: { maxLength: 11, filter: (v) => v.replace(/\D/g, "").slice(0, 11) },
   agreement_note: { maxLength: 500 },

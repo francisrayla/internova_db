@@ -320,11 +320,11 @@ class DeanController extends Controller
         }
 
         $data = $request->validate([
-            'school_name'    => 'required|string|max:255',
+            'school_name'    => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'address'        => 'required|string|max:500',
             'contact_email'  => 'required|email|max:255',
             'contact_number' => ['required', 'string', 'regex:/^[0-9]{11}$/'],
-        ]);
+        ], ['school_name.regex' => 'School name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE]);
 
         $school->update($data);
 

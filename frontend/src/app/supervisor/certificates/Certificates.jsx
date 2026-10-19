@@ -7,6 +7,7 @@ import { Upload } from "lucide-react";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { Banner, SkeletonList } from "@/components/ui";
 import { Btn, FormField, Input, Page, PageHeader, Section, Select } from "@/components/dash/page";
+import { clean, inputProps } from "@/lib/inputRules";
 
 /** Saves a file the server sent back (the filled-in PowerPoint, or the sample template). */
 async function saveDownload(res, fallbackName) {
@@ -260,7 +261,7 @@ export default function Certificates() {
                   )}
 
                   <FormField label="Name on the certificate" hint="Edit it if you want it written differently, for example with a middle initial.">
-                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} maxLength={120} placeholder="Full name" />
+                    <Input value={form.name} {...inputProps("signName")} onChange={(e) => setForm((f) => ({ ...f, name: clean("signName", e.target.value) }))} placeholder="Full name" />
                   </FormField>
 
                   <label className="k-check">
@@ -275,7 +276,7 @@ export default function Certificates() {
                         <Input type="number" min="0" step="0.1" value={form.hours} onChange={(e) => setForm((f) => ({ ...f, hours: e.target.value }))} />
                       </FormField>
                       <FormField label="Signed by">
-                        <Input value={form.signatory} onChange={(e) => setForm((f) => ({ ...f, signatory: e.target.value }))} maxLength={120} />
+                        <Input value={form.signatory} {...inputProps("signName")} onChange={(e) => setForm((f) => ({ ...f, signatory: clean("signName", e.target.value) }))} />
                       </FormField>
                       <FormField label="Training started">
                         <Input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} />

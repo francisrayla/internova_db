@@ -186,11 +186,11 @@ class SuperadminFullController extends Controller
     public function storeInquiry(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'school_name'           => 'required|string|max:255',
+            'school_name'           => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'school_type'           => 'nullable|string|max:255',
             'address'               => 'nullable|string|max:500',
             'website'               => 'nullable|string|max:255',
-            'contact_person'        => 'required|string|max:255',
+            'contact_person'        => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::PERSON_NAME],
             'position'              => ['nullable', 'string', Rule::in(\App\Support\HeadTitle::OPTIONS)],
             'email'                 => ['required', 'email', 'max:255', Rule::unique('users', 'email')],
             'phone'                 => ['required', 'string', 'regex:/^[0-9]{11}$/'],
@@ -203,6 +203,8 @@ class SuperadminFullController extends Controller
             'accept_terms'          => 'accepted',
         ], [
             'accept_terms.accepted' => 'You need to agree to the Terms and Conditions and the Privacy Notice to register.',
+            'school_name.regex' => 'School name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE,
+            'contact_person.regex' => 'Full name: ' . \App\Support\TextRules::PERSON_NAME_MESSAGE,
         ]);
 
         $deanRole = Role::where('name', 'dean')->first();
@@ -293,7 +295,7 @@ class SuperadminFullController extends Controller
         }
 
         $data = $request->validate([
-            'school_name'      => 'required|string|max:150',
+            'school_name'      => ['required', 'string', 'max:150', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'school_code'      => ['required', 'string', 'max:30', 'regex:/^[A-Z0-9]+(-[A-Z0-9]+)*$/', 'unique:schools,school_code'],
             'address'          => 'nullable|string|max:255',
             'contact_email'    => 'required|email|max:100',
@@ -309,6 +311,7 @@ class SuperadminFullController extends Controller
             ],
         ], [
             'school_code.regex'    => 'School Code can only use uppercase letters, numbers and single hyphens.',
+            'school_name.regex'    => 'School name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE,
             'contact_number.regex' => 'Contact Number must be exactly 11 digits.',
             'discount_amount.lte'  => 'Discount cannot be more than the plan price.',
         ]);

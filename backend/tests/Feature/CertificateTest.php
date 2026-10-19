@@ -125,17 +125,26 @@ class CertificateTest extends TestCase
         $this->assertSame(0, CertificateTemplate::count());
     }
 
+    public function test_a_name_with_markup_or_symbols_is_refused(): void
+    {
+        $this->upload($this->pptx([['{{NAME}}']]))->assertOk();
+        $this->post('/api/supervisor/certificates/generate', ['deployment_id' => $this->dep->id, 'name' => 'Maria & "Ana" <Cruz>'], ['Accept' => 'application/json'])
+            ->assertStatus(422)->assertJsonValidationErrors('name');
+    }
+
     public function test_generating_fills_every_marker_even_when_powerpoint_split_it_into_runs(): void
     {
         $this->upload($this->pptx([['{{', 'NAME', '}}'], ['{{HOURS}} hours at ', '{{COMPANY}}'], ['Given {{ DATE }} by {{SUPERVISOR}}']]))->assertOk();
         Attendance::create(['deployment_id' => $this->dep->id, 'attendance_date' => '2026-09-01', 'clock_in' => '2026-09-01 00:00:00', 'clock_out' => '2026-09-01 09:00:00', 'status' => 'approved']);
 
         Sanctum::actingAs($this->sup);
-        $res = $this->post('/api/supervisor/certificates/generate', ['deployment_id' => $this->dep->id, 'name' => 'Maria & "Ana" <Cruz>'], ['Accept' => 'application/json'])->assertOk();
+        // Characters XML must escape still reach the slide: '&' in the company name (allowed there), an apostrophe in the name.
+        Company::whereKey($this->dep->company_id)->update(['company_name' => 'Cruz & Sons (Main)']);
+        $res = $this->post('/api/supervisor/certificates/generate', ['deployment_id' => $this->dep->id, 'name' => "Maria O'Neil-Cruz"], ['Accept' => 'application/json'])->assertOk();
 
         $this->assertSame('application/vnd.openxmlformats-officedocument.presentationml.presentation', $res->headers->get('Content-Type'));
         $text = $this->slideText($res);
-        $this->assertStringContainsString('Maria & "Ana" <Cruz>', $text);
+        $this->assertStringContainsString("Maria O'Neil-Cruz", $text);
         $this->assertStringContainsString('9 hours at ' . Company::find($this->dep->company_id)->company_name, $text);
         $this->assertStringContainsString('Given October 14, 2026 by ' . trim("{$this->sup->first_name} {$this->sup->last_name}"), $text);
         $this->assertStringNotContainsString('{{', $text);

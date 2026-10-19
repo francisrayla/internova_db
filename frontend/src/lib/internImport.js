@@ -106,7 +106,9 @@ export function cleanRow(row, canonical = (v) => String(v ?? "").trim()) {
   return {
     first_name: clean("personName", row.first_name ?? "").trim(),
     last_name: clean("personName", row.last_name ?? "").trim(),
-    email: clean("email", row.email ?? "").toLowerCase(),
+    // Only spaces are dropped from a file's email: a stray character is flagged for fixing, never silently removed
+    // (removing it could turn a wrong address into someone else's).
+    email: String(row.email ?? "").replace(/\s/g, "").slice(0, 100).toLowerCase(),
     course: canonical(row.course).slice(0, 150),
     year_level: normalizeYearLevel(row.year_level),
   };

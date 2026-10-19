@@ -1096,11 +1096,11 @@ class CoordinatorMonitoringController extends Controller
 
         $this->normalizeEmailInput($request, 'contact_email');
         $data = $request->validate([
-            'company_name' => 'required|string|max:255',
+            'company_name' => ['required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'address' => 'nullable|string|max:500',
             'contact_email' => ['nullable', 'bail', new CompleteEmail],
             'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
-        ]);
+        ], ['company_name.regex' => 'Company name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE]);
 
         do {
             $code = 'CMP-' . strtoupper(Str::random(6));
@@ -1132,12 +1132,12 @@ class CoordinatorMonitoringController extends Controller
         $this->normalizeEmailInput($request, 'contact_email');
         $contactChanged = $request->has('contact_email') && $request->input('contact_email') !== (($company->contact_email === null || $company->contact_email === '') ? null : strtolower($company->contact_email));
         $data = $request->validate([
-            'company_name' => 'sometimes|required|string|max:255',
+            'company_name' => ['sometimes', 'required', 'string', 'max:255', 'regex:' . \App\Support\TextRules::ORG_NAME],
             'address' => 'nullable|string|max:500',
             'contact_email' => $contactChanged ? ['nullable', 'bail', new CompleteEmail] : ['nullable', 'string', 'max:255'],
             'contact_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'status' => 'sometimes|required|string|in:active,inactive',
-        ]);
+        ], ['company_name.regex' => 'Company name: ' . \App\Support\TextRules::ORG_NAME_MESSAGE]);
 
         $company->update($data);
 

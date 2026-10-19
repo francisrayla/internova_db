@@ -84,7 +84,7 @@ export default function SchoolDetailsCard({ role, readOnly = false }) {
       <form onSubmit={handleSubmit} className="mt-6 max-w-lg space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
         <label className="block text-sm">
           <span className="mb-1.5 block font-semibold text-slate-700">School Name</span>
-          <input {...inputProps("orgName")} value={form.school_name} onChange={(e) => setForm((f) => ({ ...f, school_name: e.target.value }))} className={inputClass} />
+          <input {...inputProps("orgName")} value={form.school_name} onChange={(e) => setForm((f) => ({ ...f, school_name: clean("orgName", e.target.value) }))} className={inputClass} />
         </label>
         <label className="block text-sm">
           <span className="mb-1.5 block font-semibold text-slate-700">Address</span>

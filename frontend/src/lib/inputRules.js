@@ -9,6 +9,18 @@
 // clean() in onChange, since maxLength can't stop letters in a phone field.
 
 const NAME_CHARS = /[^\p{L}\p{M}\s.'-]/gu;
+// A name on a certificate or a signatory line may also have a comma ("Dela Cruz, Juan", "Ana Reyes, MIT").
+const SIGN_NAME_CHARS = /[^\p{L}\p{M}\s.,'-]/gu;
+// School and company names: letters, digits, spaces and . , & ' ’ ( ) - / # : ("St. Mary's College, Inc.").
+const ORG_CHARS = /[^\p{L}\p{M}\p{N}\s.,&'’()/#:-]/gu;
+// Same characters the server accepts for a course name (App\Services\SchoolCourseService::NAME_PATTERN).
+const COURSE_CHARS = /[^\p{L}\p{M}\p{N}\s.,&()'-]/gu;
+
+/** Keeps the first @ and drops any later one ("ana@@x.com" -> "ana@x.com"). */
+function onlyOneAt(value) {
+  const at = value.indexOf("@");
+  return at === -1 ? value : value.slice(0, at + 1) + value.slice(at + 1).replace(/@/g, "");
+}
 
 function collapseSpaces(value) {
   return value.replace(/\s{2,}/g, " ").replace(/^\s+/, "");
@@ -19,9 +31,12 @@ export const INPUT_RULES = {
   personName: { maxLength: 50, autoComplete: "off", filter: (v) => collapseSpaces(v.replace(NAME_CHARS, "")) },
   fullName: { maxLength: 100, filter: (v) => collapseSpaces(v.replace(NAME_CHARS, "")) },
   position: { maxLength: 100 },
+  signName: { maxLength: 120, autoComplete: "off", filter: (v) => collapseSpaces(v.replace(SIGN_NAME_CHARS, "")) },
 
   // Contact
-  email: { maxLength: 100, inputMode: "email", autoComplete: "email", spellCheck: false, filter: (v) => v.replace(/\s/g, "") },
+  // Only what an email address is made of: letters, digits, . _ % + - and a single @ (quotes, slashes, =, ; and
+  // spaces cannot be typed or pasted). The server still checks the whole address.
+  email: { maxLength: 100, inputMode: "email", autoComplete: "email", spellCheck: false, filter: (v) => onlyOneAt(v.replace(/[^A-Za-z0-9._%+@-]/g, "")) },
   // PH numbers are 11 digits (09XXXXXXXXX), same rule as registration.
   phone: { maxLength: 11, inputMode: "numeric", autoComplete: "tel", filter: (v) => v.replace(/\D/g, "") },
   url: { maxLength: 255, inputMode: "url", spellCheck: false, filter: (v) => v.replace(/\s/g, "") },
@@ -31,7 +46,8 @@ export const INPUT_RULES = {
   studentNumber: { maxLength: 20, autoComplete: "off", spellCheck: false, filter: (v) => v.toUpperCase().replace(/[^A-Z0-9-]/g, "") },
 
   // Organizations
-  orgName: { maxLength: 150 },
+  orgName: { maxLength: 150, filter: (v) => collapseSpaces(v.replace(ORG_CHARS, "")) },
+  courseName: { maxLength: 150, filter: (v) => collapseSpaces(v.replace(COURSE_CHARS, "")) },
   address: { maxLength: 255 },
 
   // Content

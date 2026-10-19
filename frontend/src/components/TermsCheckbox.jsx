@@ -24,11 +24,11 @@ export default function TermsCheckbox({ id = "accept-terms", checked, onChange, 
         />
         <label htmlFor={id} className="flex-1 cursor-pointer py-0.5 text-sm leading-snug text-slate-700">
           I agree to the{" "}
-          <Link href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 underline underline-offset-2">
+          <Link href="/terms" target="_blank" rel="noopener" className="font-semibold text-blue-700 underline underline-offset-2">
             Terms and Conditions
           </Link>{" "}
           and the{" "}
-          <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 underline underline-offset-2">
+          <Link href="/privacy" target="_blank" rel="noopener" className="font-semibold text-blue-700 underline underline-offset-2">
             Privacy Notice
           </Link>
           .

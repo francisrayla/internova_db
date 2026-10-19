@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { FileText, ShieldCheck, ArrowLeft } from "lucide-react";
+import { FileText, ShieldCheck } from "lucide-react";
 import Logo from "@/components/Logo";
+import LegalBackButton from "@/components/LegalBackButton";
 import { Page, PageHeader, Section } from "@/components/dash/page";
 import { TERMS_VERSION, TERMS_UPDATED_LABEL } from "@/lib/legal";
 
@@ -16,9 +17,7 @@ export default function LegalPage({ kind, title, sentence, sections }) {
       <div className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-[760px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <Link href="/" aria-label="Internova home"><Logo size={28} /></Link>
-          <Link href="/" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to Home
-          </Link>
+          <LegalBackButton />
         </div>
       </div>
 

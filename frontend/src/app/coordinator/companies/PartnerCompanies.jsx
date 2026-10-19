@@ -61,7 +61,7 @@ function AddCompanyModal({ onClose, onSaved }) {
     >
       <div className="space-y-4">
         <FormField label="Company name">
-          <Input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: e.target.value }))} placeholder="e.g. ABC Technologies" />
+          <Input {...inputProps("orgName")} value={form.company_name} onChange={(e) => setForm((f) => ({ ...f, company_name: clean("orgName", e.target.value) }))} placeholder="e.g. ABC Technologies" />
         </FormField>
         <FormField label="Address">
           <Input {...inputProps("address")} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />

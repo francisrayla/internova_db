@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GraduationCap, Plus, X } from "lucide-react";
 import { apiFetch, fetchApiData } from "@/lib/apiFetch";
 import { makeCourseResolver } from "@/lib/schoolCourses";
-import { inputProps } from "@/lib/inputRules";
+import { clean, inputProps } from "@/lib/inputRules";
 import { Btn, EmptyState, FormField, Input, Page, PageHeader, Pill, SearchField, Section } from "@/components/dash/page";
 
 const NAME_PATTERN = /^[\p{L}\p{M}\p{N} .,&()'-]+$/u;
@@ -327,9 +327,9 @@ export default function CoursesOfferedCard({ role = "coordinator" }) {
             <FormField label="Add a course not in the list" hint="Type the full name of your own program, for example Bachelor of Science in Hotel Operations.">
               <div className="flex gap-2">
                 <Input
-                  {...inputProps("orgName")}
+                  {...inputProps("courseName")}
                   value={custom}
-                  onChange={(e) => setCustom(e.target.value)}
+                  onChange={(e) => setCustom(clean("courseName", e.target.value))}
                   maxLength={limits.max_name_length}
                   placeholder="Program name"
                   className="min-w-0 flex-1"
