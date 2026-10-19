@@ -24,6 +24,8 @@ const ATTENDANCE_TONE = { approved: "green", pending: "amber", rejected: "red" }
 const DOC_TONE = { approved: "green", pending: "amber", rejected: "red" };
 const ACTIVITY_LABEL = { approved: ["Approved", "green"], pending: ["Waiting for supervisor", "amber"], rejected: ["Rejected", "red"], recorded: ["Recorded automatically", "blue"] };
 const TASK_TONE = { completed: "green", in_progress: "blue", pending: "slate" };
+// Same words the supervisor and coordinator see for each task status.
+const TASK_LABEL = { completed: "Done", in_progress: "Ongoing", pending: "Pending" };
 
 // One figure of the strip at the top: label, value, optional bar and note.
 function Stat({ label, children, help }) {
@@ -112,7 +114,7 @@ function TasksTab({ rows, total }) {
         <li key={t.id} className="k-item">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-slate-900">{t.title}</p>
-            <Pill tone={TASK_TONE[t.status] ?? "slate"}>{t.status.replace("_", " ")}</Pill>
+            <Pill tone={TASK_TONE[t.status] ?? "slate"}>{TASK_LABEL[t.status] ?? t.status}</Pill>
           </div>
           <p className="text-xs text-slate-500">
             {t.due_date ? `Due ${formatDate(t.due_date)}` : "No due date"}

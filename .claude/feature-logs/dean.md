@@ -1,5 +1,5 @@
 # Dean / Principal role (school account owner + monitoring)
-last_commit: ba3df00 + uncommitted
+last_commit: 84a2780 + Dean task label commit
 updated: 2026-10-19
 
 ## Map (where the code lives)
@@ -42,8 +42,8 @@ updated: 2026-10-19
 - Frontend: `npx eslint <touched>` (pre-existing set-state-in-effect errors in coordinator/layout.jsx, billing, AppShell); build from a scratch copy: tar copy of frontend minus node_modules/.next, mklink /J node_modules, `npx next build --webpack`, remove junction then copy.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-19 84a2780 + next commit - InternDetail Tasks tab shows Ongoing / Done / Pending (TASK_LABEL), the same words as supervisor and coordinator, instead of "in progress" from status.replace - result: eslint clean on the file
 - 2026-10-19 ba3df00 + uncommitted - Batch B bugs #9 #18 #29 #30 (see BATCH B in Map) - result: DeanNotSetUpGroupTest 5/5, eslint clean
 - 2026-10-15 eec7a93 + 3c11df6 — Dean can chat 1:1 with the school's coordinator (and reverse): dean layout mounts MessengerWidget, rules in messaging.md — result: DeanCoordinatorChatTest 5/5
 - 2026-10-15 ab8c629 + 182fb09 — Head title: top bar caption, greeting, profile Role, coordinator nav 'X Feedback' + page/empty text, FeedbackThread, subscription-status, school-access, school info hint, notifications/emails/activity text to the coordinator (FeedbackThreadService, CoordinatorFeedbackController, EnsureSchoolAccess) use the chosen title — result: HeadTitleTest 7/7, DeanTest 7/7, eslint only old set-state-in-effect errors; shots dean light/dark 1440/390 ok
 - 2026-10-15 de02557 — Prod bug: a new school with no coordinator crashed /dean/overview and the bell (buildAlerts() typed $brief as array but coordinatorBrief() returns null without a coordinator); now ?array — result: DeanQaFixesTest 7/7 (new no-coordinator test fails without the fix), suite 452/452, deployed backend
-- 2026-10-10 8c21eaf + uncommitted � QA pass: GET /dean/interns now takes sort/dir (whole filtered list, InternTable controlled by DeanInterns, SORT_KEYS in DeanMonitoringController), intern detail returns `totals` + 'Showing the latest N of M' note (lists stay capped 31/40/60), route params id/deploymentId/taskId/subtaskId/userId are numeric-only (AppServiceProvider, /abc is 404 not 500), Load more dedupes (ActivityTab, InternsTab), page past the end steps back, gated Dean menu hides Settings, 429 on change-password shows a sentence � result: DeanQaFixesTest 5/5 on private DB :3322
