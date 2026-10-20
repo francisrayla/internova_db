@@ -155,4 +155,20 @@ class TaskDueDateRulesTest extends TestCase
         $this->postJson("/api/supervisor/tasks/{$task->id}/subtasks", ['title' => 'Part 1', 'due_date' => $this->day(0)])->assertOk();
         $this->assertSame(1, $task->subtasks()->count());
     }
+
+    public function test_an_intern_cannot_give_their_subtask_a_past_due_date_either(): void
+    {
+        $task = $this->taskDue($this->day(7));
+        $intern = User::findOrFail($this->dep->intern_id);
+        Sanctum::actingAs($intern);
+
+        $this->postJson("/api/intern/tasks/{$task->id}/subtasks", ['title' => 'Part 1', 'due_date' => $this->day(-12), 'assignee_ids' => [$intern->id]])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.due_date.0', 'The due date cannot be in the past. Choose today or a later date.');
+        $this->assertSame(0, $task->subtasks()->count());
+
+        $this->postJson("/api/intern/tasks/{$task->id}/subtasks", ['title' => 'Part 1', 'due_date' => $this->day(0), 'assignee_ids' => [$intern->id]])->assertOk();
+        $this->postJson("/api/intern/tasks/{$task->id}/subtasks", ['title' => 'Part 2', 'assignee_ids' => [$intern->id]])->assertOk(); // no due date is fine
+        $this->assertSame(2, $task->subtasks()->count());
+    }
 }

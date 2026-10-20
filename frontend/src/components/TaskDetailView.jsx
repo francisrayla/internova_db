@@ -155,7 +155,7 @@ function AddSubtaskForm({ assignees, onAdd, noPastDue = false }) {
   const [assigneeIds, setAssigneeIds] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  // The supervisor cannot put a subtask due date in the past (Manila today or later).
+  // Nobody can put a subtask due date in the past (Manila today or later); the server checks it too.
   const today = noPastDue ? manilaToday() : undefined;
   const dueProblem = today && form.due_date && form.due_date < today ? "The due date cannot be in the past. Choose today or a later date." : "";
 
@@ -707,7 +707,7 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
 
           <Section
             title="Subtasks"
-            action={canManageSubtasks && task.status !== "completed" ? <AddSubtaskForm assignees={task.assignees} onAdd={addSubtask} noPastDue={apiBase.includes("/supervisor")} /> : undefined}
+            action={canManageSubtasks && task.status !== "completed" ? <AddSubtaskForm assignees={task.assignees} onAdd={addSubtask} noPastDue /> : undefined}
           >
             {canManageSubtasks && task.status === "completed" && (
               <p className="k-hint mb-3">

@@ -421,13 +421,14 @@ class InternMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => $block], 422);
         }
 
+        // Same rule as the supervisor's subtasks: a due date is today (Manila) or later, never in the past.
         $data = $request->validate([
             'title' => 'required|string|max:150',
             'description' => 'nullable|string|max:2000',
-            'due_date' => 'nullable|date',
+            'due_date' => 'nullable|date|after_or_equal:' . LocalTime::today(),
             'assignee_ids' => 'nullable|array',
             'assignee_ids.*' => 'integer',
-        ]);
+        ], ['due_date.after_or_equal' => 'The due date cannot be in the past. Choose today or a later date.']);
 
         [$validIds, $problem] = $task->resolveSubtaskAssignees($data['assignee_ids'] ?? []);
         if ($problem) {
