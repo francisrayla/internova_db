@@ -54,6 +54,12 @@ let stalledUntil = 0;
 // requests can't pile up and hold the browser's connections once the signal
 // comes back.
 const GIVE_UP_MS = 30000;
+// Right after the user changes something (a POST/PATCH/PUT/DELETE to our API), the screen reloads to show the
+// result. A saved copy from before the change would show the OLD state — a subtask just marked Done back in
+// Ongoing — and the user would redo or undo the change. So for a while after a write, API reads always wait for
+// the network (no time limit, no stalled shortcut) and fall back to the saved copy only if the network fails.
+const FRESH_AFTER_WRITE_MS = 60000;
+let freshUntil = 0;
 const SHELL_ASSETS = ["/", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png", "/apple-touch-icon.png"];
 
 // A worker left over from `next dev` on localhost (registered before the app
@@ -119,7 +125,7 @@ function pageCacheKey(url, isRsc) {
 // served and the network response, if it ever arrives, still refreshes the
 // cache for next time. With nothing cached, onTimeoutMiss decides — return a
 // Response to answer now, or nothing to keep waiting on the network.
-async function networkFirst(event, cacheName, cacheKey, { store = true, timeoutMs, onTimeoutMiss, fallback }) {
+async function networkFirst(event, cacheName, cacheKey, { store = true, timeoutMs, onTimeoutMiss, fallback, waitForNetwork = false }) {
   const { request } = event;
   // Cache storage can refuse to open (device storage full, private browsing,
   // a browser-side error). That must never stop the app from loading: without
@@ -134,6 +140,9 @@ async function networkFirst(event, cacheName, cacheKey, { store = true, timeoutM
   event.waitUntil(network.catch(() => {}));
   const offline = () =>
     cache.match(cacheKey, { ignoreVary: true }).then((cached) => cached || (fallback ? fallback() : Response.error()));
+
+  // A read right after a change: only the network's answer is right (see FRESH_AFTER_WRITE_MS).
+  if (waitForNetwork) return network.catch(offline);
 
   let first = TIMED_OUT;
   if (Date.now() >= stalledUntil) {
@@ -212,14 +221,25 @@ self.addEventListener("message", (event) => {
   if (event.data?.type === "WARM_PAGES" && Array.isArray(event.data.urls)) {
     event.waitUntil(warmPages(event.data.urls.slice(0, 40)));
   }
+  // Someone else just changed a task this user sees (lib/useTaskLive.js): the reload must be fresh too.
+  if (event.data?.type === "FRESH_READS") {
+    freshUntil = Date.now() + FRESH_AFTER_WRITE_MS;
+    stalledUntil = 0;
+  }
 });
 
 self.addEventListener("fetch", (event) => {
   if (SELF_DESTRUCT) return;
   const { request } = event;
-  if (request.method !== "GET") return;
-
   const url = new URL(request.url);
+  if (request.method !== "GET") {
+    // Not handled here (writes go straight to the network), but the reads that follow must be fresh.
+    if (url.origin === self.location.origin && url.pathname.startsWith("/api/")) {
+      freshUntil = Date.now() + FRESH_AFTER_WRITE_MS;
+      stalledUntil = 0;
+    }
+    return;
+  }
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.startsWith("/_next/static/")) {
@@ -246,7 +266,7 @@ self.addEventListener("fetch", (event) => {
     // The Word narrative report is a large one-off download: storing it would
     // fill the API cache, and its generation time could trip the stall timer.
     if (url.pathname.endsWith("/narrative-report/docx")) return;
-    event.respondWith(networkFirst(event, API_CACHE, request.url, { timeoutMs: API_TIMEOUT_MS, fallback: offlineJson }));
+    event.respondWith(networkFirst(event, API_CACHE, request.url, { timeoutMs: API_TIMEOUT_MS, fallback: offlineJson, waitForNetwork: Date.now() < freshUntil }));
     return;
   }
 

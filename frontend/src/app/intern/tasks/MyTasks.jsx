@@ -14,6 +14,7 @@ import { LoadMore } from "@/components/Pagination";
 import { EmptyState, ErrorNote, FilterBar, Page, PageHeader, SearchField, Section, Select, SkeletonList, TabStrip } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
+import { useTaskLive } from "@/lib/useTaskLive";
 const LIVE_TYPES = ["task_evaluated", "task_comment", "task_updated"];
 
 /**
@@ -48,8 +49,9 @@ export default function MyTasks() {
   }, []);
 
   // Active = open work plus done tasks still waiting for a rating (all of it); History is fetched a page at a time below.
-  function load() {
-    setLoading(true);
+  // quiet: a live update refreshes the board without the skeleton
+  function load(quiet = false) {
+    if (quiet !== true) setLoading(true);
     setReloads((n) => n + 1);
     fetchInternData("tasks?view=active")
       .then((r) => {
@@ -62,6 +64,7 @@ export default function MyTasks() {
 
   useEffect(load, []);
   useLiveRefresh(LIVE_TYPES, load);
+  useTaskLive(() => load(true));
 
   async function handleStatusChange(id, status) {
     setError("");

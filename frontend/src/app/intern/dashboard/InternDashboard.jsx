@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useCurrentUser } from "@/lib/UserContext";
 import { useLiveRefresh } from "@/lib/useLiveRefresh";
+import { useTaskLive } from "@/lib/useTaskLive";
 import { fetchInternData } from "@/lib/internApi";
 import { calendarDaysUntil, dueDateUrgency } from "@/lib/dueDateUrgency";
 import { greeting } from "@/lib/timeAgo";
@@ -97,6 +98,7 @@ export default function InternDashboard() {
   }, [load]);
 
   useLiveRefresh(LIVE_TYPES, load);
+  useTaskLive(load);
 
   const firstName = (user?.name || "").split(" ")[0] || "there";
   const deployed = !loading && summary?.has_deployment;

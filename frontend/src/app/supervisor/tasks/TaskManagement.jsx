@@ -15,6 +15,7 @@ import { manilaToday } from "@/lib/dueDateUrgency";
 import { inputProps } from "@/lib/inputRules";
 import { Banner, EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
 import { Btn, FilterBar, FormField, Input, Page, PageHeader, SearchField, Section, Select, SheetFrame, TabStrip, Textarea } from "@/components/dash/page";
+import { useTaskLive } from "@/lib/useTaskLive";
 
 const STATUS_TONES = {
   pending: "slate",
@@ -280,8 +281,9 @@ export default function TaskManagement() {
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
 
-  function load() {
-    setLoading(true);
+  // quiet: a live update refreshes the list without the skeleton
+  function load(quiet = false) {
+    if (quiet !== true) setLoading(true);
     setReloads((n) => n + 1);
     // Active = open work plus done tasks still waiting for a rating (all of it); History is fetched a page at a time below.
     fetchSupervisorData("tasks?view=active")
@@ -296,6 +298,7 @@ export default function TaskManagement() {
   }
 
   useEffect(load, []);
+  useTaskLive(() => load(true));
 
   // A finished task still needs your rating before it's truly closed out —
   // until then it stays visible here, not History.

@@ -12,6 +12,7 @@ import { EmptyState, ErrorNote, Pill, SkeletonList } from "@/components/ui";
 import { DataList, DataRow, FilterBar, Page, PageHeader, SearchField, Section, TabStrip } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
+import { useTaskLive } from "@/lib/useTaskLive";
 const STATUS_TONES = { pending: "slate", in_progress: "blue", completed: "green" };
 
 const STATUS_LABELS = { pending: "Pending", in_progress: "Ongoing", completed: "Done" };
@@ -91,6 +92,7 @@ export default function CompanyTasks() {
   useEffect(() => {
     load();
   }, []);
+  useTaskLive(() => load());
 
   function retry() {
     setError("");

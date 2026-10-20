@@ -8,6 +8,7 @@ import { Avatar, EmptyState, ErrorNote, SkeletonList } from "@/components/ui";
 import { DataList, DataRow, FilterBar, Page, PageHeader, SearchField, Section } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
+import { useTaskLive } from "@/lib/useTaskLive";
 function CompanyRow({ company, activeCount, totalCount }) {
   return (
     <DataRow
@@ -52,6 +53,7 @@ export default function TaskMonitoring() {
   useEffect(() => {
     load();
   }, []);
+  useTaskLive(() => load());
 
   function retry() {
     setError("");

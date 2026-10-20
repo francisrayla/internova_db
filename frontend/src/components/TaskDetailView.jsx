@@ -17,6 +17,7 @@ import { isAwaitingRating } from "@/lib/taskState";
 import { manilaToday } from "@/lib/dueDateUrgency";
 
 import { inputProps } from "@/lib/inputRules";
+import { useTaskLive } from "@/lib/useTaskLive";
 const STATUS_TONES = { pending: "slate", in_progress: "blue", completed: "green" };
 const STATUS_LABELS = { pending: "Pending", in_progress: "Ongoing", completed: "Done" };
 const PRIORITY_TONES = { low: "slate", medium: "amber", high: "red" };
@@ -429,6 +430,10 @@ export default function TaskDetailView({ fetchTask, apiBase, backHref, backLabel
   }
 
   useEffect(load, [taskId]);
+  // Someone else moved a subtask, finished, commented or rated: show it without a refresh.
+  useTaskLive((ids) => {
+    if (ids.has(Number(taskId))) load(true);
+  });
 
   async function updateTaskStatus(status) {
     // Marking done needs proof first — open the modal instead of PATCHing

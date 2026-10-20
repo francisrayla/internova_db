@@ -21,6 +21,9 @@ class AppServiceProvider extends ServiceProvider
     {
         \App\Support\RateLimits::register();
 
+        // Open task screens reload when a task, subtask, proof, comment or rating changes.
+        \App\Services\TaskLiveUpdates::register();
+
         // Record ids in URLs are always numbers: /interns/abc is a 404, not a TypeError (HTTP 500) in the controller.
         foreach (['id', 'deploymentId', 'taskId', 'subtaskId', 'userId'] as $param) {
             \Illuminate\Support\Facades\Route::pattern($param, '[0-9]+');

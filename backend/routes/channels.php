@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Broadcast;
 |   user.{id}.notifications  - personal notification pushes (App\Events\NotificationCreated)
 |   user.{id}.messages       - chat for one person: DMs, group messages, typing (App\Events\MessageSent,
 |                              GroupMessageSent, UserTyping, GroupUserTyping)
+|   user.{id}.tasks          - "this task changed, reload it" (App\Events\TaskChanged; who gets it is
+|                              decided in App\Services\TaskLiveUpdates)
 |   school.{schoolId}.{role}.notifications - everyone with that role in that one school
 |   superadmin.notifications - platform admins only
 |
@@ -24,6 +26,8 @@ use Illuminate\Support\Facades\Broadcast;
 Broadcast::channel('user.{id}.notifications', fn (User $user, $id) => (int) $user->id === (int) $id);
 
 Broadcast::channel('user.{id}.messages', fn (User $user, $id) => (int) $user->id === (int) $id);
+
+Broadcast::channel('user.{id}.tasks', fn (User $user, $id) => (int) $user->id === (int) $id);
 
 Broadcast::channel('school.{schoolId}.{role}.notifications', function (User $user, $schoolId, $role) {
     return $user->school_id !== null
