@@ -459,6 +459,10 @@ class InternMonitoringController extends Controller
         if ($data['status'] === 'completed') {
             return response()->json(['success' => false, 'message' => 'Upload proof to mark this subtask as done.'], 422);
         }
+        // Done is final for a subtask.
+        if ($subtask->status === 'completed') {
+            return response()->json(['success' => false, 'message' => Task::SUBTASK_DONE_MESSAGE], 422);
+        }
         // A done task keeps all its subtasks done; sliding one back would leave a finished parent with open work.
         if ($subtask->task->status === 'completed') {
             return response()->json(['success' => false, 'message' => Task::SUBTASK_FROZEN_MESSAGE], 422);

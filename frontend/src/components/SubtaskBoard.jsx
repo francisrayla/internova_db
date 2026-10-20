@@ -72,7 +72,8 @@ function StatusDropdown({ subtask, taskCompleted, onPick }) {
   const stop = (e) => e.stopPropagation();
   // A done task keeps all its subtasks done (the server refuses moving one back), so only "Done" is offered.
   const lockedOpen = taskCompleted && subtask.status !== "completed";
-  const fullyLocked = taskCompleted && subtask.status === "completed";
+  // Done is final for a subtask (InternMonitoringController::updateSubtask refuses moving it back).
+  const fullyLocked = subtask.status === "completed";
 
   return (
     <div onPointerDown={stop} onMouseDown={stop} onTouchStart={stop} onClick={stop} className="shrink-0">
@@ -81,7 +82,7 @@ function StatusDropdown({ subtask, taskCompleted, onPick }) {
         id={`subtask-status-${subtask.id}`}
         value={subtask.status}
         disabled={fullyLocked}
-        title={fullyLocked ? "This task is already done, so its subtasks stay done." : "Change status"}
+        title={fullyLocked ? "This subtask is done, so it can no longer be moved back." : "Change status"}
         onChange={(e) => onPick(subtask.id, e.target.value)}
         className={`h-10 rounded-full border-0 py-1.5 pl-3 pr-7 text-base font-semibold outline-none focus:ring-2 focus:ring-[var(--ui-accent)] disabled:cursor-not-allowed disabled:opacity-70 max-sm:h-11 sm:text-sm ${STATUS_STYLES[subtask.status]}`}
       >
@@ -96,12 +97,14 @@ function StatusDropdown({ subtask, taskCompleted, onPick }) {
 // Drag it with the mouse, or press and hold on a touch screen; a plain click or tap
 // still selects it (opens the comment panel). The status dropdown is the alternative to dragging.
 function HoldableRow({ subtask, onSelect, selected, isBeingDragged, taskCompleted, onPick }) {
-  const { attributes, listeners, setNodeRef } = useDraggable({ id: String(subtask.id) });
+  // A done subtask stays done, so it can't be picked up.
+  const done = subtask.status === "completed";
+  const { attributes, listeners, setNodeRef } = useDraggable({ id: String(subtask.id), disabled: done });
 
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} onContextMenu={blockTouchContextMenu} className={`${DRAG_ROW_CLASS} ${isBeingDragged ? "opacity-30" : ""}`}>
-      <div className={`flex w-full cursor-grab items-start justify-between gap-3 text-left transition active:cursor-grabbing ${ROW_BOX} ${rowBorder(selected)}`}>
-        <GripVertical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" style={{ color: "var(--ui-faint, var(--ui-muted))" }} />
+      <div className={`flex w-full items-start justify-between gap-3 text-left transition ${done ? "" : "cursor-grab active:cursor-grabbing"} ${ROW_BOX} ${rowBorder(selected)}`}>
+        <GripVertical className={`mt-0.5 h-4 w-4 shrink-0 ${done ? "invisible" : ""}`} aria-hidden="true" style={{ color: "var(--ui-faint, var(--ui-muted))" }} />
         <button draggable={false} onClick={() => onSelect(subtask.id)} className="min-w-0 flex-1 space-y-1 text-left">
           <CardBody subtask={subtask} />
         </button>
@@ -147,7 +150,8 @@ export default function SubtaskBoard({ subtasks, onStatusChange, onRequestComple
   // so they call the same API and obey the same rules.
   function applyStatus(subtaskId, newStatus) {
     const subtask = subtasks.find((s) => s.id === subtaskId);
-    if (!subtask || subtask.status === newStatus) return;
+    // Done is final: the server would refuse it anyway.
+    if (!subtask || subtask.status === newStatus || subtask.status === "completed") return;
     // "Done" needs proof first — the modal decides whether the
     // status actually changes, so we don't touch it here.
     if (newStatus === "completed") {

@@ -25,6 +25,7 @@ const COPY = {
     item: "subtask",
     notes: [
       "You can also pick a status from the menu on the right of each subtask.",
+      "Once a subtask is Done it stays Done, so check your proof before you confirm.",
       "The task's own status follows its subtasks.",
     ],
   },

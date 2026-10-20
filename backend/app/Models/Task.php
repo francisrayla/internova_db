@@ -110,6 +110,9 @@ class Task extends Model
     /** Answer when someone tries to move a subtask out of Done while its parent task is done. */
     public const SUBTASK_FROZEN_MESSAGE = 'This task is already marked done, so its subtasks can no longer be moved back. A done task needs all of its subtasks done.';
 
+    /** A subtask marked done (with its proof) stays done: moving it back would leave its proof attached to unfinished work. */
+    public const SUBTASK_DONE_MESSAGE = 'This subtask is already done, so it can no longer be moved back to Pending or Ongoing.';
+
     /**
      * Done, but the supervisor's grade is still missing, so it stays in the Active list. Only applies when the
      * school's plan includes per-task ratings: without that feature nobody can ever grade it, so a finished

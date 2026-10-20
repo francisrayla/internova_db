@@ -150,6 +150,25 @@ class TaskCompletionRulesTest extends TestCase
         $this->assertSame('completed', $task->subtasks()->first()->status);
     }
 
+    public function test_a_done_subtask_stays_done_while_its_task_is_still_open(): void
+    {
+        $task = $this->newTask();
+        $done = $this->addSubtask($task, 'finished part');
+        $open = $this->addSubtask($task, 'next part');
+        $this->internCompletesSubtask($done)->assertOk();
+
+        Sanctum::actingAs($this->intern);
+        foreach (['pending', 'in_progress'] as $status) {
+            $this->patchJson("/api/intern/subtasks/{$done}", ['status' => $status])
+                ->assertStatus(422)
+                ->assertJsonPath('message', Task::SUBTASK_DONE_MESSAGE);
+        }
+        $this->assertSame('completed', \App\Models\Subtask::findOrFail($done)->status);
+        // the unfinished one still moves freely
+        $this->patchJson("/api/intern/subtasks/{$open}", ['status' => 'in_progress'])->assertOk();
+        $this->assertSame('in_progress', \App\Models\Subtask::findOrFail($open)->status);
+    }
+
     public function test_an_old_done_task_with_an_open_subtask_can_be_repaired_but_not_rated_until_then(): void
     {
         // The state production data can already be in: done, with a subtask still pending.
