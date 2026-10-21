@@ -13,6 +13,7 @@ use App\Services\NotificationService;
 use App\Services\PayMongoService;
 use App\Services\PaymentActivation;
 use App\Services\SubscriptionBreakdown;
+use App\Services\PaymentReceipts;
 use App\Services\SubscriptionRollover;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -1060,5 +1061,22 @@ class DeanSubscriptionController extends Controller
             'success' => true,
             'message' => 'Proof of payment uploaded. Our team will verify it shortly.',
         ]);
+    }
+
+    /** The school's payment receipts (every paid payment, newest first). */
+    public function receipts(int $id): JsonResponse
+    {
+        return response()->json(['success' => true, 'receipts' => PaymentReceipts::listFor($id)]);
+    }
+
+    /** One payment receipt of the Dean's own school. */
+    public function receipt(int $id, int $transaction): JsonResponse
+    {
+        $receipt = PaymentReceipts::find($id, $transaction);
+        if (!$receipt) {
+            return response()->json(['success' => false, 'message' => 'Receipt not found.'], 404);
+        }
+
+        return response()->json(['success' => true, 'receipt' => $receipt]);
     }
 }

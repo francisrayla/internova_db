@@ -29,6 +29,7 @@ use App\Services\NarrativeAiService;
 use App\Services\NotificationService;
 use App\Services\PayMongoService;
 use App\Services\PaymentActivation;
+use App\Services\PaymentReceipts;
 use App\Services\PlanFeatures;
 use App\Support\Paging;
 use Illuminate\Http\JsonResponse;
@@ -1464,5 +1465,24 @@ class SuperadminFullController extends Controller
                 'value'       => $setting->type === 'toggle' ? (bool) $setting->value : $setting->value,
             ],
         ]);
+    }
+
+    /** A school's payment receipts (every paid payment, newest first). */
+    public function schoolReceipts(int $id): JsonResponse
+    {
+        School::findOrFail($id);
+
+        return response()->json(['success' => true, 'receipts' => PaymentReceipts::listFor($id)]);
+    }
+
+    /** One payment receipt of a school. */
+    public function schoolReceipt(int $id, int $transaction): JsonResponse
+    {
+        $receipt = PaymentReceipts::find($id, $transaction);
+        if (!$receipt) {
+            return response()->json(['success' => false, 'message' => 'Receipt not found.'], 404);
+        }
+
+        return response()->json(['success' => true, 'receipt' => $receipt]);
     }
 }

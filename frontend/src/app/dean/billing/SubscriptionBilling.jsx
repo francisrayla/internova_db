@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useCurrentUser } from "@/lib/UserContext";
 import BillingBreakdown from "@/components/BillingBreakdown";
 import NavIcon from "@/components/NavIcon";
+import { LatestReceiptButton, PaymentReceiptList } from "@/components/PaymentReceipt";
 import { Banner, Btn, FormField, KeyValueList, Page, PageHeader, Pill, Section, Select, Textarea, btnClass } from "@/components/dash/page";
 
 import { inputProps } from "@/lib/inputRules";
@@ -556,6 +557,7 @@ export default function SubscriptionPage() {
       <Shell>
         <Hero icon="ok" title="Payment Successful">Your subscription is now active. You can start setting up your school right away.</Hero>
         <KeyValueList className={KV} items={rows.map(([label, value]) => ({ label, value }))} />
+        <LatestReceiptButton base={`/api/dean/schools/${paid.school_id ?? user.school_id}/receipts`} block />
         <Btn variant="primary" block onClick={handleFinishPayment}>Go to Dashboard</Btn>
       </Shell>
     );
@@ -857,6 +859,10 @@ export default function SubscriptionPage() {
             )}
           </Section>
         )}
+
+        <Section title="Payment history" help="Every payment of your school, with its receipt to print or save as PDF.">
+          <PaymentReceiptList base={`/api/dean/schools/${user.school_id}/receipts`} />
+        </Section>
       </Page>
     );
   }

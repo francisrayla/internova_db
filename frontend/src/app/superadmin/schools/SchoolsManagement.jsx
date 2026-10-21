@@ -10,6 +10,7 @@ import BillingBreakdown from "@/components/BillingBreakdown";
 import { Check, Pause, Play, RotateCw } from "lucide-react";
 import { Btn, EmptyState, FilterBar, FormField, Input, KeyValueList, Page, PageHeader, Pill, SearchField, Section, Select, SheetFrame, SkeletonList, TableWrap } from "@/components/dash/page";
 import NavIcon from "@/components/NavIcon";
+import { PaymentReceiptList } from "@/components/PaymentReceipt";
 import SaToast, { useSaToast } from "../SaToast";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 
@@ -434,6 +435,16 @@ export default function SchoolsPage() {
                 { label: "Expiry", value: manageSchool.expiry },
               ]}
             />
+
+            <div className="grid gap-2">
+              <p className="text-sm font-semibold text-slate-800">Payments &amp; receipts</p>
+              {/* keyed on the payment state so it reloads right after a payment is verified */}
+              <PaymentReceiptList
+                key={`${manageSchool.id}-${manageSchool.payment}-${manageSchool.status}`}
+                base={`/api/superadmin/schools/${manageSchool.id}/receipts`}
+                emptyText="No paid payments yet."
+              />
+            </div>
 
             {manageSchool.is_suspended ? (
               // Paused overrides whatever lifecycle stage the school is in below it —

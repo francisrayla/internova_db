@@ -10,7 +10,9 @@ use App\Models\School;
 use App\Models\Setting;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
+use App\Models\PaymentTransaction;
 use App\Services\PaymentActivation;
+use App\Services\PaymentReceipts;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
@@ -92,7 +94,8 @@ class BillingEmailsTest extends TestCase
             $html = $mail->render();
 
             return $mail->hasTo('head@school.test')
-                && $mail->receiptNumber === 'SUB-' . $subscription->id
+                // the same number the billing pages show for this payment
+                && $mail->receiptNumber === PaymentReceipts::number(PaymentTransaction::where('subscription_id', $subscription->id)->where('status', 'paid')->firstOrFail())
                 && $mail->methodLabel === 'GCash'
                 && str_contains($html, '1,500.00')
                 && str_contains($html, 'Mail College');

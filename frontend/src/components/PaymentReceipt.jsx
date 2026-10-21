@@ -1,0 +1,236 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import Icon from "@/components/Icon";
+import { apiFetch } from "@/lib/apiFetch";
+import { Banner, Btn, DataList, DataRow } from "@/components/dash/page";
+
+// The receipt is a document: white paper in light and dark mode, and the same look when printed.
+// Plain CSS (not Tailwind) so the print window, which has none of the app's styles, renders it too.
+const RECEIPT_CSS = `
+.rc-paper { background: #fff; color: #0f172a; font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 13px; line-height: 1.5; padding: 28px; border-radius: 16px; }
+.rc-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 2px solid #1d4ed8; padding-bottom: 14px; }
+.rc-brand { font-size: 20px; font-weight: 800; letter-spacing: 0.04em; color: #1e3a8a; }
+.rc-brand small { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0; color: #64748b; }
+.rc-title { text-align: right; }
+.rc-title b { display: block; font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; }
+.rc-title span { color: #475569; }
+.rc-paid { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 999px; background: #dcfce7; color: #166534; font-weight: 700; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.rc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+.rc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+.rc-grid p { margin: 0; }
+.rc-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.rc-table th { text-align: left; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; border-bottom: 1px solid #e2e8f0; padding: 8px 0; }
+.rc-table td { padding: 9px 0; border-bottom: 1px solid #f1f5f9; }
+.rc-table .rc-amt { text-align: right; white-space: nowrap; }
+.rc-total td { border-bottom: none; font-weight: 800; font-size: 15px; padding-top: 12px; }
+.rc-total .rc-amt { color: #1d4ed8; }
+.rc-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; padding: 12px; border-radius: 12px; background: #f8fafc; }
+.rc-meta p { margin: 0; overflow-wrap: anywhere; }
+.rc-foot { margin-top: 18px; font-size: 11px; color: #64748b; text-align: center; }
+@media (max-width: 560px) { .rc-paper { padding: 18px; } .rc-grid, .rc-meta { grid-template-columns: 1fr; } .rc-head { flex-direction: column; } .rc-title { text-align: left; } }
+@media print { .rc-paper { border-radius: 0; padding: 0; } }
+`;
+
+const money = (n) => `₱${Number(n ?? 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function ReceiptDocument({ r }) {
+  const covers = r.covers_from && r.covers_until ? `${r.covers_from} – ${r.covers_until}` : r.covers_from || r.covers_until || "—";
+  return (
+    <div className="rc-paper">
+      <div className="rc-head">
+        <div className="rc-brand">
+          INTERNOVA
+          <small>Internship monitoring and evaluation</small>
+          <small>{r.issued_by?.email}</small>
+        </div>
+        <div className="rc-title">
+          <b>Payment Receipt</b>
+          <span>No. {r.receipt_number}</span>
+          <br />
+          <span>{r.paid_at}</span>
+          <br />
+          <span className="rc-paid">{r.status}</span>
+        </div>
+      </div>
+
+      <div className="rc-grid">
+        <div>
+          <div className="rc-label">Billed to</div>
+          <p><b>{r.billed_to?.school ?? "—"}</b></p>
+          {r.billed_to?.address && <p>{r.billed_to.address}</p>}
+          {r.billed_to?.name && <p>{r.billed_to.name}</p>}
+          {r.billed_to?.email && <p>{r.billed_to.email}</p>}
+        </div>
+        <div>
+          <div className="rc-label">Subscription</div>
+          <p><b>{r.plan} plan</b>{r.billing_period ? `, ${r.billing_period}` : ""}</p>
+          <p>{r.type}</p>
+          <p>Covers {covers}</p>
+        </div>
+      </div>
+
+      <table className="rc-table">
+        <thead>
+          <tr><th>Description</th><th className="rc-amt">Amount</th></tr>
+        </thead>
+        <tbody>
+          {(r.lines ?? []).map((l, i) => (
+            <tr key={i}><td>{l.label}</td><td className="rc-amt">{l.amount < 0 ? `−${money(-l.amount)}` : money(l.amount)}</td></tr>
+          ))}
+          <tr className="rc-total"><td>Total paid</td><td className="rc-amt">{money(r.total)}</td></tr>
+        </tbody>
+      </table>
+
+      <div className="rc-meta">
+        <div><div className="rc-label">Payment method</div><p>{r.method}</p></div>
+        <div><div className="rc-label">Reference</div><p>{r.reference || "—"}</p></div>
+        <div><div className="rc-label">Date paid</div><p>{r.paid_at}</p></div>
+      </div>
+
+      <p className="rc-foot">This receipt was generated by Internova for a subscription payment. It is not a BIR official receipt.</p>
+    </div>
+  );
+}
+
+// A window with only the receipt in it, then the browser's print dialog ("Save as PDF" lives there too).
+function printReceipt(node, number) {
+  const win = window.open("", "_blank", "width=820,height=960");
+  if (!win) return false;
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Internova receipt ${number}</title><style>body{margin:24px;background:#fff}${RECEIPT_CSS}</style></head><body>${node.outerHTML}</body></html>`);
+  win.document.close();
+  win.focus();
+  win.onload = () => win.print();
+  setTimeout(() => { try { win.print(); } catch { /* already printing */ } }, 600);
+  return true;
+}
+
+/**
+ * One payment receipt in a dialog with Print / Save as PDF. `url` is the receipt endpoint
+ * (/api/dean/schools/{id}/receipts/{txn} or /api/superadmin/schools/{id}/receipts/{txn}).
+ */
+export function PaymentReceiptDialog({ url, onClose }) {
+  const [receipt, setReceipt] = useState(null);
+  const [error, setError] = useState("");
+  const [printNote, setPrintNote] = useState("");
+  const paperRef = useRef(null);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch(url)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || "Could not load this receipt.");
+        if (alive) setReceipt(data.receipt);
+      })
+      .catch((err) => alive && setError(err.message));
+    return () => { alive = false; };
+  }, [url]);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function handlePrint() {
+    const node = paperRef.current?.querySelector(".rc-paper");
+    if (node && !printReceipt(node, receipt?.receipt_number)) setPrintNote("Allow pop-ups for this site to print or save the receipt.");
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label="Payment receipt">
+      <style>{RECEIPT_CSS}</style>
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-xl dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Payment receipt{receipt ? ` · ${receipt.receipt_number}` : ""}</p>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 max-sm:h-[44px] max-sm:w-[44px]">
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+        <div ref={paperRef} className="flex-1 overflow-auto bg-slate-100 p-3 dark:bg-slate-800 sm:p-5">
+          {error ? <Banner tone="red">{error}</Banner> : receipt ? <ReceiptDocument r={receipt} /> : <div className="k-skel h-96 rounded-2xl" />}
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+          {printNote && <p className="mr-auto text-xs text-amber-700">{printNote}</p>}
+          <Btn onClick={onClose}>Close</Btn>
+          <Btn variant="primary" onClick={handlePrint} disabled={!receipt}>Print / Save as PDF</Btn>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * The school's paid payments, newest first, each with its receipt. `base` is the school's receipts
+ * endpoint (/api/dean/schools/{id}/receipts or /api/superadmin/schools/{id}/receipts).
+ */
+export function PaymentReceiptList({ base, emptyText = "No payments yet." }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch(base)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.message || "Could not load the payments.");
+        if (alive) setRows(data.receipts ?? []);
+      })
+      .catch((err) => alive && setError(err.message));
+    return () => { alive = false; };
+  }, [base]);
+
+  if (error) return <Banner tone="red">{error}</Banner>;
+  if (!rows) return <div className="k-skel h-16 rounded-2xl" />;
+  if (rows.length === 0) return <p className="text-sm text-slate-500">{emptyText}</p>;
+
+  return (
+    <>
+      <DataList>
+        {rows.map((r) => (
+          <DataRow
+            key={r.id}
+            title={`${r.receipt_number} · ${money(r.amount)}`}
+            sub={`${r.paid_at} · ${r.plan} · ${r.type} · ${r.method}`}
+            actions={<Btn sm onClick={() => setOpen(r.id)}>View receipt</Btn>}
+            wrap
+          />
+        ))}
+      </DataList>
+      {open && <PaymentReceiptDialog url={`${base}/${open}`} onClose={() => setOpen(null)} />}
+    </>
+  );
+}
+
+/** "View receipt" for the newest payment, e.g. right after paying. */
+export function LatestReceiptButton({ base, children = "View receipt", ...btn }) {
+  const [url, setUrl] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function openLatest() {
+    setBusy(true);
+    setError("");
+    apiFetch(base)
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        const first = data.receipts?.[0];
+        if (!res.ok || !data.success || !first) throw new Error(data.message || "The receipt is not ready yet. Try again in a moment.");
+        setUrl(`${base}/${first.id}`);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <>
+      <Btn onClick={openLatest} disabled={busy} {...btn}>{busy ? "Opening…" : children}</Btn>
+      {error && <p className="text-xs text-amber-700">{error}</p>}
+      {url && <PaymentReceiptDialog url={url} onClose={() => setUrl(null)} />}
+    </>
+  );
+}

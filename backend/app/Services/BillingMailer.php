@@ -21,14 +21,6 @@ use Illuminate\Support\Facades\Mail;
  */
 class BillingMailer
 {
-    private const METHOD_LABELS = [
-        'gcash' => 'GCash',
-        'maya' => 'Maya',
-        'card' => 'Card',
-        'bank_transfer' => 'Bank transfer',
-        'manual' => 'Payment recorded by Internova',
-    ];
-
     /** @param iterable<User>|null $recipients defaults to the school's active head accounts */
     public static function sendOffer(School $school, ?SchoolSubscription $subscription, ?iterable $recipients = null, bool $resent = false): void
     {
@@ -65,7 +57,8 @@ class BillingMailer
         }
         $txn = PaymentTransaction::where('subscription_id', $subscription->id)->where('status', 'paid')->latest('id')->first();
         $method = $txn?->payment_method ?? $subscription->payment_method;
-        $receipt = $subscription->payment_reference ?: 'SUB-' . $subscription->id;
+        // the same number the receipt on the billing pages shows (PaymentReceipts)
+        $receipt = $txn ? PaymentReceipts::number($txn) : ($subscription->payment_reference ?: 'SUB-' . $subscription->id);
         foreach (MailBrand::headsOf($school->id) as $user) {
             if (!self::canEmail($user)) {
                 continue;
@@ -77,7 +70,7 @@ class BillingMailer
                 planName: $subscription->plan?->name ?? 'Internova',
                 billingPeriod: self::periodLabel($subscription->billing_period),
                 amount: self::money($txn?->amount ?? $subscription->amount),
-                methodLabel: self::METHOD_LABELS[$method] ?? ($method ? ucfirst(str_replace('_', ' ', $method)) : 'Payment'),
+                methodLabel: PaymentReceipts::methodLabel($method),
                 paidOn: self::date($txn?->paid_at ?? $subscription->paid_at ?? now()),
                 validFrom: self::date($subscription->start_date),
                 validUntil: self::date($subscription->end_date),

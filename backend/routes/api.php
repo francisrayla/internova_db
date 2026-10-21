@@ -51,6 +51,8 @@ Route::prefix('superadmin')->middleware(['auth:sanctum', 'role:super_admin'])->g
     Route::post('/plan-inquiries/{id}/convert-to-school', [SuperadminFullController::class, 'convertInquiryToSchool']);
     Route::post('/schools/{id}/confirm-payment', [SuperadminFullController::class, 'confirmSchoolPayment']);
     Route::post('/schools/{id}/verify-payment', [SuperadminFullController::class, 'verifySchoolPayment']);
+    Route::get('/schools/{id}/receipts', [SuperadminFullController::class, 'schoolReceipts']);
+    Route::get('/schools/{id}/receipts/{transaction}', [SuperadminFullController::class, 'schoolReceipt'])->whereNumber('transaction');
     Route::post('/schools/{id}/toggle-suspend', [SuperadminFullController::class, 'toggleSchoolSuspension']);
     Route::post('/schools/{id}/resend-offer', [SuperadminFullController::class, 'resendSchoolOffer']);
     Route::post('/schools/{id}/invite-dean', [SuperadminFullController::class, 'inviteDean']);
@@ -247,6 +249,8 @@ Route::prefix('dean')->middleware(['auth:sanctum', 'role:dean', 'school.active']
         Route::post('/schools/{id}/cancel-pending-upgrade', [DeanSubscriptionController::class, 'cancelPendingUpgrade']);
         Route::get('/schools/{id}/upgrade-quote', [DeanSubscriptionController::class, 'upgradeQuote']);
         Route::post('/schools/{id}/request-plan-change', [DeanSubscriptionController::class, 'requestPlanChange']);
+        Route::get('/schools/{id}/receipts', [DeanSubscriptionController::class, 'receipts']);
+        Route::get('/schools/{id}/receipts/{transaction}', [DeanSubscriptionController::class, 'receipt'])->whereNumber('transaction');
     });
 
     Route::get('/dashboard', [DeanController::class, 'dashboard']);
