@@ -517,6 +517,18 @@ export default function SubscriptionPage() {
 
   if (!user) return null;
 
+  // Not approved yet: there is no school, so no offer (the layout sends this case to /dean/pending; this is the fallback)
+  if (!user.school_id) {
+    return (
+      <Shell>
+        <Hero icon="search" title="Your school registration is under review">
+          Your subscription offer appears here once the Super Admin approves your school. We will email you when it is ready.
+        </Hero>
+        <Btn href="/dean/pending" block>Back</Btn>
+      </Shell>
+    );
+  }
+
   const status = user.subscription_status;
   const features = PLAN_FEATURES[user.subscription_plan] || PLAN_FEATURES.Basic;
 

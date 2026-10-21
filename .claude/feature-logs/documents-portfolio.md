@@ -1,6 +1,6 @@
 # Documents, portfolio, reports, downloads, AI narrative
-last_commit: ba3df00 + uncommitted
-updated: 2026-10-19
+last_commit: 1877803 + uncommitted
+updated: 2026-10-21
 
 ## Map (where the code lives)
 - backend/routes/api.php — intern: L248-253 (documents, portfolio, portfolio/items), L245 activities/polish-narrative; coordinator: L123-124 (interns/{id}/portfolio, /report), L166-168 (documents); supervisor: L191 (interns/{id}/portfolio)
@@ -58,8 +58,8 @@ updated: 2026-10-19
 - Manual: intern uploads a PDF at /intern/documents -> coordinator sees it at /coordinator/documents, approves -> intern notified. Add a portfolio item with image; view it from supervisor and coordinator portfolio pages (unassigned intern -> 404 for supervisor). Open the coordinator intern report and print. Request /api/download with a bad path (expect 400).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-21 1877803 + uncommitted — components/FileViewer.jsx extOf(): a label with no dot (e.g. name="Proof of payment" in superadmin/schools/SchoolsManagement.jsx) returned the whole label as the 'extension', so the url's .png was never checked and the Super Admin proof viewer said 'Preview isn't available'; now '' when there is no extension, falls through to the url — result: eslint ok, build ok, headless check: PNG proof previews inline
 - 2026-10-19 ba3df00 + uncommitted — bug #14: friendly upload messages (see UPLOAD MESSAGES) — result: FriendlyUploadMessagesTest 4/4
 - 2026-10-19 ba3df00 + uncommitted — Intern 'N documents were sent back' (DashboardQueueService::intern, item rejected_documents) counts a rejected document only until a newer file of the same type (case/space-insensitive) is pending or approved; detail says 'Read the remarks…' only when a counted one has remarks, else 'Upload a corrected file.' Test: NotificationAttentionTest +1 — result: suite 530/530; local API check as mark: rejected Waiver -> item shown, Upload again -> item gone (test rows removed)
 - 2026-10-19 ba3df00 + uncommitted — Certificates only for a finished intern: SupervisorCertificateController::finished() (status completed or approved hours >= required); generate() 422 'X has rendered N of M hours…' when not finished, and hours above max(rendered, required) refused (422 on hours); show() interns[].finished; Certificates.jsx disables unfinished interns ('not finished'), lists them in a hint, hours field max + error, Generate disabled on too many hours (the old 'You can still make the certificate' note is gone). Tests: CertificateTest 10 (+1 new, two old ones now finish the intern first) — result: suite 529/529, build ok, local 390 browser check
 - 2026-10-19 ba3df00 + uncommitted — MyPortfolio.jsx handleAddItem/handleDeleteItem now call loadNarrative(), so 'What your report needs' (Samples of work done/outputs) updates at once after adding or removing a work sample (was stale until reload) — result: local 390 browser as mark: delete -> 'No portfolio items yet' + Add item, add -> '1 portfolio item', no reload; test items removed; build ok
-- 2026-10-17 4a8e4b1 — MyDocuments.jsx: a requirement row's Upload / Upload again opens the file picker at once (hidden input, pickerRef.click() inside the tap) and posts the file for that requirement (sendDocument shared with the header form, 10MB check, shrinkImage); the row shows Uploading…, then a green 'Uploaded "name"' or red error under its title; the header 'Upload document' form is unchanged — result: eslint + build ok, local browser 390 dark as mark.villanueva: chooser opened, form not shown, Endorsement Letter -> Pending review, test document + log removed

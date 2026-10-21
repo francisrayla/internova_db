@@ -29,6 +29,9 @@ const NAV_ITEMS = [
 
 // Reachable before the subscription is active — billing itself plus small utility screens.
 const GATE_EXEMPT_ROUTES = ["/dean/billing", "/dean/preview", "/dean/profile", "/dean/account", "/dean/notifications", "/dean/support"];
+// Before the Super Admin approves the registration there is no school yet, so no offer to accept: billing and the
+// plan preview would only show an empty offer whose Accept button fails. Those two go to /dean/pending instead.
+const PENDING_EXEMPT_ROUTES = GATE_EXEMPT_ROUTES.filter((r) => r !== "/dean/billing" && r !== "/dean/preview");
 
 /**
  * What a dean may see right now. Until the school's subscription is active
@@ -111,7 +114,7 @@ export default function DeanLayout({ children }) {
   }, []);
 
   const gate = resolveGate(user);
-  const isExemptRoute = GATE_EXEMPT_ROUTES.includes(pathname);
+  const isExemptRoute = (gate.state === "pending_approval" ? PENDING_EXEMPT_ROUTES : GATE_EXEMPT_ROUTES).includes(pathname);
   const isFullAccess = gate.state === "active";
 
   useEffect(() => {

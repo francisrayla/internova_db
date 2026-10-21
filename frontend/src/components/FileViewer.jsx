@@ -7,8 +7,11 @@ import Icon from "@/components/Icon";
 const EXT_BADGES = { pdf: "PDF", doc: "DOC", docx: "DOC", xls: "XLS", xlsx: "XLS", ppt: "PPT", pptx: "PPT" };
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
 
+// "" when there is no extension, so a plain label such as "Proof of payment" falls through to the url's extension
 function extOf(name) {
-  return name?.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+  const base = (name ?? "").split("?")[0].split("/").pop();
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
 }
 
 /**
