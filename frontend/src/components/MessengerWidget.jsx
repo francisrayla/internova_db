@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { getEcho } from "@/lib/echo";
 import Icon from "@/components/Icon";
 import FileLink from "@/components/FileViewer";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { apiFetch } from "@/lib/apiFetch";
 import { MAX_ATTACHMENT_BYTES, validateAttachmentFile } from "@/lib/imageValidation";
 
@@ -84,8 +85,9 @@ function useIsPhone() {
 // message, time and unread badge.
 function ConversationRow({ c, phone, onOpen }) {
   const isGroup = c.type === "group";
+  const unsentLast = Boolean(c.last_message_unsent);
   const preview = c.last_message
-    ? `${c.last_message_from_me ? "You: " : isGroup && c.last_message_sender_name ? `${c.last_message_sender_name}: ` : ""}${c.last_message}`
+    ? `${unsentLast ? "" : c.last_message_from_me ? "You: " : isGroup && c.last_message_sender_name ? `${c.last_message_sender_name}: ` : ""}${c.last_message}`
     : isGroup
       ? `${c.members?.length ?? 0} members`
       : roleLabelOf(c);
@@ -118,7 +120,7 @@ function ConversationRow({ c, phone, onOpen }) {
           </div>
           {roleLine && <p className="truncate text-xs text-slate-500">{roleLine}</p>}
           {c.last_message && (
-            <p className={`truncate text-sm ${c.unread_count > 0 ? "font-medium text-slate-800" : "text-slate-500"}`}>{preview}</p>
+            <p className={`truncate text-sm ${unsentLast ? "italic" : ""} ${c.unread_count > 0 ? "font-medium text-slate-800" : "text-slate-500"}`}>{preview}</p>
           )}
         </div>
         {c.unread_count > 0 && (
@@ -153,7 +155,7 @@ function ConversationRow({ c, phone, onOpen }) {
           </p>
           {c.last_message_at && <span className="shrink-0 text-[11px] text-slate-400">{c.last_message_at}</span>}
         </div>
-        <p className="truncate text-xs text-slate-500">{preview}</p>
+        <p className={`truncate text-xs text-slate-500 ${unsentLast ? "italic" : ""}`}>{preview}</p>
       </div>
       {c.unread_count > 0 && (
         <span className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
@@ -201,7 +203,7 @@ function MinimizedBubble({ conversation, onRestore, onClose }) {
 // viewport rather than a full page, so chatting never interrupts whatever
 // screen the conversation started from. Works for both a 1:1 conversation
 // and a group (sender names above bubbles, member count in the subtitle).
-function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, onLoadEarlier, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, forwardTargets, currentUserId, phone = false, onBack }) {
+function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, onLoadEarlier, isTyping, typingName, onSend, onSendFile, onTyping, onClose, onToggleMinimize, onToggleMute, onSetColor, onForward, onUnsend, forwardTargets, currentUserId, phone = false, onBack }) {
   const [text, setText] = useState("");
   const [showOptions, setShowOptions] = useState(false);
   const [showMedia, setShowMedia] = useState(false);
@@ -212,6 +214,9 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
   const [forwardingId, setForwardingId] = useState(null);
   const [forwardError, setForwardError] = useState("");
   const [detailsMessage, setDetailsMessage] = useState(null);
+  const [unsendingId, setUnsendingId] = useState(null);
+  const [unsendBusy, setUnsendBusy] = useState(false);
+  const [unsendError, setUnsendError] = useState("");
   const listRef = useRef(null);
   const optionsRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -314,6 +319,19 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
       URL.revokeObjectURL(url);
     } catch {
       window.open(m.attachment_url, "_blank");
+    }
+  }
+
+  async function handleUnsend() {
+    setUnsendBusy(true);
+    setUnsendError("");
+    try {
+      await onUnsend(unsendingId);
+      setUnsendingId(null);
+    } catch (err) {
+      setUnsendError(err.message || "Could not unsend this message.");
+    } finally {
+      setUnsendBusy(false);
     }
   }
 
@@ -493,7 +511,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
             const isImageAttachment = m.attachment_url && m.attachment_type?.startsWith("image/");
             const isSent = typeof m.id === "number";
             const menuOpen = openMenuId === m.id;
-            const menuButton = isSent && (
+            const menuButton = isSent && !m.unsent && (
               <div className="relative shrink-0 self-center">
                 <button
                   type="button"
@@ -520,6 +538,11 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                     <button type="button" onClick={() => { setForwardingId(m.id); setOpenMenuId(null); }} className={`flex w-full items-center px-3 text-left text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
                       Forward
                     </button>
+                    {mine && (
+                      <button type="button" onClick={() => { setUnsendingId(m.id); setUnsendError(""); setOpenMenuId(null); }} className={`flex w-full items-center px-3 text-left text-red-600 hover:bg-red-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
+                        Unsend
+                      </button>
+                    )}
                     {m.attachment_url && (
                       <button type="button" onClick={() => handleSave(m)} className={`flex w-full items-center px-3 text-left text-slate-700 hover:bg-slate-50 ${phone ? "min-h-[44px] text-sm" : "py-1.5 text-xs"}`}>
                         Save
@@ -537,6 +560,11 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                 {menuButton}
                 <div className={phone ? "max-w-[82%]" : "max-w-[75%]"}>
                   {isGroup && !mine && <p className="mb-0.5 ml-1 text-[10px] font-semibold text-slate-500">{m.sender_name}</p>}
+                  {m.unsent ? (
+                    <div className={`break-words rounded-2xl border border-dashed border-slate-300 px-3 py-1.5 italic text-slate-400 ${phone ? "text-[15px]" : "text-sm"}`}>
+                      {mine ? "You unsent a message" : `${(isGroup ? m.sender_name : conversation.name)?.split(" ")[0] ?? "They"} unsent a message`}
+                    </div>
+                  ) : (
                   <div
                     className={`break-words rounded-2xl px-3 py-1.5 ${phone ? "text-[15px]" : "text-sm"} ${
                       mine ? "text-white" : "border border-slate-200 bg-white text-slate-800"
@@ -555,7 +583,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                     {m.reply_to && (
                       <div className={`-mx-1 rounded-lg border-l-2 px-2 py-1 text-xs ${mine ? "border-white/50 bg-white/10" : "border-slate-300 bg-slate-50"}`}>
                         <p className="font-semibold opacity-90">{m.reply_to.sender_name}</p>
-                        <p className="truncate opacity-75">{m.reply_to.preview}</p>
+                        <p className={`truncate opacity-75 ${m.reply_to.unsent ? "italic" : ""}`}>{m.reply_to.unsent ? "Message unsent" : m.reply_to.preview}</p>
                       </div>
                     )}
                     {isImageAttachment && (
@@ -580,6 +608,7 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
                     )}
                     {m.message && <div>{m.message}</div>}
                   </div>
+                  )}
                   {m.created_at && <p className={`mt-0.5 px-1 text-[10px] text-slate-400 ${mine ? "text-right" : ""}`}>{m.created_at}</p>}
                 </div>
               </div>
@@ -649,6 +678,18 @@ function ChatWindow({ conversation, messages, loading, hasMore, loadingEarlier, 
           <Icon name="send" size={phone ? 21 : 16} />
         </button>
       </form>
+
+      <ConfirmDialog
+        open={unsendingId !== null}
+        title="Unsend this message?"
+        confirmLabel="Unsend"
+        busy={unsendBusy}
+        error={unsendError}
+        onConfirm={handleUnsend}
+        onCancel={() => { setUnsendingId(null); setUnsendError(""); }}
+      >
+        <p>It will be removed for everyone in this conversation.</p>
+      </ConfirmDialog>
 
       {detailsMessage && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-900/30 p-4" onClick={() => setDetailsMessage(null)}>
@@ -1151,6 +1192,22 @@ export default function MessengerWidget({ currentUser }) {
     return () => window.removeEventListener("resize", computePosition);
   }, [open]);
 
+  // An unsent message turns into a placeholder in place: its text and file are dropped from the
+  // thread, and any reply quoting it switches to "Message unsent".
+  const markUnsent = useCallback((key, id) => {
+    setThreads((prev) => {
+      const thread = prev[key];
+      if (!thread) return prev;
+      const messages = thread.messages.map((m) => {
+        if (m.id === id) {
+          return { ...m, unsent: true, message: "", attachment_url: null, attachment_name: null, attachment_type: null, attachment_size: null, reply_to: null };
+        }
+        return m.reply_to?.id === id ? { ...m, reply_to: { ...m.reply_to, unsent: true, preview: null } } : m;
+      });
+      return { ...prev, [key]: { ...thread, messages } };
+    });
+  }, []);
+
   useEffect(() => {
     if (!currentUser?.id) return;
     const echo = getEcho();
@@ -1189,6 +1246,16 @@ export default function MessengerWidget({ currentUser }) {
       startTypingTimer(`dm-${payload.sender_id}`, null);
     }
 
+    function handleUnsent(payload) {
+      markUnsent(`dm-${payload.sender_id}`, payload.id);
+      loadConversations();
+    }
+
+    function handleGroupUnsent(payload) {
+      markUnsent(`group-${payload.group_id}`, payload.id);
+      loadConversations();
+    }
+
     function handleGroupMessage(payload) {
       loadConversations();
       appendToThread(`group-${payload.group_id}`, payload);
@@ -1203,14 +1270,18 @@ export default function MessengerWidget({ currentUser }) {
     echo.private(channelName).listen(".user.typing", handleTyping);
     echo.private(channelName).listen(".group.message.sent", handleGroupMessage);
     echo.private(channelName).listen(".group.user.typing", handleGroupTyping);
+    echo.private(channelName).listen(".message.unsent", handleUnsent);
+    echo.private(channelName).listen(".group.message.unsent", handleGroupUnsent);
 
     return () => {
       echo.private(channelName).stopListening(".message.sent", handleMessage);
       echo.private(channelName).stopListening(".user.typing", handleTyping);
       echo.private(channelName).stopListening(".group.message.sent", handleGroupMessage);
       echo.private(channelName).stopListening(".group.user.typing", handleGroupTyping);
+      echo.private(channelName).stopListening(".message.unsent", handleUnsent);
+      echo.private(channelName).stopListening(".group.message.unsent", handleGroupUnsent);
     };
-  }, [currentUser?.id, loadConversations]);
+  }, [currentUser?.id, loadConversations, markUnsent]);
 
   useEffect(() => {
     const timeouts = typingClearTimeoutsRef.current;
@@ -1415,6 +1486,16 @@ export default function MessengerWidget({ currentUser }) {
     loadConversations();
   }
 
+  // Unsend one of my own messages; throws with the server's message so the confirm dialog can show it.
+  async function unsendMessage(conversation, messageId) {
+    const url = conversation.type === "group" ? `/api/messages/groups/${conversation.id}/messages/${messageId}` : `/api/messages/${messageId}`;
+    const res = await apiFetch(url, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.message || "Could not unsend this message.");
+    markUnsent(keyOf(conversation), messageId);
+    loadConversations();
+  }
+
   // Mute/color are per-viewer preferences (see backend MessageThreadSetting)
   // — applied optimistically to both lists an open conversation can appear
   // in, then persisted; a failed request just means the next full reload
@@ -1462,6 +1543,7 @@ export default function MessengerWidget({ currentUser }) {
         onToggleMute={() => updateThreadSetting(c, { muted: !c.muted })}
         onSetColor={(color) => updateThreadSetting(c, { color })}
         onForward={(messageId, target) => forwardMessage(c, messageId, target)}
+        onUnsend={(messageId) => unsendMessage(c, messageId)}
         forwardTargets={conversations.filter((t) => keyOf(t) !== key)}
         currentUserId={currentUser?.id}
         phone={phone}

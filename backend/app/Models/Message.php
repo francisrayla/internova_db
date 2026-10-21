@@ -8,12 +8,13 @@ use Illuminate\Support\Facades\Storage;
 class Message extends Model
 {
     protected $fillable = [
-        'sender_id', 'receiver_id', 'reply_to_id', 'school_id', 'message', 'read_at',
+        'sender_id', 'receiver_id', 'reply_to_id', 'school_id', 'message', 'read_at', 'unsent_at',
         'attachment_path', 'attachment_name', 'attachment_type', 'attachment_size',
     ];
 
     protected $casts = [
         'read_at' => 'datetime',
+        'unsent_at' => 'datetime',
     ];
 
     protected $appends = ['attachment_url'];

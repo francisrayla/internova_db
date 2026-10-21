@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Events\GroupMessageSent;
+use App\Events\GroupMessageUnsent;
 use App\Events\GroupUserTyping;
 use App\Events\MessageSent;
+use App\Events\MessageUnsent;
 use App\Events\UserTyping;
 use App\Models\GroupConversation;
 use App\Models\GroupMessage;
@@ -21,6 +23,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
@@ -129,7 +132,7 @@ class MessageController extends Controller
     private function previewLabel(?Message $message = null, ?GroupMessage $groupMessage = null): ?string
     {
         $message ??= $groupMessage;
-        if (!$message) {
+        if (!$message || $message->unsent_at) {
             return null;
         }
         if ($message->message !== '') {
@@ -141,6 +144,26 @@ class MessageController extends Controller
                 : '📎 ' . ($message->attachment_name ?? 'File');
         }
         return $message->message;
+    }
+
+    /**
+     * What the conversation list shows for the last message: the usual preview,
+     * or the placeholder wording when that message was unsent ("You unsent a
+     * message" for the viewer's own, "<First name> unsent a message" otherwise).
+     * The old text is cleared on the row, so it can never leak from here.
+     */
+    private function listPreview(Message|GroupMessage|null $last, int $viewerId): ?string
+    {
+        if ($last?->unsent_at) {
+            if ((int) $last->sender_id === $viewerId) {
+                return 'You unsent a message';
+            }
+            $name = $last->sender?->first_name ?: $last->sender?->name;
+
+            return $name ? "{$name} unsent a message" : 'A message was unsent';
+        }
+
+        return $this->previewLabel($last instanceof Message ? $last : null, $last instanceof GroupMessage ? $last : null);
     }
 
     /**
@@ -158,6 +181,8 @@ class MessageController extends Controller
             'id' => $original->id,
             'sender_name' => trim("{$original->sender?->first_name} {$original->sender?->last_name}") ?: $original->sender?->name,
             'preview' => $this->previewLabel($original instanceof Message ? $original : null, $original instanceof GroupMessage ? $original : null),
+            // The quoted message was unsent: the widget shows "Message unsent" instead of a preview.
+            'unsent' => (bool) $original->unsent_at,
         ];
     }
 
@@ -172,6 +197,7 @@ class MessageController extends Controller
             'attachment_type' => $m->attachment_type,
             'attachment_size' => $m->attachment_size,
             'reply_to' => $this->mapReplySnippet($m->replyTo),
+            'unsent' => (bool) $m->unsent_at,
             'read_at' => $m->read_at?->local()?->format('M d, Y g:i A'),
             'created_at' => ChatTime::label($m->created_at),
             'created_at_full' => $m->created_at->local()->format('M d, Y g:i A'),
@@ -190,6 +216,7 @@ class MessageController extends Controller
             'attachment_type' => $m->attachment_type,
             'attachment_size' => $m->attachment_size,
             'reply_to' => $this->mapReplySnippet($m->replyTo),
+            'unsent' => (bool) $m->unsent_at,
             'is_system' => (bool) $m->is_system,
             'created_at' => ChatTime::label($m->created_at),
             'created_at_full' => $m->created_at->local()->format('M d, Y g:i A'),
@@ -239,7 +266,8 @@ class MessageController extends Controller
                 default => 'Intern',
             },
             'avatar_url' => $contact->avatar_url,
-            'last_message' => $this->previewLabel($lastMessage),
+            'last_message' => $this->listPreview($lastMessage, $me->id),
+            'last_message_unsent' => (bool) $lastMessage?->unsent_at,
             'last_message_at' => ChatTime::label($lastMessage?->created_at),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? 0,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
@@ -379,6 +407,7 @@ class MessageController extends Controller
         $replyToId = null;
         if (!empty($data['reply_to_id'])) {
             $original = Message::where('id', $data['reply_to_id'])
+                ->whereNull('unsent_at')
                 ->where(function ($q) use ($me, $data) {
                     $q->where(fn ($q2) => $q2->where('sender_id', $me->id)->where('receiver_id', $data['receiver_id']))
                         ->orWhere(fn ($q2) => $q2->where('sender_id', $data['receiver_id'])->where('receiver_id', $me->id));
@@ -428,12 +457,13 @@ class MessageController extends Controller
         if ($data['source_type'] === 'dm') {
             $source = Message::where('id', $data['source_id'])
                 ->where(fn ($q) => $q->where('sender_id', $me->id)->orWhere('receiver_id', $me->id))
+                ->whereNull('unsent_at')
                 ->first();
         } else {
             // source_id is the group message's own id — resolve authorization
             // via membership on that message's group, not a group id directly.
             $source = GroupMessage::find($data['source_id']);
-            if ($source && !$this->groupForMember($source->group_conversation_id, $me->id)) {
+            if ($source && ($source->unsent_at || !$this->groupForMember($source->group_conversation_id, $me->id))) {
                 $source = null;
             }
         }
@@ -492,6 +522,59 @@ class MessageController extends Controller
         }
 
         return response()->json(['success' => true, 'message_data' => $this->mapGroupMessagePayload($message)]);
+    }
+
+    /**
+     * Clears an unsent message in place: the row stays as a placeholder with
+     * unsent_at set, the text and attachment fields are emptied, and the stored
+     * file is deleted unless a forwarded copy still points at it.
+     */
+    private function clearUnsent(Message|GroupMessage $message): void
+    {
+        $path = $message->attachment_path;
+        $message->forceFill([
+            'message' => '',
+            'attachment_path' => null,
+            'attachment_name' => null,
+            'attachment_type' => null,
+            'attachment_size' => null,
+            'unsent_at' => now(),
+        ])->save();
+
+        // Forwarding re-points at the same stored file instead of copying it, so only delete it once nothing uses it.
+        if ($path && !Message::where('attachment_path', $path)->exists() && !GroupMessage::where('attachment_path', $path)->exists()) {
+            Storage::disk('public')->delete($path);
+        }
+    }
+
+    /**
+     * Unsend one of your own 1:1 messages (no time limit). Anything that isn't in
+     * one of your conversations is a 404, someone else's message is a 403, and
+     * repeating the call on an already-unsent message is a harmless success.
+     */
+    public function unsend(Request $request, int $id): JsonResponse
+    {
+        $me = $request->user();
+        $message = Message::find($id);
+        if (!$message || ((int) $message->sender_id !== $me->id && (int) $message->receiver_id !== $me->id)) {
+            return response()->json(['success' => false, 'message' => 'Message not found.'], 404);
+        }
+        if ((int) $message->sender_id !== $me->id) {
+            return response()->json(['success' => false, 'message' => 'You can only unsend your own messages.'], 403);
+        }
+
+        if (!$message->unsent_at) {
+            $this->clearUnsent($message);
+
+            // No notification is created on purpose: unsending is silent apart from the live update of the open chat.
+            try {
+                broadcast(new MessageUnsent($message));
+            } catch (Throwable $e) {
+                Log::warning('Unsend broadcast failed, continuing without live push.', ['message_id' => $message->id, 'error' => $e->getMessage()]);
+            }
+        }
+
+        return response()->json(['success' => true, 'message_data' => $this->mapMessagePayload($message->load('replyTo.sender'))]);
     }
 
     /**
@@ -558,7 +641,8 @@ class MessageController extends Controller
                 'name' => trim("{$m->user?->first_name} {$m->user?->last_name}") ?: $m->user?->name,
                 'avatar_url' => $m->user?->avatar_url,
             ])->values(),
-            'last_message' => $this->previewLabel(groupMessage: $lastMessage),
+            'last_message' => $this->listPreview($lastMessage, $me->id),
+            'last_message_unsent' => (bool) $lastMessage?->unsent_at,
             'last_message_at' => ChatTime::label($lastMessage?->created_at),
             'last_message_at_sort' => $lastMessage?->created_at?->timestamp ?? $g->created_at->timestamp,
             'last_message_from_me' => $lastMessage ? $lastMessage->sender_id === $me->id : null,
@@ -674,7 +758,7 @@ class MessageController extends Controller
 
         // Only a message actually in this same group can be quoted.
         $replyToId = !empty($data['reply_to_id'])
-            ? $group->messages()->where('id', $data['reply_to_id'])->value('id')
+            ? $group->messages()->where('id', $data['reply_to_id'])->whereNull('unsent_at')->value('id')
             : null;
 
         $message = $group->messages()->create(array_merge([
@@ -698,6 +782,35 @@ class MessageController extends Controller
         }
 
         return response()->json(['success' => true, 'message_data' => $this->mapGroupMessagePayload($message)]);
+    }
+
+    /** Unsend one of your own group messages (same rules as unsend()); group system lines can't be unsent. */
+    public function unsendGroupMessage(Request $request, int $id, int $messageId): JsonResponse
+    {
+        $me = $request->user();
+        $group = $this->groupForMember($id, $me->id);
+        $message = $group?->messages()->find($messageId);
+        if (!$message) {
+            return response()->json(['success' => false, 'message' => 'Message not found.'], 404);
+        }
+        if ($message->is_system || (int) $message->sender_id !== $me->id) {
+            return response()->json(['success' => false, 'message' => 'You can only unsend your own messages.'], 403);
+        }
+
+        if (!$message->unsent_at) {
+            $this->clearUnsent($message);
+
+            $recipientIds = $group->members()->where('user_id', '!=', $me->id)->pluck('user_id')->all();
+            if (!empty($recipientIds)) {
+                try {
+                    broadcast(new GroupMessageUnsent($message, $recipientIds));
+                } catch (Throwable $e) {
+                    Log::warning('Group unsend broadcast failed, continuing without live push.', ['message_id' => $message->id, 'error' => $e->getMessage()]);
+                }
+            }
+        }
+
+        return response()->json(['success' => true, 'message_data' => $this->mapGroupMessagePayload($message->load('sender', 'replyTo.sender'))]);
     }
 
     public function groupTyping(Request $request, int $id): JsonResponse

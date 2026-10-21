@@ -123,6 +123,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/messages', [MessageController::class, 'store']);
         Route::post('/messages/forward', [MessageController::class, 'forwardMessage']);
         Route::post('/messages/typing', [MessageController::class, 'typing']);
+        Route::delete('/messages/{id}', [MessageController::class, 'unsend'])->whereNumber('id');
         Route::patch('/messages/settings', [MessageController::class, 'updateThreadSetting']);
 
         // Group chats — coordinator/supervisor create them, but any member
@@ -132,6 +133,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/messages/groups/{id}', [MessageController::class, 'groupThread']);
         Route::post('/messages/groups/{id}/messages', [MessageController::class, 'storeGroupMessage']);
         Route::post('/messages/groups/{id}/typing', [MessageController::class, 'groupTyping']);
+        Route::delete('/messages/groups/{id}/messages/{messageId}', [MessageController::class, 'unsendGroupMessage'])->whereNumber(['id', 'messageId']);
     });
 });
 

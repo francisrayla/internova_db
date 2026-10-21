@@ -1,6 +1,6 @@
 # Messaging (1:1 chat + groups, MessengerWidget)
-last_commit: ba3df00 + uncommitted
-updated: 2026-10-19
+last_commit: 2860683 + uncommitted
+updated: 2026-10-21
 
 ## Map (where the code lives)
 - backend/app/Http/Controllers/MessageController.php — eligibleContacts (L37, THE rule of who may chat with whom; isEligibleContact reuses it for thread/store/forward/typing/settings), mapContact (L199, adds role + role_label), contacts (L236), thread (L309), store (L339), createGroup (L559; filters role dean out of member candidates). Routes: routes/api.php `/messages/*` inside `school.active` group (contacts, thread/{id}, store, forward, typing, settings, groups...).
@@ -10,6 +10,7 @@ updated: 2026-10-19
 - DB: messages (sender_id, receiver_id, school_id, read_at, attachment_*), message_thread_settings, group_conversations/_members/group_messages.
 
 - BATCH C (2026-10-19, uncommitted): app/Support/ChatTime.php label() (Today/Yesterday/weekday in this Mon-start week/'Oct 13, 6:40 PM'/with year, Manila) used for `created_at` and `last_message_at` in MessageController (DM + group payloads) and MessageSent/GroupMessageSent events; `created_at_full` unchanged; MessengerWidget shows a small timestamp under each bubble. eligibleContacts stays the relationship rule (thread read, settings); contacts() lists only active people plus anyone with existing history; store/forward refuse a non-active receiver (422); createGroup uses messageableContacts (active only). Tests: MessengerTimeAndContactsTest (4).
+- UNSEND (2026-10-21, uncommitted): sender-only, no time limit. DELETE /api/messages/{id} -> MessageController::unsend (L555) and DELETE /api/messages/groups/{id}/messages/{messageId} -> unsendGroupMessage (L788); clearUnsent (L532) empties message + attachment_* , sets unsent_at, deletes the stored file only if no other messages/group_messages row uses the path (forwards share the file). 404 = not in your conversation, 403 = not yours / system line, repeat = ok without re-broadcast. Payloads carry `unsent`; reply_to snippet carries `unsent` (preview null); listPreview (L155) gives "You unsent a message" / "<First> unsent a message" + `last_message_unsent` on contacts and groups. Reply to / forward of an unsent message is refused (reply drops the quote, forward 404). Events MessageUnsent ('message.unsent') / GroupMessageUnsent ('group.message.unsent') on user.{id}.messages, ids only. Migration 2026_10_21_000300_add_unsent_at_to_messages_tables (unsent_at on messages + group_messages). No notification is created. Proxy: frontend/src/app/api/messages/[[...path]]/route.js now exports DELETE (without it the call is a 405). Widget: ChatWindow `onUnsend` + ConfirmDialog (~L682), "Unsend" in the per-message ... menu next to Reply (own messages only, no menu on placeholders), dashed italic placeholder bubble, "Message unsent" in reply quotes, markUnsent (L1197) + unsent listeners, unsendMessage (L1490). Tests: MessageUnsendTest (13).
 
 ## How it works
 - Who can DM whom (server-derived, never trust receiver_id): coordinator -> own-school supervisors + interns + the school's ACTIVE dean; dean -> ONLY the own-school ACTIVE coordinator(s); supervisor -> interns of their company + school coordinators; intern -> own supervisor/coordinator + company mates. Anyone else = 403.
@@ -18,10 +19,11 @@ updated: 2026-10-19
 - Realtime: widget listens on echo.private(`user.{me}.messages`) -> reloads the list (unread badge) and appends to the open thread. Needs Reverb running on :8080 (broadcast failures are only logged as warnings).
 
 ## How to test
-- backend: `DB_PORT=3308 DB_USERNAME=root DB_PASSWORD= php artisan test --filter=DeanCoordinatorChatTest` (5) plus PaginationMessagesTest, ChatAttachmentSecurityTest, CrossTenantAccessTest.
+- backend: `DB_PORT=3308 DB_USERNAME=root DB_PASSWORD= php artisan test --filter=DeanCoordinatorChatTest` (5), MessageUnsendTest (13) plus PaginationMessagesTest, ChatAttachmentSecurityTest, CrossTenantAccessTest.
 - browser: two headless Chromes (coordinator@ + dean@internova.test) send each way; check the badge on title="Messages" and the open window update live. Local dev server here used DB internova_db on :3308 (not 3306).
 
 ## History (newest first, keep only the last 5)
+- 2026-10-21 2860683 + uncommitted — Unsend for 1:1 + group messages and replies (placeholder, file delete, realtime, no notification) — result: MessageUnsendTest 13/13, 55/55 with existing chat tests, eslint no new problems, build ok (copy build, running :3000 server untouched); browser not tested
 - 2026-10-19 ba3df00 + uncommitted — bugs #16/#23: time labels with day, pending/inactive people not offered — result: MessengerTimeAndContactsTest 4/4, browser 390 + 1440 list 'Oct 13, 6:40 PM' and bubble time; test message removed
 - 2026-10-15 77a4b89 + 3b3e038 — phone full-screen messenger (list -> conversation, Back/popstate, kb-aware composer); docked widget kept for >= 640px — result: headless Chrome touch 390/360/320 light+dark, realtime both ways, back/close, 1440 + 768 unchanged, build ok, no new lint errors; real iOS/Android keyboard not tested
 - 2026-10-15 eec7a93 + 3c11df6 — coordinator <-> dean 1:1 chat (same school only, active only), dean gets the widget, title label via role_label; groups unchanged — result: DeanCoordinatorChatTest 5/5, suite 473/473, browser 1440+390 light+dark both directions live ok
