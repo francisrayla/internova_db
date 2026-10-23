@@ -29,7 +29,7 @@ export default function PortfolioReport() {
   if (error || !data) {
     return (
       <Page size="narrow">
-        <PageHeader back={{ href: "/intern/portfolio", label: "Back to Portfolio" }} title="Portfolio report" />
+        <PageHeader back={{ href: "/intern/portfolio", label: "Back to Portfolio" }} title="Narrative report" />
         <ErrorNote>{error || "Report not found."}</ErrorNote>
       </Page>
     );

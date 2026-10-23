@@ -257,7 +257,7 @@ export default function MyPortfolio() {
           </Btn>
         )}
         <Btn variant="primary" href="/intern/portfolio/report">
-          <FileText size={15} aria-hidden="true" /> Generate Portfolio
+          <FileText size={15} aria-hidden="true" /> Generate Narrative Report
         </Btn>
       </PageHeader>
 
@@ -292,7 +292,7 @@ export default function MyPortfolio() {
 
       <Section
         title="Narrative report"
-        help="Your school's printable OJT narrative report. Finish what it needs below, then use Generate Portfolio at the top."
+        help="Your school's printable OJT narrative report. Finish what it needs below, then use Generate Narrative Report at the top."
       >
         {narrative && (
           <div className="mb-5">

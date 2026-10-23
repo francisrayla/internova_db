@@ -20,6 +20,7 @@ import { syncTrustedClock } from "@/lib/trustedClock";
 // Pages linked from neither (Notifications, Super Admin's Companies/Users)
 // fall back to their own path segment instead of the role name.
 function resolveTitle(pathname, items, section) {
+  if (/\/(narrative-report|portfolio\/report)$/.test(pathname)) return "Narrative Report";
   const exact = items.find((item) => item.href === pathname);
   if (exact) return exact.label;
   const prefix = items
