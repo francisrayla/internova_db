@@ -201,6 +201,29 @@ class DeploymentWindowTest extends TestCase
         $this->clockIn()->assertStatus(422)->assertJson(['code' => 'inactive']);
     }
 
+    public function test_a_task_cannot_be_given_to_an_intern_who_finished_the_hours(): void
+    {
+        $this->startOn('2026-09-01', ['required_hours' => 8]);
+        Attendance::create([
+            'deployment_id' => $this->dep->id, 'attendance_date' => '2026-10-13', 'session' => 'full',
+            'clock_in' => '2026-10-13 00:00:00', 'clock_out' => '2026-10-13 08:30:00', 'status' => 'approved',
+        ]);
+        Sanctum::actingAs(User::where('email', 'supervisor@internova.test')->firstOrFail());
+
+        // Still listed (the task filter keeps their History) but flagged, so the Assign picker leaves them out.
+        $opt = collect($this->getJson('/api/supervisor/tasks?view=active')->json('interns'))->firstWhere('deployment_id', $this->dep->id);
+        $this->assertTrue($opt['finished']);
+
+        $this->postJson('/api/supervisor/tasks', [
+            'deployment_ids' => [$this->dep->id], 'title' => 'Too late', 'priority' => 'low',
+        ])->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'already completed'));
+        $this->assertDatabaseMissing('tasks', ['title' => 'Too late']);
+
+        $this->startOn('2026-09-01', ['required_hours' => 500]);
+        $opt = collect($this->getJson('/api/supervisor/tasks?view=active')->json('interns'))->firstWhere('deployment_id', $this->dep->id);
+        $this->assertFalse($opt['finished']);
+    }
+
     public function test_a_supervisor_cannot_log_attendance_for_a_finished_intern(): void
     {
         $this->startOn('2026-09-01', ['required_hours' => 8]);

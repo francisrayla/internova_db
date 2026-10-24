@@ -324,10 +324,13 @@ export default function TaskManagement() {
     });
   }, [activeTasks, internFilter, statusFilter, search]);
 
+  // An intern who has rendered the required hours stays in the filter (their History) but gets no new task.
+  const assignable = interns.filter((i) => !i.finished);
+
   return (
     <Page>
       <PageHeader title="Tasks" sentence="Assign work to the interns at your company — individually or as a group.">
-        <Btn variant="primary" onClick={() => setShowModal(true)} disabled={interns.length === 0}>
+        <Btn variant="primary" onClick={() => setShowModal(true)} disabled={assignable.length === 0}>
           Assign task
         </Btn>
       </PageHeader>
@@ -408,7 +411,7 @@ export default function TaskManagement() {
       </Section>
 
       {showModal && (
-        <AssignTaskModal interns={interns} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); load(); }} />
+        <AssignTaskModal interns={assignable} onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); load(); }} />
       )}
     </Page>
   );

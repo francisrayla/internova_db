@@ -279,6 +279,13 @@ class SupervisorMonitoringController extends Controller
             return response()->json(['success' => false, 'message' => "{$names} ". ($notStarted->count() === 1 ? 'has' : 'have') . ' not started the internship yet, so a task cannot be assigned. Choose the interns who have started.'], 422);
         }
 
+        // An intern who has already rendered the required hours (or is marked completed) is done working.
+        $finished = $deployments->filter(fn ($d) => $d->isFinished());
+        if ($finished->isNotEmpty()) {
+            $names = $finished->map(fn ($d) => $d->intern?->name ?? 'An intern')->implode(', ');
+            return response()->json(['success' => false, 'message' => "{$names} " . ($finished->count() === 1 ? 'has' : 'have') . ' already completed the internship hours, so a new task cannot be assigned.'], 422);
+        }
+
         // More than one intern makes it a group task, and a group task needs a leader: the one
         // who submits the parent task once every subtask is done. The leader has to be one of the
         // interns being assigned. A single intern has no leader.
@@ -1172,6 +1179,8 @@ class SupervisorMonitoringController extends Controller
                 // Set while the first day is still ahead: such an intern cannot be given tasks or attendance yet.
                 'starts_on' => $d->hasStartedOn() ? null : $d->start_date->toDateString(),
                 'starts_on_label' => $d->hasStartedOn() ? null : $d->start_date->format('M j, Y'),
+                // The required hours are rendered: kept for filters and history, but not offered for a new task.
+                'finished' => $d->isFinished(),
             ])
             ->values()
             ->all();

@@ -1,6 +1,6 @@
 # Tasks (intern / supervisor / coordinator, subtasks, comments, ratings)
-last_commit: 5ed68d1 + uncommitted
-updated: 2026-10-20
+last_commit: 219dccd + uncommitted
+updated: 2026-10-24
 
 ## Map (where the code lives)
 - backend/routes/api.php — coordinator (L164-170, view-only + comments), supervisor (L286-296, incl. PATCH /tasks/{id} L289), intern (L309-320) task routes.
@@ -31,8 +31,8 @@ Active vs History: a done task waits in Active until rated; backend sends awaiti
 - Manual: supervisor creates task; intern opens it, changes a subtask with the dropdown or drag; completes; supervisor sees "Needs your rating", edits, rates; History only after rating.
 
 ## History (newest first, keep only the last 5)
+- 2026-10-24 219dccd + uncommitted - Finished intern (required hours rendered) no longer offered for a new task: SupervisorMonitoringController::internOptions sends finished (isFinished), storeTask refuses with 'already completed the internship hours' (422), TaskManagement.jsx `assignable` feeds the Assign button and picker while the 'All interns' filter keeps them (History) - result: DeploymentWindowTest::test_a_task_cannot_be_given_to_an_intern_who_finished_the_hours, 42/42 task + window tests
 - 2026-10-20 5ed68d1 + uncommitted - Intern could give a subtask a past due date (prod screenshot Oct 8 on Oct 20): now refused like the supervisor's - result: suite 576/576; browser on the built app (phone): date field min 2026-10-20, submitting Oct 8 shows 'The due date cannot be in the past...' and creates nothing, direct POST 422
 - 2026-10-20 79bcde1 + uncommitted - Done subtask can no longer go back to Pending/Ongoing (Rule 2026-10-20 above) - result: suite 575/575; browser on the built app (phone, SW on): proof upload 200, dropdown then 'completed (locked)', picking Pending leaves it Done, direct PATCH 422 with the message; test subtask + proof file removed, task 32 restored
 - 2026-10-20 b5e181b + uncommitted - Task screens update live (LIVE TASK SCREENS in Map): a member moving a subtask shows on the other members' and the supervisors' open screens without a refresh - result: TaskLiveUpdatesTest 5/5, suite 574/574; browser 3 isolated sign-ins on the built app: Mark moves a subtask, Rina's task screen Pending -> Ongoing and the supervisor's screen (subtask pill + task pill) Pending -> Ongoing with no page reload; test subtasks removed, task 32 restored
 - 2026-10-20 b5e181b + uncommitted - Subtask Done "came back" to Pending/Ongoing on phones: prod logs (task 21) showed complete -> reload -> complete again (already done) -> PATCH back; cause was the service worker answering the reload from its saved copy while in stalled mode (see FRESH AFTER WRITE in attendance.md Map; fix in public/sw.js) - result: headless repro on built app with short profile path (C:\swp, long paths break CacheStorage): before = STALE (3 ms, saved copy), after = FRESH; stalled read without a change still 5 ms saved copy, offline read still served; test subtask removed, task 32 restored
-- 2026-10-19 ba3df00 + uncommitted — bugs #27/#28 (+#14 proofs): 'Ongoing' everywhere, quiet reload after subtask done with proof — result: browser 390 dark as mark: scrollY 549 -> 549, h1 node kept, no skeleton, pill Ongoing; test task removed
